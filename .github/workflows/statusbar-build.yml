@@ -163,11 +163,27 @@ jobs:
         working-directory: upstream/packages/app/android
         run: |
           set -euo pipefail
-          {
-            echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8"
-            echo "org.gradle.workers.max=4"
-            echo "kotlin.compiler.execution.strategy=in-process"
-          } >> gradle.properties
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = "gradle.properties";
+          const desired = {
+            "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8",
+            "org.gradle.workers.max": "4",
+            "kotlin.compiler.execution.strategy": "in-process",
+          };
+          const keys = new Set(Object.keys(desired));
+          const original = fs.readFileSync(path, "utf8");
+          const lines = original
+            .split(/\r?\n/)
+            .filter((line) => {
+              const key = line.split("=", 1)[0].trim();
+              return line.trim() !== "" && !keys.has(key);
+            });
+          for (const [key, value] of Object.entries(desired)) {
+            lines.push(`${key}=${value}`);
+          }
+          fs.writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+          NODE
 
       - name: Build release APK
         working-directory: upstream/packages/app/android
