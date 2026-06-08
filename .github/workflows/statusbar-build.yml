@@ -132,8 +132,17 @@ jobs:
         run: npm ci
 
       - name: Build workspace deps
-        working-directory: upstream/packages/app
-        run: npm run build:workspace-deps
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          if node -e "const p=require('./packages/app/package.json'); process.exit(p.scripts && p.scripts['build:workspace-deps'] ? 0 : 1)"; then
+            npm run build:workspace-deps --workspace=@getpaseo/app
+          elif node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts['build:app-deps'] ? 0 : 1)"; then
+            npm run build:app-deps
+          else
+            echo "Cannot find workspace deps build script (tried build:workspace-deps in packages/app and build:app-deps in repo root)." >&2
+            exit 1
+          fi
 
       - name: Expo prebuild (Android)
         working-directory: upstream/packages/app
