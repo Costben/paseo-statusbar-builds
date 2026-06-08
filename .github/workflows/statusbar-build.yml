@@ -215,11 +215,11 @@ jobs:
           NODE_ENV: production
           EXPO_NO_GIT_STATUS: "1"
           ENTRY_FILE: packages/app/index.ts
-          # The known-good local recipe unsets CI for the Gradle JS bundling
-          # step; the runner forces CI=true, so blank it out to match.
-          CI: ""
         run: |
           set -euo pipefail
+          # Expo CLI reads CI as a strict boolean; remove it instead of
+          # exporting an empty string, which crashes JS bundling.
+          unset CI
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
