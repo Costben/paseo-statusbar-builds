@@ -1,0 +1,211 @@
+name: Build status-bar-fixed Paseo APK
+
+# Polls upstream getpaseo/paseo for new prereleases, applies the edge-to-edge
+# status bar patch, builds an Android release APK on a clean Linux runner, and
+# publishes it to this repo's Releases. GitHub cannot push us upstream events,
+# so "auto" = scheduled polling. Manual runs via the "Run workflow" button.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6h on an off-peak minute
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream tag to build (blank = latest prerelease)"
+        required: false
+        type: string
+      force:
+        description: "Rebuild even if a release for this tag already exists"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: statusbar-build
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: getpaseo/paseo
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve upstream tag
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          requested="${{ github.event.inputs.tag }}"
+          if [ -n "$requested" ]; then
+            tag="$requested"
+            echo "Using requested tag: $tag"
+          else
+            tag="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" \
+              --jq 'map(select(.prerelease == true and .draft == false))
+                    | sort_by(.published_at) | reverse | .[0].tag_name')"
+            echo "Latest upstream prerelease: $tag"
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Could not resolve an upstream tag." >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check if already built
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.pick.outputs.tag }}"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "Force requested; will rebuild."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $tag already exists; skipping build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release for $tag yet; will build."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Keepalive (avoid 60-day schedule auto-disable)
+        run: |
+          set -euo pipefail
+          last="$(git log -1 --format=%ct)"
+          now="$(date +%s)"
+          age_days=$(( (now - last) / 86400 ))
+          echo "Last commit age: ${age_days}d"
+          if [ "$age_days" -ge 50 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "chore: keepalive scheduled workflow"
+            git push
+          fi
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build repo (patch script lives here)
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream tag
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ needs.resolve.outputs.tag }}
+          path: upstream
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: upstream/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Apply status bar patch
+        run: node scripts/apply-statusbar-patch.mjs upstream
+
+      - name: Install JS dependencies
+        working-directory: upstream
+        run: npm ci
+
+      - name: Build workspace deps
+        working-directory: upstream/packages/app
+        run: npm run build:workspace-deps
+
+      - name: Expo prebuild (Android)
+        working-directory: upstream/packages/app
+        env:
+          APP_VARIANT: production
+          NODE_ENV: production
+          EXPO_NO_GIT_STATUS: "1"
+          CI: "1"
+        run: npx expo prebuild --platform android --clean
+
+      - name: Create monorepo bundle entry shim
+        working-directory: upstream
+        run: |
+          mkdir -p packages/app/packages/app
+          printf 'import "../../index";\n' > packages/app/packages/app/index.ts
+
+      - name: Tune Gradle build memory
+        working-directory: upstream/packages/app/android
+        run: |
+          set -euo pipefail
+          {
+            echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8"
+            echo "org.gradle.workers.max=4"
+            echo "kotlin.compiler.execution.strategy=in-process"
+          } >> gradle.properties
+
+      - name: Build release APK
+        working-directory: upstream/packages/app/android
+        env:
+          APP_VARIANT: production
+          NODE_ENV: production
+          EXPO_NO_GIT_STATUS: "1"
+          ENTRY_FILE: packages/app/index.ts
+          # The known-good local recipe unsets CI for the Gradle JS bundling
+          # step; the runner forces CI=true, so blank it out to match.
+          CI: ""
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease \
+            -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
+            -x generateReleaseLintModel -x generateReleaseLintVitalModel \
+            --no-daemon
+
+      - name: Collect APK
+        id: apk
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          apk="$(find packages/app/android/app/build/outputs/apk/release -name '*.apk' | head -n1)"
+          if [ -z "$apk" ]; then
+            echo "No APK produced; dumping outputs tree:" >&2
+            find packages/app/android/app/build/outputs -type f || true
+            exit 1
+          fi
+          tag="${{ needs.resolve.outputs.tag }}"
+          dest="$RUNNER_TEMP/paseo-${tag}-statusbar-fixed.apk"
+          cp "$apk" "$dest"
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+          echo "Built APK: $dest ($(du -h "$dest" | cut -f1))"
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Paseo $tag (status bar fixed)" \
+              --notes "Automated status-bar-fixed build of upstream ${UPSTREAM_REPO}@$tag." \
+              --prerelease
+          fi
+          gh release upload "$tag" "${{ steps.apk.outputs.path }}" --clobber --repo "$GITHUB_REPOSITORY"
