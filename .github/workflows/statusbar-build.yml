@@ -1,6 +1,6 @@
 name: Build status-bar-fixed Paseo APK
 
-# Polls upstream getpaseo/paseo for new prereleases, applies the edge-to-edge
+# Polls upstream getpaseo/paseo for new releases, applies the edge-to-edge
 # status bar patch, builds an Android release APK on a clean Linux runner, and
 # publishes it to this repo's Releases. GitHub cannot push us upstream events,
 # so "auto" = scheduled polling. Manual runs via the "Run workflow" button.
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Upstream tag to build (blank = latest prerelease)"
+        description: "Upstream tag to build (blank = latest non-draft release)"
         required: false
         type: string
       force:
@@ -35,6 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.pick.outputs.tag }}
+      is_prerelease: ${{ steps.pick.outputs.is_prerelease }}
       should_build: ${{ steps.check.outputs.should_build }}
     steps:
       - uses: actions/checkout@v4
@@ -48,18 +49,22 @@ jobs:
           requested="${{ github.event.inputs.tag }}"
           if [ -n "$requested" ]; then
             tag="$requested"
+            is_prerelease="$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${tag}" --jq '.prerelease' 2>/dev/null || echo false)"
             echo "Using requested tag: $tag"
           else
-            tag="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" \
-              --jq 'map(select(.prerelease == true and .draft == false))
-                    | sort_by(.published_at) | reverse | .[0].tag_name')"
-            echo "Latest upstream prerelease: $tag"
+            release="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" \
+              --jq 'map(select(.draft == false))
+                    | sort_by(.published_at) | reverse | .[0]')"
+            tag="$(jq -r '.tag_name // empty' <<< "$release")"
+            is_prerelease="$(jq -r '.prerelease // false' <<< "$release")"
+            echo "Latest upstream release: $tag (prerelease=$is_prerelease)"
           fi
           if [ -z "$tag" ] || [ "$tag" = "null" ]; then
             echo "Could not resolve an upstream tag." >&2
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
       - name: Check if already built
         id: check
@@ -250,10 +255,13 @@ jobs:
           set -euo pipefail
           tag="${{ needs.resolve.outputs.tag }}"
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$tag" \
+            release_args=(release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Paseo $tag (status bar fixed)" \
-              --notes "Automated status-bar-fixed build of upstream ${UPSTREAM_REPO}@$tag." \
-              --prerelease
+              --notes "Automated status-bar-fixed build of upstream ${UPSTREAM_REPO}@$tag.")
+            if [ "${{ needs.resolve.outputs.is_prerelease }}" = "true" ]; then
+              release_args+=(--prerelease)
+            fi
+            gh "${release_args[@]}"
           fi
           gh release upload "$tag" "${{ steps.apk.outputs.path }}" --clobber --repo "$GITHUB_REPOSITORY"

@@ -1,8 +1,9 @@
 # paseo-statusbar-builds
 
 Automated CI that rebuilds [getpaseo/paseo](https://github.com/getpaseo/paseo)
-Android APKs with the **edge-to-edge status bar fix** applied, and publishes
-them to this repo's Releases.
+Android APKs from the latest non-draft upstream release with the
+**edge-to-edge status bar fix** applied, and publishes them to this repo's
+Releases.
 
 This is a **standalone build repo**, not a fork. It stores only the workflow and
 the patch script. At build time it checks out an upstream tag, injects the patch,
@@ -13,7 +14,7 @@ conflicts to maintain.
 
 ```
 schedule (every 6h)  ─┐
-workflow_dispatch     ─┴─► resolve latest upstream prerelease tag
+workflow_dispatch     ─┴─► resolve latest upstream release tag
                             │
                             ├─ already released here? ─► skip
                             │
@@ -71,7 +72,7 @@ patch unnecessary).
 Run it manually against a known-good tag first:
 
 - Actions tab → **Build status-bar-fixed Paseo APK** → **Run workflow**
-- Set `tag` to a recent prerelease (e.g. `v0.1.91-beta.2`), leave `force` off
+- Set `tag` to a recent release (e.g. `v0.1.93`), leave `force` off
 - Watch the `build` job get through `expo prebuild` and `assembleRelease`
 
 Then verify the artifact:
@@ -83,7 +84,7 @@ adb install -r paseo-<tag>-statusbar-fixed.apk
 
 Confirm the status/navigation bar renders edge-to-edge and that the APK installs
 over a previous build. Once a manual run is green, the 6-hourly schedule will
-pick up each new upstream prerelease on its own.
+pick up each new upstream release on its own.
 
 ## Maintenance
 
@@ -100,7 +101,7 @@ pick up each new upstream prerelease on its own.
 
 - **Build cadence**: edit the `cron` in `statusbar-build.yml` (currently
   `17 */6 * * *`).
-- **Stable releases too**: the resolver currently picks the latest *prerelease*.
-  To also build stable tags, adjust the `gh api ... --jq` filter in the
-  `Resolve upstream tag` step.
+- **Prereleases only**: the resolver currently picks the latest non-draft
+  release, including stable releases and prereleases. To build prereleases only,
+  add a `.prerelease == true` filter in the `Resolve upstream tag` step.
 - **Rebuild an existing tag**: run manually with `force: true`.
