@@ -36,6 +36,7 @@ env:
   PASEO_DEFAULT_ANDROID_ARCHS: arm64-v8a
   PASEO_NDK_PRIMARY_VERSION: r27b
   PASEO_NDK_PRIMARY_FULL_VERSION: 27.1.12297006
+  PASEO_NDK_FALLBACK_FULL_VERSION: 27.3.13750724
   PASEO_NDK_LEGACY_VERSION: r27
   PASEO_NDK_LEGACY_FULL_VERSION: 27.0.12077973
 
@@ -152,8 +153,9 @@ jobs:
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: ${{ env.PASEO_NDK_PRIMARY_VERSION }}
+          add-to-path: false
           link-to-sdk: true
-          local-cache: true
+          local-cache: false
 
       - name: Setup legacy Android NDK
         id: setup-legacy-ndk
@@ -162,18 +164,88 @@ jobs:
           ndk-version: ${{ env.PASEO_NDK_LEGACY_VERSION }}
           add-to-path: false
           link-to-sdk: true
-          local-cache: true
+          local-cache: false
 
-      - name: Export Android NDK path
+      - name: Validate Android NDK toolchain
         run: |
           set -euo pipefail
-          echo "ANDROID_NDK_HOME=${{ steps.setup-primary-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=${{ steps.setup-primary-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+
+          host_tag="linux-x86_64"
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+
+          compiler_path() {
+            printf '%s/toolchains/llvm/prebuilt/%s/bin/clang++' "$1" "$host_tag"
+          }
+
+          ndk_is_usable() {
+            local ndk_path="$1"
+            [ -x "$(compiler_path "$ndk_path")" ] && [ -f "$ndk_path/build/cmake/android.toolchain.cmake" ]
+          }
+
+          use_ndk() {
+            local version="$1"
+            local ndk_path="${ANDROID_HOME}/ndk/${version}"
+            echo "Using Android NDK ${version}: ${ndk_path}"
+            "$(compiler_path "$ndk_path")" --version | head -n1
+            echo "ANDROID_NDK_HOME=${ndk_path}" >> "$GITHUB_ENV"
+            echo "ANDROID_NDK_ROOT=${ndk_path}" >> "$GITHUB_ENV"
+            echo "PASEO_ANDROID_NDK_VERSION=${version}" >> "$GITHUB_ENV"
+            echo "${ndk_path}/toolchains/llvm/prebuilt/${host_tag}/bin" >> "$GITHUB_PATH"
+          }
+
+          try_install_ndk() {
+            local version="$1"
+            local ndk_path="${ANDROID_HOME}/ndk/${version}"
+            if ndk_is_usable "$ndk_path"; then
+              use_ndk "$version"
+              return 0
+            fi
+
+            echo "::warning::Android NDK ${version} is missing or incomplete; reinstalling with sdkmanager."
+            rm -rf "$ndk_path"
+            set +o pipefail
+            yes | "$sdkmanager" --install "ndk;${version}" >/dev/null
+            install_status="$?"
+            set -o pipefail
+            if [ "$install_status" -ne 0 ]; then
+              echo "::warning::sdkmanager exited with status ${install_status} while installing Android NDK ${version}."
+            fi
+
+            if ndk_is_usable "$ndk_path"; then
+              use_ndk "$version"
+              return 0
+            fi
+
+            echo "::warning::Android NDK ${version} still has no usable LLVM compiler after reinstall."
+            return 1
+          }
+
           echo "Primary NDK: ${{ steps.setup-primary-ndk.outputs.ndk-full-version }}"
           echo "Legacy NDK: ${{ steps.setup-legacy-ndk.outputs.ndk-full-version }}"
-          test -d "${ANDROID_HOME}/ndk/${PASEO_NDK_PRIMARY_FULL_VERSION}"
-          test -d "${ANDROID_HOME}/ndk/${PASEO_NDK_LEGACY_FULL_VERSION}"
           ls -la "${ANDROID_HOME}/ndk"
+
+          for version in \
+            "$PASEO_NDK_PRIMARY_FULL_VERSION" \
+            "$PASEO_NDK_FALLBACK_FULL_VERSION" \
+            "$PASEO_NDK_LEGACY_FULL_VERSION"; do
+            if try_install_ndk "$version"; then
+              exit 0
+            fi
+          done
+
+          echo "::warning::Pinned NDK versions were unusable; scanning installed SDK NDKs."
+          for ndk_path in "${ANDROID_HOME}"/ndk/*; do
+            [ -d "$ndk_path" ] || continue
+            version="$(basename "$ndk_path")"
+            if ndk_is_usable "$ndk_path"; then
+              use_ndk "$version"
+              exit 0
+            fi
+          done
+
+          echo "::error::No usable Android NDK toolchain found."
+          find "${ANDROID_HOME}/ndk" -maxdepth 4 -type f -name 'clang++' -print || true
+          exit 1
 
       - name: Free runner disk space
         run: |
@@ -257,7 +329,7 @@ jobs:
             "org.gradle.daemon": "false",
             "org.gradle.parallel": "false",
             "kotlin.compiler.execution.strategy": "in-process",
-            "android.ndkVersion": process.env.PASEO_NDK_PRIMARY_FULL_VERSION,
+            "android.ndkVersion": process.env.PASEO_ANDROID_NDK_VERSION,
             "reactNativeArchitectures": process.env.PASEO_ANDROID_ARCHS,
           };
           const keys = new Set(Object.keys(desired));
