@@ -252,8 +252,8 @@ jobs:
           const fs = require("node:fs");
           const path = "gradle.properties";
           const desired = {
-            "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8",
-            "org.gradle.workers.max": "2",
+            "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8",
+            "org.gradle.workers.max": "4",
             "org.gradle.daemon": "false",
             "org.gradle.parallel": "false",
             "kotlin.compiler.execution.strategy": "in-process",
@@ -287,11 +287,19 @@ jobs:
           # exporting an empty string, which crashes JS bundling.
           unset CI
           chmod +x ./gradlew
+          (
+            while true; do
+              sleep 60
+              echo "[gradle-heartbeat] still building at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            done
+          ) &
+          heartbeat_pid="$!"
+          trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
             -PreactNativeArchitectures="$PASEO_ANDROID_ARCHS" \
-            --no-daemon --build-cache --max-workers=2 --stacktrace
+            --no-daemon --build-cache --max-workers=4 --console=plain --stacktrace
 
       - name: Collect APK
         id: apk
