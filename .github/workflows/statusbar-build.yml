@@ -19,6 +19,10 @@ on:
         required: false
         type: boolean
         default: false
+      architectures:
+        description: "Android ABI list for Gradle (blank = arm64-v8a)"
+        required: false
+        type: string
 
 concurrency:
   group: statusbar-build
@@ -29,6 +33,11 @@ permissions:
 
 env:
   UPSTREAM_REPO: getpaseo/paseo
+  PASEO_DEFAULT_ANDROID_ARCHS: arm64-v8a
+  PASEO_NDK_PRIMARY_VERSION: r27b
+  PASEO_NDK_PRIMARY_FULL_VERSION: 27.1.12297006
+  PASEO_NDK_LEGACY_VERSION: r27
+  PASEO_NDK_LEGACY_FULL_VERSION: 27.0.12077973
 
 jobs:
   resolve:
@@ -36,6 +45,7 @@ jobs:
     outputs:
       tag: ${{ steps.pick.outputs.tag }}
       is_prerelease: ${{ steps.pick.outputs.is_prerelease }}
+      apk_asset: ${{ steps.pick.outputs.apk_asset }}
       should_build: ${{ steps.check.outputs.should_build }}
     steps:
       - uses: actions/checkout@v4
@@ -65,6 +75,7 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+          echo "apk_asset=paseo-${tag}-statusbar-fixed.apk" >> "$GITHUB_OUTPUT"
 
       - name: Check if already built
         id: check
@@ -73,16 +84,17 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ steps.pick.outputs.tag }}"
+          asset_name="${{ steps.pick.outputs.apk_asset }}"
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
             echo "Force requested; will rebuild."
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $tag already exists; skipping build."
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null | grep -Fxq "$asset_name"; then
+            echo "Release $tag already has $asset_name; skipping build."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           else
-            echo "No release for $tag yet; will build."
+            echo "No APK asset $asset_name for $tag yet; will build."
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -103,7 +115,8 @@ jobs:
   build:
     needs: resolve
     if: needs.resolve.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
     steps:
       - name: Checkout build repo (patch script lives here)
         uses: actions/checkout@v4
@@ -128,6 +141,39 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          dependency-graph: disabled
+
+      - name: Setup primary Android NDK
+        id: setup-primary-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.PASEO_NDK_PRIMARY_VERSION }}
+          link-to-sdk: true
+          local-cache: true
+
+      - name: Setup legacy Android NDK
+        id: setup-legacy-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.PASEO_NDK_LEGACY_VERSION }}
+          add-to-path: false
+          link-to-sdk: true
+          local-cache: true
+
+      - name: Export Android NDK path
+        run: |
+          set -euo pipefail
+          echo "ANDROID_NDK_HOME=${{ steps.setup-primary-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${{ steps.setup-primary-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+          echo "Primary NDK: ${{ steps.setup-primary-ndk.outputs.ndk-full-version }}"
+          echo "Legacy NDK: ${{ steps.setup-legacy-ndk.outputs.ndk-full-version }}"
+          test -d "${ANDROID_HOME}/ndk/${PASEO_NDK_PRIMARY_FULL_VERSION}"
+          test -d "${ANDROID_HOME}/ndk/${PASEO_NDK_LEGACY_FULL_VERSION}"
+          ls -la "${ANDROID_HOME}/ndk"
 
       - name: Free runner disk space
         run: |
@@ -187,6 +233,17 @@ jobs:
           mkdir -p packages/app/packages/app
           printf 'import "../../index";\n' > packages/app/packages/app/index.ts
 
+      - name: Resolve Android architectures
+        run: |
+          set -euo pipefail
+          architectures="${{ github.event.inputs.architectures }}"
+          architectures="${architectures//[[:space:]]/}"
+          if [ -z "$architectures" ]; then
+            architectures="$PASEO_DEFAULT_ANDROID_ARCHS"
+          fi
+          echo "PASEO_ANDROID_ARCHS=$architectures" >> "$GITHUB_ENV"
+          echo "Android architectures: $architectures"
+
       - name: Tune Gradle build memory
         working-directory: upstream/packages/app/android
         run: |
@@ -195,9 +252,13 @@ jobs:
           const fs = require("node:fs");
           const path = "gradle.properties";
           const desired = {
-            "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8",
-            "org.gradle.workers.max": "4",
+            "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8",
+            "org.gradle.workers.max": "2",
+            "org.gradle.daemon": "false",
+            "org.gradle.parallel": "false",
             "kotlin.compiler.execution.strategy": "in-process",
+            "android.ndkVersion": process.env.PASEO_NDK_PRIMARY_FULL_VERSION,
+            "reactNativeArchitectures": process.env.PASEO_ANDROID_ARCHS,
           };
           const keys = new Set(Object.keys(desired));
           const original = fs.readFileSync(path, "utf8");
@@ -229,7 +290,8 @@ jobs:
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
-            --no-daemon
+            -PreactNativeArchitectures="$PASEO_ANDROID_ARCHS" \
+            --no-daemon --build-cache --max-workers=2 --stacktrace
 
       - name: Collect APK
         id: apk
@@ -243,7 +305,7 @@ jobs:
             exit 1
           fi
           tag="${{ needs.resolve.outputs.tag }}"
-          dest="$RUNNER_TEMP/paseo-${tag}-statusbar-fixed.apk"
+          dest="$RUNNER_TEMP/${{ needs.resolve.outputs.apk_asset }}"
           cp "$apk" "$dest"
           echo "path=$dest" >> "$GITHUB_OUTPUT"
           echo "Built APK: $dest ($(du -h "$dest" | cut -f1))"
