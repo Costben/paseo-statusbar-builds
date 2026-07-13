@@ -117,35 +117,38 @@ function patchRootLayout(dir) {
     );
   }
 
-  // 2. render <SystemBars> as the first child of GestureHandlerRootView
-  if (!/<SystemBars\s/.test(content)) {
+  // 2. render <SystemBars> as the first child of GestureHandlerRootView.
+  // Use "auto" so the component follows the active color scheme without
+  // needing a root-level useUnistyles() call before the app providers mount.
+  if (/<SystemBars[^>]+theme\.colorScheme[^>]*\/>/.test(content)) {
+    content = content.replace(
+      /<SystemBars[^>]+theme\.colorScheme[^>]*\/>/,
+      '<SystemBars style="auto" />',
+    );
+  } else if (!/<SystemBars\s/.test(content)) {
     const gestureRe = /^([ \t]*)<GestureHandlerRootView\b[^>]*>[ \t]*\r?\n/m;
     const match = gestureRe.exec(content);
     if (!match) {
       fail("_layout.tsx: cannot find anchor `<GestureHandlerRootView ...>` opening tag");
     }
     const indent = match[1];
-    const insertLine = `${indent}  <SystemBars style={theme.colorScheme === "light" ? "dark" : "light"} />`;
+    const insertLine = `${indent}  <SystemBars style="auto" />`;
     content = content.replace(gestureRe, (m) => `${m.replace(/[\r\n]+$/, "")}${nl}${insertLine}${nl}`);
   }
 
-  // 3. ensure RootLayout pulls `theme` from useUnistyles() (SystemBars needs it)
-  const themeHookPresent =
-    /export\s+default\s+function\s+RootLayout\s*\(\)\s*\{\s*\r?\n\s*const\s+\{\s*theme\s*\}\s*=\s*useUnistyles\(\);/.test(
-      content,
-    );
-  if (/<SystemBars[^>]+theme\.colorScheme/.test(content) && !themeHookPresent) {
-    const fnRe = /^(\s*export\s+default\s+function\s+RootLayout\s*\(\)\s*\{)[ \t]*\r?\n/m;
-    if (!fnRe.test(content)) {
-      fail("_layout.tsx: cannot find anchor `export default function RootLayout() {` for theme hook");
-    }
-    content = content.replace(fnRe, (_m, g1) => `${g1}${nl}  const { theme } = useUnistyles();${nl}`);
-  }
+  // 3. remove the old patch's root-level theme hook if present.
+  content = content.replace(
+    /(\s*export\s+default\s+function\s+RootLayout\s*\(\)\s*\{\s*\r?\n)\s*const\s+\{\s*theme\s*\}\s*=\s*useUnistyles\(\);\s*\r?\n/,
+    "$1",
+  );
 
   writeIfChanged(path, content, original, "packages/app/src/app/_layout.tsx");
 
   assertContains(path, 'import { SystemBars } from "react-native-edge-to-edge";', "_layout.tsx");
-  assertContains(path, "<SystemBars", "_layout.tsx");
+  assertContains(path, '<SystemBars style="auto" />', "_layout.tsx");
+  if (/<SystemBars[^>]+theme\.colorScheme/.test(read(path))) {
+    fail("_layout.tsx: SystemBars still references root-level theme");
+  }
 }
 
 console.log(`[statusbar-patch] source dir: ${sourceDir}`);
