@@ -107,13 +107,14 @@ function patchRootLayout(dir) {
 
   // 1. import SystemBars
   if (!/react-native-edge-to-edge/.test(content)) {
-    const needle = 'import { View } from "react-native";';
-    if (!content.includes(needle)) {
-      fail('_layout.tsx: cannot find anchor `import { View } from "react-native";`');
+    const reactNativeImport = /^import\s*\{[^;]*?\}\s*from\s*"react-native";\r?$/m.exec(content);
+    if (!reactNativeImport || !/\bView\b/.test(reactNativeImport[0])) {
+      fail('_layout.tsx: cannot find a named `react-native` import containing `View`');
     }
+    const importStatement = reactNativeImport[0].replace(/\r$/, "");
     content = content.replace(
-      needle,
-      () => `${needle}${nl}import { SystemBars } from "react-native-edge-to-edge";`,
+      reactNativeImport[0],
+      () => `${importStatement}${nl}import { SystemBars } from "react-native-edge-to-edge";`,
     );
   }
 
