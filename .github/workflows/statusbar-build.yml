@@ -19,13 +19,9 @@ on:
         required: false
         type: boolean
         default: false
-      architectures:
-        description: "Android ABI list for Gradle (blank = universal upstream-style APK)"
-        required: false
-        type: string
 
 concurrency:
-  group: statusbar-build-matrix-v2
+  group: statusbar-build-arm64-v1
   cancel-in-progress: false
 
 permissions:
@@ -33,7 +29,7 @@ permissions:
 
 env:
   UPSTREAM_REPO: getpaseo/paseo
-  PASEO_DEFAULT_ANDROID_ARCHS: armeabi-v7a,arm64-v8a,x86,x86_64
+  PASEO_ANDROID_ARCHS: arm64-v8a
   PASEO_NDK_PRIMARY_VERSION: r27b
   PASEO_NDK_PRIMARY_FULL_VERSION: 27.1.12297006
   PASEO_NDK_FALLBACK_FULL_VERSION: 27.3.13750724
@@ -47,8 +43,6 @@ jobs:
       is_prerelease: ${{ steps.pick.outputs.is_prerelease }}
       apk_asset: ${{ steps.pick.outputs.apk_asset }}
       should_build: ${{ steps.check.outputs.should_build }}
-      architectures: ${{ steps.archs.outputs.architectures }}
-      architecture_matrix: ${{ steps.archs.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
 
@@ -78,44 +72,6 @@ jobs:
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
           echo "apk_asset=paseo-${tag}-statusbar-fixed.apk" >> "$GITHUB_OUTPUT"
-
-      - name: Resolve Android architecture matrix
-        id: archs
-        run: |
-          set -euo pipefail
-          requested="${{ github.event.inputs.architectures }}"
-          requested="${requested//[[:space:]]/}"
-          if [ -z "$requested" ]; then
-            requested="$PASEO_DEFAULT_ANDROID_ARCHS"
-          fi
-
-          declare -A seen=()
-          architectures=()
-          IFS=',' read -ra requested_architectures <<< "$requested"
-          for architecture in "${requested_architectures[@]}"; do
-            case "$architecture" in
-              armeabi-v7a|arm64-v8a|x86|x86_64) ;;
-              *)
-                echo "Unsupported Android architecture: $architecture" >&2
-                exit 1
-                ;;
-            esac
-            if [ -z "${seen[$architecture]:-}" ]; then
-              architectures+=("$architecture")
-              seen[$architecture]=1
-            fi
-          done
-
-          if [ "${#architectures[@]}" -eq 0 ]; then
-            echo "No Android architectures were selected." >&2
-            exit 1
-          fi
-
-          architecture_list="$(IFS=','; echo "${architectures[*]}")"
-          matrix="$(printf '%s\n' "${architectures[@]}" | jq -R . | jq -s -c .)"
-          echo "architectures=$architecture_list" >> "$GITHUB_OUTPUT"
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "Android architecture matrix: $matrix"
 
       - name: Check if already built
         id: check
@@ -153,16 +109,11 @@ jobs:
           fi
 
   build:
-    name: build (${{ matrix.abi }})
+    name: build and publish (arm64-v8a)
     needs: resolve
     if: needs.resolve.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      max-parallel: 4
-      matrix:
-        abi: ${{ fromJSON(needs.resolve.outputs.architecture_matrix) }}
+    timeout-minutes: 60
     steps:
       - name: Checkout build repo (patch script lives here)
         uses: actions/checkout@v4
@@ -222,7 +173,6 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           dependency-graph: disabled
-          cache-read-only: ${{ matrix.abi != 'arm64-v8a' }}
 
       - name: Setup primary Android NDK
         id: setup-primary-ndk
@@ -350,11 +300,6 @@ jobs:
           mkdir -p packages/app/packages/app
           printf 'import "../../index";\n' > packages/app/packages/app/index.ts
 
-      - name: Select Android architecture
-        run: |
-          echo "PASEO_ANDROID_ARCHS=${{ matrix.abi }}" >> "$GITHUB_ENV"
-          echo "Android architecture: ${{ matrix.abi }}"
-
       - name: Tune Gradle build memory
         working-directory: upstream/packages/app/android
         run: |
@@ -413,13 +358,13 @@ jobs:
             -PreactNativeArchitectures="$PASEO_ANDROID_ARCHS" \
             --no-daemon --build-cache --max-workers=2 --console=plain --stacktrace
 
-      - name: Collect ABI APK
-        id: part
+      - name: Prepare and verify arm64 APK
+        id: apk
         working-directory: upstream
         run: |
           set -euo pipefail
-          apk="$(find packages/app/android/app/build/outputs/apk/release -name '*.apk' | head -n1)"
-          if [ -z "$apk" ]; then
+          source_apk="$(find packages/app/android/app/build/outputs/apk/release -name '*.apk' | head -n1)"
+          if [ -z "$source_apk" ]; then
             echo "No APK produced; dumping outputs tree:" >&2
             find packages/app/android/app/build/outputs -type f || true
             exit 1
@@ -434,51 +379,6 @@ jobs:
             -storepass android \
             -alias androiddebugkey >/dev/null
 
-          artifact_dir="$RUNNER_TEMP/paseo-part-${{ matrix.abi }}"
-          mkdir -p "$artifact_dir"
-          cp "$apk" "$artifact_dir/app-${{ matrix.abi }}.apk"
-          cp "$keystore" "$artifact_dir/debug.keystore"
-          echo "path=$artifact_dir" >> "$GITHUB_OUTPUT"
-          echo "Built ${{ matrix.abi }} APK: $(du -h "$artifact_dir/app-${{ matrix.abi }}.apk" | cut -f1)"
-
-      - name: Upload ABI APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: paseo-part-${{ matrix.abi }}
-          path: ${{ steps.part.outputs.path }}
-          if-no-files-found: error
-          retention-days: 1
-
-  publish:
-    needs:
-      - resolve
-      - build
-    if: needs.resolve.outputs.should_build == 'true'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 20
-    steps:
-      - name: Download ABI APKs
-        uses: actions/download-artifact@v4
-        with:
-          pattern: paseo-part-*
-          path: ${{ runner.temp }}/paseo-parts
-
-      - name: Merge, align, and sign universal APK
-        id: apk
-        run: |
-          set -euo pipefail
-          parts="$RUNNER_TEMP/paseo-parts"
-          requested="${{ needs.resolve.outputs.architectures }}"
-          IFS=',' read -ra architectures <<< "$requested"
-          base_architecture="${architectures[0]}"
-          base_dir="$parts/paseo-part-${base_architecture}"
-          base_apk="$(find "$base_dir" -maxdepth 1 -type f -name '*.apk' | head -n1)"
-          keystore="$(find "$base_dir" -maxdepth 1 -type f -name '*.keystore' | head -n1)"
-          if [ -z "$base_apk" ] || [ -z "$keystore" ]; then
-            echo "Base ABI artifact is missing its APK or keystore: $base_dir" >&2
-            exit 1
-          fi
-
           build_tools_version="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n1)"
           build_tools="$ANDROID_HOME/build-tools/$build_tools_version"
           zipalign="$build_tools/zipalign"
@@ -488,51 +388,11 @@ jobs:
             exit 1
           fi
 
-          base_certificate="$("$apksigner" verify --print-certs "$base_apk" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | head -n1)"
-          if [ -z "$base_certificate" ]; then
-            echo "Could not read the base APK signing certificate." >&2
-            exit 1
-          fi
-
-          unsigned="$RUNNER_TEMP/paseo-merged-unsigned.apk"
-          aligned="$RUNNER_TEMP/paseo-merged-aligned.apk"
+          unsigned="$RUNNER_TEMP/paseo-arm64-unsigned.apk"
+          aligned="$RUNNER_TEMP/paseo-arm64-aligned.apk"
           destination="$RUNNER_TEMP/${{ needs.resolve.outputs.apk_asset }}"
-          cp "$base_apk" "$unsigned"
+          cp "$source_apk" "$unsigned"
           zip -q -d "$unsigned" 'META-INF/*' || true
-
-          for architecture in "${architectures[@]}"; do
-            part_dir="$parts/paseo-part-${architecture}"
-            part_apk="$(find "$part_dir" -maxdepth 1 -type f -name '*.apk' | head -n1)"
-            if [ -z "$part_apk" ]; then
-              echo "Missing APK for architecture: $architecture" >&2
-              exit 1
-            fi
-            part_certificate="$("$apksigner" verify --print-certs "$part_apk" \
-              | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-              | head -n1)"
-            if [ "$part_certificate" != "$base_certificate" ]; then
-              echo "APK signing certificate differs for architecture: $architecture" >&2
-              exit 1
-            fi
-            if [ "$architecture" = "$base_architecture" ]; then
-              continue
-            fi
-
-            extracted="$RUNNER_TEMP/lib-${architecture}"
-            mkdir -p "$extracted"
-            unzip -q "$part_apk" "lib/${architecture}/*" -d "$extracted"
-            if ! find "$extracted/lib/$architecture" -type f -name '*.so' -print -quit | grep -q .; then
-              echo "No native libraries found for architecture: $architecture" >&2
-              exit 1
-            fi
-            (
-              cd "$extracted"
-              zip -q -0 -r "$unsigned" "lib/${architecture}"
-            )
-          done
-
           "$zipalign" -P 16 -f 4 "$unsigned" "$aligned"
           "$apksigner" sign \
             --ks "$keystore" \
@@ -544,24 +404,34 @@ jobs:
           "$zipalign" -c -P 16 4 "$destination"
           "$apksigner" verify --verbose --print-certs "$destination"
 
-          final_certificate="$("$apksigner" verify --print-certs "$destination" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
-            | head -n1)"
-          if [ "$final_certificate" != "$base_certificate" ]; then
-            echo "Merged APK signing certificate differs from the base APK." >&2
+          mapfile -t packaged_architectures < <(
+            unzip -Z1 "$destination" \
+              | awk -F/ '$1 == "lib" && NF > 2 { print $2 }' \
+              | sort -u
+          )
+          if [ "${#packaged_architectures[@]}" -ne 1 ] \
+            || [ "${packaged_architectures[0]:-}" != "$PASEO_ANDROID_ARCHS" ]; then
+            printf 'Unexpected packaged architectures: %s\n' "${packaged_architectures[*]:-(none)}" >&2
+            exit 1
+          fi
+          if ! unzip -Z1 "$destination" | grep -Eq "^lib/${PASEO_ANDROID_ARCHS}/.+\\.so$"; then
+            echo "APK contains no native libraries for $PASEO_ANDROID_ARCHS." >&2
             exit 1
           fi
 
-          for architecture in "${architectures[@]}"; do
-            if ! unzip -Z1 "$destination" | grep -Eq "^lib/${architecture}/.+\\.so$"; then
-              echo "Merged APK is missing native libraries for: $architecture" >&2
-              exit 1
-            fi
-          done
+          certificate="$("$apksigner" verify --print-certs "$destination" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | head -n1)"
+          if [ -z "$certificate" ]; then
+            echo "Could not read the final APK signing certificate." >&2
+            exit 1
+          fi
 
           echo "path=$destination" >> "$GITHUB_OUTPUT"
-          echo "Merged APK: $destination ($(du -h "$destination" | cut -f1))"
-          echo "Signing certificate SHA-256: $final_certificate"
+          echo "Built APK: $destination ($(du -h "$destination" | cut -f1))"
+          echo "Packaged architecture: ${packaged_architectures[0]}"
+          echo "Signing certificate SHA-256: $certificate"
+          sha256sum "$destination"
 
       - name: Publish to GitHub Release
         env:

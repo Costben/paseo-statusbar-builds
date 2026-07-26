@@ -1,7 +1,7 @@
 # paseo-statusbar-builds
 
 Automated CI that rebuilds [getpaseo/paseo](https://github.com/getpaseo/paseo)
-Android APKs from the latest non-draft upstream release with the
+Android `arm64-v8a` APK from the latest non-draft upstream release with the
 **edge-to-edge status bar fix** applied, and publishes them to this repo's
 Releases.
 
@@ -21,7 +21,7 @@ workflow_dispatch     ─┴─► resolve latest upstream release tag
                             └─ new tag ─► checkout upstream@tag
                                           apply status bar patch (2 files)
                                           npm ci → build:workspace-deps
-                                          expo prebuild → gradle assembleRelease
+                                          expo prebuild → gradle assembleRelease (arm64-v8a)
                                           upload paseo-<tag>-statusbar-fixed.apk
                                           to this repo's Release
 ```
@@ -40,7 +40,7 @@ files (idempotently — re-running is a no-op):
 | File | Change |
 |------|--------|
 | `packages/app/app.config.js` | require the edge-to-edge expo plugin; add `edgeToEdge({ android: { parentTheme: "Default", enforceNavigationBarContrast: true } })` as the first plugin |
-| `packages/app/src/app/_layout.tsx` | import `SystemBars`; render `<SystemBars .../>` as the first child of `GestureHandlerRootView`; pull `theme` from `useUnistyles()` |
+| `packages/app/src/app/_layout.tsx` | import `SystemBars`; render `<SystemBars style="auto" />` as the first child of `GestureHandlerRootView` |
 
 If upstream moves one of the injection anchors, the script **exits non-zero and
 names the missing anchor**. That red build is the signal to update the anchor in
@@ -63,9 +63,9 @@ patch unnecessary).
    General → Workflow permissions). The workflow needs `contents: write` to
    publish releases; it already declares that, but the repo toggle must allow it.
 3. **No secrets required.** `GITHUB_TOKEN` is provided automatically. There is no
-   Expo account, signing keystore, or npm token to configure — release APKs are
-   signed with Paseo's bundled `debug.keystore` (installable, not Play-Store
-   grade).
+   Expo account, signing keystore, or npm token to configure. Expo generates a
+   debug keystore inside the runner for signing; the workflow never uploads or
+   commits it. The resulting APK is installable but not Play-Store grade.
 
 ## First build (validate before trusting the schedule)
 
@@ -105,3 +105,5 @@ pick up each new upstream release on its own.
   release, including stable releases and prereleases. To build prereleases only,
   add a `.prerelease == true` filter in the `Resolve upstream tag` step.
 - **Rebuild an existing tag**: run manually with `force: true`.
+- **Android architecture**: builds are intentionally fixed to `arm64-v8a` for
+  modern physical Android devices.
