@@ -391,8 +391,18 @@ jobs:
           unsigned="$RUNNER_TEMP/paseo-arm64-unsigned.apk"
           aligned="$RUNNER_TEMP/paseo-arm64-aligned.apk"
           destination="$RUNNER_TEMP/${{ needs.resolve.outputs.apk_asset }}"
+          source_services="$RUNNER_TEMP/paseo-source-services.txt"
+          destination_services="$RUNNER_TEMP/paseo-destination-services.txt"
+          unzip -Z1 "$source_apk" \
+            | grep '^META-INF/services/' \
+            | sort > "$source_services" || true
           cp "$source_apk" "$unsigned"
-          zip -q -d "$unsigned" 'META-INF/*' || true
+          zip -q -d "$unsigned" \
+            'META-INF/*.SF' \
+            'META-INF/*.RSA' \
+            'META-INF/*.DSA' \
+            'META-INF/*.EC' \
+            'META-INF/MANIFEST.MF' || true
           "$zipalign" -P 16 -f 4 "$unsigned" "$aligned"
           "$apksigner" sign \
             --ks "$keystore" \
@@ -403,6 +413,21 @@ jobs:
             "$aligned"
           "$zipalign" -c -P 16 4 "$destination"
           "$apksigner" verify --verbose --print-certs "$destination"
+
+          unzip -Z1 "$destination" \
+            | grep '^META-INF/services/' \
+            | sort > "$destination_services" || true
+          if ! cmp -s "$source_services" "$destination_services"; then
+            echo "APK service-provider metadata changed while preparing the signed APK:" >&2
+            diff -u "$source_services" "$destination_services" >&2 || true
+            exit 1
+          fi
+          if ! grep -Fxq \
+            'META-INF/services/kotlin.reflect.jvm.internal.impl.builtins.BuiltInsLoader' \
+            "$destination_services"; then
+            echo "Kotlin BuiltInsLoader service metadata is missing from the final APK." >&2
+            exit 1
+          fi
 
           mapfile -t packaged_architectures < <(
             unzip -Z1 "$destination" \
