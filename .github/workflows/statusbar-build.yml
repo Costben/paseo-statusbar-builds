@@ -25,7 +25,7 @@ on:
         type: string
 
 concurrency:
-  group: statusbar-build
+  group: statusbar-build-matrix-v2
   cancel-in-progress: false
 
 permissions:
