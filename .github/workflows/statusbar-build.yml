@@ -37,7 +37,6 @@ env:
   PASEO_NDK_PRIMARY_VERSION: r27b
   PASEO_NDK_PRIMARY_FULL_VERSION: 27.1.12297006
   PASEO_NDK_FALLBACK_FULL_VERSION: 27.3.13750724
-  PASEO_NDK_LEGACY_VERSION: r27
   PASEO_NDK_LEGACY_FULL_VERSION: 27.0.12077973
 
 jobs:
@@ -130,6 +129,36 @@ jobs:
           path: upstream
           fetch-depth: 1
 
+      - name: Free runner disk space
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h
+
+          sudo rm -rf \
+            /usr/share/dotnet \
+            /usr/local/share/boost \
+            /usr/local/share/CodeQL \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /opt/hostedtoolcache/go \
+            /opt/hostedtoolcache/PyPy \
+            /opt/hostedtoolcache/Python \
+            /opt/hostedtoolcache/Ruby
+
+          docker system prune -af || true
+          sudo apt-get clean
+
+          echo "Disk after cleanup:"
+          df -h
+
+          available_kb="$(df --output=avail / | tail -n1 | tr -d ' ')"
+          minimum_kb="$((8 * 1024 * 1024))"
+          if [ "$available_kb" -lt "$minimum_kb" ]; then
+            echo "::error::Runner has less than 8 GiB free after cleanup."
+            exit 1
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -150,18 +179,10 @@ jobs:
 
       - name: Setup primary Android NDK
         id: setup-primary-ndk
+        continue-on-error: true
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: ${{ env.PASEO_NDK_PRIMARY_VERSION }}
-          add-to-path: false
-          link-to-sdk: true
-          local-cache: false
-
-      - name: Setup legacy Android NDK
-        id: setup-legacy-ndk
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: ${{ env.PASEO_NDK_LEGACY_VERSION }}
           add-to-path: false
           link-to-sdk: true
           local-cache: false
@@ -220,8 +241,8 @@ jobs:
             return 1
           }
 
-          echo "Primary NDK: ${{ steps.setup-primary-ndk.outputs.ndk-full-version }}"
-          echo "Legacy NDK: ${{ steps.setup-legacy-ndk.outputs.ndk-full-version }}"
+          echo "Primary NDK setup outcome: ${{ steps.setup-primary-ndk.outcome }}"
+          echo "Primary NDK reported version: ${{ steps.setup-primary-ndk.outputs.ndk-full-version }}"
           ls -la "${ANDROID_HOME}/ndk"
 
           for version in \
@@ -246,29 +267,6 @@ jobs:
           echo "::error::No usable Android NDK toolchain found."
           find "${ANDROID_HOME}/ndk" -maxdepth 4 -type f -name 'clang++' -print || true
           exit 1
-
-      - name: Free runner disk space
-        run: |
-          set -euo pipefail
-          echo "Disk before cleanup:"
-          df -h
-
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /usr/local/share/boost \
-            /usr/local/share/CodeQL \
-            /opt/ghc \
-            /opt/hostedtoolcache/CodeQL \
-            /opt/hostedtoolcache/go \
-            /opt/hostedtoolcache/PyPy \
-            /opt/hostedtoolcache/Python \
-            /opt/hostedtoolcache/Ruby
-
-          docker system prune -af || true
-          sudo apt-get clean
-
-          echo "Disk after cleanup:"
-          df -h
 
       - name: Apply status bar patch
         run: node scripts/apply-statusbar-patch.mjs upstream
@@ -324,8 +322,8 @@ jobs:
           const fs = require("node:fs");
           const path = "gradle.properties";
           const desired = {
-            "org.gradle.jvmargs": "-Xmx4096m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8",
-            "org.gradle.workers.max": "4",
+            "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8",
+            "org.gradle.workers.max": "2",
             "org.gradle.daemon": "false",
             "org.gradle.parallel": "false",
             "kotlin.compiler.execution.strategy": "in-process",
@@ -353,6 +351,7 @@ jobs:
           NODE_ENV: production
           EXPO_NO_GIT_STATUS: "1"
           ENTRY_FILE: packages/app/index.ts
+          NODE_OPTIONS: "--max-old-space-size=2048"
         run: |
           set -euo pipefail
           # Expo CLI reads CI as a strict boolean; remove it instead of
@@ -371,7 +370,7 @@ jobs:
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
             -PreactNativeArchitectures="$PASEO_ANDROID_ARCHS" \
-            --no-daemon --build-cache --max-workers=4 --console=plain --stacktrace
+            --no-daemon --build-cache --max-workers=2 --console=plain --stacktrace
 
       - name: Collect APK
         id: apk
