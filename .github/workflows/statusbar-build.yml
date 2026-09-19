@@ -156,6 +156,17 @@ jobs:
             exit 1
           fi
 
+      - name: Configure swap
+        run: |
+          set -euo pipefail
+          echo "Configuring 10 GiB swapfile..."
+          sudo fallocate -l 10G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=10240
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          sudo swapon --show
+          free -h
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -308,7 +319,7 @@ jobs:
           const fs = require("node:fs");
           const path = "gradle.properties";
           const desired = {
-            "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8",
+            "org.gradle.jvmargs": "-Xmx3072m -XX:MaxMetaspaceSize=1536m -Dfile.encoding=UTF-8",
             "org.gradle.workers.max": "2",
             "org.gradle.daemon": "false",
             "org.gradle.parallel": "false",
@@ -351,7 +362,11 @@ jobs:
             done
           ) &
           heartbeat_pid="$!"
-          trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
+          cleanup() {
+            kill -TERM "$heartbeat_pid" 2>/dev/null || true
+            pkill -P "$heartbeat_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT INT TERM
           ./gradlew :app:assembleRelease \
             -x lint -x lintVitalAnalyzeRelease -x lintVitalRelease \
             -x generateReleaseLintModel -x generateReleaseLintVitalModel \
