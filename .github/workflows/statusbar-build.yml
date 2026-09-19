@@ -21,7 +21,7 @@ on:
         default: false
 
 concurrency:
-  group: statusbar-build-arm64-v1
+  group: statusbar-build-universal-v1
   cancel-in-progress: false
 
 permissions:
@@ -29,7 +29,7 @@ permissions:
 
 env:
   UPSTREAM_REPO: getpaseo/paseo
-  PASEO_ANDROID_ARCHS: arm64-v8a
+  PASEO_ANDROID_ARCHS: armeabi-v7a,arm64-v8a,x86,x86_64
   PASEO_NDK_PRIMARY_VERSION: r27b
   PASEO_NDK_PRIMARY_FULL_VERSION: 27.1.12297006
   PASEO_NDK_FALLBACK_FULL_VERSION: 27.3.13750724
@@ -109,11 +109,11 @@ jobs:
           fi
 
   build:
-    name: build and publish (arm64-v8a)
+    name: build and publish (universal 4-ABI)
     needs: resolve
     if: needs.resolve.outputs.should_build == 'true'
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout build repo (patch script lives here)
         uses: actions/checkout@v4
@@ -373,7 +373,7 @@ jobs:
             -PreactNativeArchitectures="$PASEO_ANDROID_ARCHS" \
             --no-daemon --build-cache --max-workers=2 --console=plain --stacktrace
 
-      - name: Prepare and verify arm64 APK
+      - name: Prepare and verify universal APK
         id: apk
         working-directory: upstream
         run: |
@@ -403,8 +403,8 @@ jobs:
             exit 1
           fi
 
-          unsigned="$RUNNER_TEMP/paseo-arm64-unsigned.apk"
-          aligned="$RUNNER_TEMP/paseo-arm64-aligned.apk"
+          unsigned="$RUNNER_TEMP/paseo-universal-unsigned.apk"
+          aligned="$RUNNER_TEMP/paseo-universal-aligned.apk"
           destination="$RUNNER_TEMP/${{ needs.resolve.outputs.apk_asset }}"
           source_services="$RUNNER_TEMP/paseo-source-services.txt"
           destination_services="$RUNNER_TEMP/paseo-destination-services.txt"
@@ -449,15 +449,13 @@ jobs:
               | awk -F/ '$1 == "lib" && NF > 2 { print $2 }' \
               | sort -u
           )
-          if [ "${#packaged_architectures[@]}" -ne 1 ] \
-            || [ "${packaged_architectures[0]:-}" != "$PASEO_ANDROID_ARCHS" ]; then
-            printf 'Unexpected packaged architectures: %s\n' "${packaged_architectures[*]:-(none)}" >&2
-            exit 1
-          fi
-          if ! unzip -Z1 "$destination" | grep -Eq "^lib/${PASEO_ANDROID_ARCHS}/.+\\.so$"; then
-            echo "APK contains no native libraries for $PASEO_ANDROID_ARCHS." >&2
-            exit 1
-          fi
+          IFS=',' read -ra expected_architectures <<< "$PASEO_ANDROID_ARCHS"
+          for arch in "${expected_architectures[@]}"; do
+            if ! unzip -Z1 "$destination" | grep -Eq "^lib/${arch}/.+\\.so$"; then
+              echo "APK contains no native libraries for $arch." >&2
+              exit 1
+            fi
+          done
 
           certificate="$("$apksigner" verify --print-certs "$destination" \
             | sed -nE 's/^.*certificate SHA-256 digest: ([[:xdigit:]]+).*$/\1/p' \
@@ -469,7 +467,7 @@ jobs:
 
           echo "path=$destination" >> "$GITHUB_OUTPUT"
           echo "Built APK: $destination ($(du -h "$destination" | cut -f1))"
-          echo "Packaged architecture: ${packaged_architectures[0]}"
+          echo "Packaged architectures: ${packaged_architectures[*]}"
           echo "Signing certificate SHA-256: $certificate"
           sha256sum "$destination"
 

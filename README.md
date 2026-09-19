@@ -1,9 +1,9 @@
 # paseo-statusbar-builds
 
 Automated CI that rebuilds [getpaseo/paseo](https://github.com/getpaseo/paseo)
-Android `arm64-v8a` APK from the latest non-draft upstream release with the
-**edge-to-edge status bar fix** applied, and publishes them to this repo's
-Releases.
+Android Universal (4-ABI: `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`) APK from the
+latest non-draft upstream release with the **edge-to-edge status bar fix** applied,
+and publishes them to this repo's Releases.
 
 This is a **standalone build repo**, not a fork. It stores only the workflow and
 the patch script. At build time it checks out an upstream tag, injects the patch,
@@ -21,7 +21,7 @@ workflow_dispatch     ─┴─► resolve latest upstream release tag
                             └─ new tag ─► checkout upstream@tag
                                           apply status bar patch (2 files)
                                           npm ci → build:workspace-deps
-                                          expo prebuild → gradle assembleRelease (arm64-v8a)
+                                          expo prebuild → gradle assembleRelease (universal 4-ABI)
                                           upload paseo-<tag>-statusbar-fixed.apk
                                           to this repo's Release
 ```
@@ -105,5 +105,4 @@ pick up each new upstream release on its own.
   release, including stable releases and prereleases. To build prereleases only,
   add a `.prerelease == true` filter in the `Resolve upstream tag` step.
 - **Rebuild an existing tag**: run manually with `force: true`.
-- **Android architecture**: builds are intentionally fixed to `arm64-v8a` for
-  modern physical Android devices.
+- **Android architecture**: builds are universal (including `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`) matching official releases.
