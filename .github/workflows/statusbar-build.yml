@@ -159,11 +159,11 @@ jobs:
       - name: Configure swap
         run: |
           set -euo pipefail
-          echo "Configuring 10 GiB swapfile..."
-          sudo fallocate -l 10G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=10240
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
+          echo "Configuring additional 10 GiB swapfile..."
+          sudo fallocate -l 10G /swapfile_extra || sudo dd if=/dev/zero of=/swapfile_extra bs=1M count=10240
+          sudo chmod 600 /swapfile_extra
+          sudo mkswap /swapfile_extra
+          sudo swapon /swapfile_extra
           sudo swapon --show
           free -h
 
