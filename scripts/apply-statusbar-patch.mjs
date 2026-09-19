@@ -152,39 +152,8 @@ function patchRootLayout(dir) {
   }
 }
 
-function patchDiffPrototype(dir) {
-  const path = join(dir, "packages", "app", "modules", "paseo-diff-prototype", "android", "build.gradle");
-  if (!existsSync(path)) {
-    console.log("[statusbar-patch] paseo-diff-prototype not present in this tag; skipping");
-    return;
-  }
-
-  let content = read(path);
-  const original = content;
-  const nl = detectNewline(content);
-
-  // Restrict NDK compilation to arm64-v8a (or reactNativeArchitectures)
-  // to avoid compiling unneeded x86, x86_64, and armeabi-v7a Skia binaries.
-  if (!/abiFilters/.test(content)) {
-    const needle = /(defaultConfig\s*\{[ \t]*\r?\n)/;
-    if (!needle.test(content)) {
-      fail("paseo-diff-prototype/android/build.gradle: cannot find `defaultConfig {`");
-    }
-    const block = [
-      "    ndk {",
-      "      abiFilters (*(project.findProperty('reactNativeArchitectures')?.split(',') ?: ['arm64-v8a']))",
-      "    }",
-    ].join(nl);
-    content = content.replace(needle, (_m, g1) => `${g1}${block}${nl}`);
-  }
-
-  writeIfChanged(path, content, original, "packages/app/modules/paseo-diff-prototype/android/build.gradle");
-  assertContains(path, "abiFilters", "paseo-diff-prototype/android/build.gradle");
-}
-
 console.log(`[statusbar-patch] source dir: ${sourceDir}`);
 assertDependency(sourceDir);
 patchAppConfig(sourceDir);
 patchRootLayout(sourceDir);
-patchDiffPrototype(sourceDir);
 console.log("[statusbar-patch] done");
