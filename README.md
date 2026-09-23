@@ -212,38 +212,114 @@ overrides deep-merge onto `packages/desktop/electron-builder.yml`
   when `forceCodeSigning` is set. Unsigned Windows builds therefore self-update
   fine.
 
-### macOS: auto-update cannot install unsigned builds
+### macOS: auto-update needs a certificate, but not an Apple one
 
-This is a real limitation, not a configuration gap.
+This was measured on this machine, not inferred.
 
 `electron-updater`'s JS never verifies signatures on macOS — it hands the zip to
-Electron's built-in `autoUpdater` (Squirrel.Mac), and Squirrel validates the
-*new* bundle against the **designated requirement of the app being replaced**
-(`SQRLInstaller.m`):
+Electron's built-in `autoUpdater` (Squirrel.Mac). Squirrel validates the *new*
+bundle against the **designated requirement of the app being replaced**
+(`SQRLInstaller.m`), and a missing requirement is a hard failure:
 
 ```objc
 zipWith:[self codeSignatureForBundleAtURL:request.targetBundleURL]
 ...
 SQRLCodeSignature *codeSignature = [SQRLCodeSignature signatureWithBundle:URL error:&error];
-if (codeSignature == nil) return [RACSignal error:error];   // hard failure
+if (codeSignature == nil) return [RACSignal error:error];
 ```
 
-Consequences:
+What that requirement looks like decides everything:
 
-- An **unsigned** installed app has no designated requirement →
-  `codeSignatureForBundleAtURL:` errors → the install is aborted.
-- An **ad-hoc signed** app gets a cdhash-pinned requirement → a rebuild always
-  has a different cdhash → "Code signature at URL … did not pass validation".
-- A **Developer ID signed** build works, but only against a target that shares
-  its Team ID. The official `Paseo.app` is signed by Team `99ZMJMKU9Y`, so the
-  first hop from the official app to a self-signed build can never be automatic
-  either way.
+| Signing | Designated requirement | Stable across rebuilds? |
+|---|---|---|
+| none | — (`signatureWithBundle:` errors) | **no** |
+| ad-hoc (`codesign -s -`) | `cdhash H"..."` | **no** — cdhash is the content hash |
+| self-signed certificate | `identifier "sh.paseo.desktop" and certificate root = H"<cert hash>"` | **yes** — pinned to the certificate, not the build |
+| Developer ID | `identifier "…" and anchor apple generic and … certificate leaf[subject.OU] = "TEAMID"` | **yes** — pinned to the team |
 
-So on macOS: **users download and replace the `.dmg` by hand.** The manifests and
-zips are still published, so if an Apple Developer ID certificate is ever added
-to this repo the native updater starts working with no other change — and
-updates between two builds signed by the same team will then apply themselves.
-Windows has no such gate; its auto-update works as built.
+So the credential is not the point; **a certificate that never changes** is. A
+self-signed certificate pinned in a secret works exactly as well as a $99/year
+Developer ID one, because both produce a requirement that every later build
+signed the same way satisfies.
+
+Verified directly against the API Squirrel calls
+(`SecStaticCodeCheckValidityWithErrors` with
+`kSecCSCheckNestedCode | kSecCSStrictValidate | kSecCSCheckAllArchitectures`):
+
+| Bundle checked against the previous build's requirement | Result |
+|---|---|
+| rebuilt, same self-signed certificate | **PASS (OSStatus 0)** |
+| rebuilt, different self-signed certificate | FAIL (-67050) |
+| rebuilt, ad-hoc | FAIL (-67050) |
+
+And a full 480 MB Electron app signed with a self-signed certificate (hardened
+runtime + entitlements, every nested helper on the same certificate) passes
+`codesign --verify --deep --strict`. Apple's timestamp server also stamps
+self-signed code, so those signatures stay valid after the certificate expires.
+
+**The one hop that can never be automatic.** The requirement comes from the app
+being replaced, and the official `Paseo.app` is signed by Team `99ZMJMKU9Y`:
+
+```
+identifier "sh.paseo.desktop" and anchor apple generic and … certificate leaf[subject.OU] = "99ZMJMKU9Y"
+```
+
+No certificate you can obtain satisfies that, so the first install — official
+build → this repo's build — is always a manual drag to `/Applications`. Every
+update after that is automatic.
+
+**The trap.** electron-builder discovers certificates with
+`security find-identity -v`, which only lists *trusted* identities. An untrusted
+self-signed certificate shows up as `CSSMERR_TP_NOT_TRUSTED` and is invisible, so
+the build silently falls back to an ad-hoc signature — it succeeds, and
+auto-update quietly does not work. The `Assert code signature` step exists to
+turn that silence into a red build.
+
+Until a certificate is configured, macOS builds are unsigned and **users
+download and replace the `.dmg` by hand**. Windows has no such gate; its
+auto-update works as built.
+
+### Turning on macOS signing
+
+Until a certificate is configured, macOS builds are unsigned and **users
+download and replace the `.dmg` by hand**. To turn signing on:
+
+1. On a Mac, from the repo root:
+
+   ```bash
+   scripts/generate-mac-signing-cert.sh
+   ```
+
+   It prints two repository secrets plus the certificate's SHA-1. Run it **once**
+   and keep the output directory — re-running it produces a *different*
+   certificate, which silently breaks updates for everyone who already installed
+   a build signed with the old one.
+
+2. Add the secrets under Settings → Secrets and variables → Actions:
+
+   | Secret | Value |
+   |---|---|
+   | `MAC_CSC_LINK` | contents of `cert.p12.base64` |
+   | `MAC_CSC_KEY_PASSWORD` | the generated password |
+
+3. Re-run the macOS workflow with `force: true`. `resolve` sees the existing
+   (unsigned) assets and would otherwise skip.
+
+The workflow then imports the certificate, marks it trusted, and the
+`Assert code signature` step fails the build if the app came out ad-hoc anyway —
+that assertion exists because electron-builder's fallback is *silent*, and an
+ad-hoc build looks like a successful one right up until a user cannot update.
+
+Two things this does not fix:
+
+- **The first install is still manual.** The requirement comes from the app being
+  replaced, and the official `Paseo.app` is signed by Team `99ZMJMKU9Y`, which no
+  certificate you can obtain satisfies.
+- **Notarization is off** (`-c.mac.notarize=false`), so first launch still needs
+  a right-click → Open, or `xattr -dr com.apple.quarantine /Applications/Paseo.app`.
+  Updates installed by the app itself are exempt — Squirrel clears the quarantine
+  flag as part of installing. Notarizing needs a real Developer ID certificate,
+  not a self-signed one.
 
 ## Desktop maintenance
 
