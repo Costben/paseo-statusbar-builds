@@ -1,0 +1,15 @@
+# macOS signing identity. NEVER commit any of this.
+#
+# The .p12 (and its .base64 form) contains the PRIVATE KEY. Anyone who has it
+# can sign a Paseo build that every installed copy will download and install by
+# itself, silently. That is not a hypothetical: the whole point of pinning a
+# certificate is that any build signed with it is accepted as an update.
+#
+# The certificate alone (cert.pem) is public information — it is embedded in
+# every .app this repo ships, and anyone can extract it with
+# `codesign -d --extract-certificates`. That one is harmless. The private key is
+# not.
+mac-signing-cert/
+*.p12
+*.p12.base64
+*.keychain-db
