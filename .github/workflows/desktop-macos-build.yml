@@ -477,16 +477,23 @@ jobs:
           fi
 
           # Captured to a file for the same reason as above: no upstream pipe for
-          # an early-exiting `grep -q` to break under `pipefail`.
+          # an early-exiting `grep -q` to break under `pipefail`. Bounded too: a
+          # launch that hangs is a failure, not a reason to spend the job's whole
+          # 150-minute budget waiting for it.
           probe="$RUNNER_TEMP/paseo-smoke.log"
+          ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1 &
+          app_pid=$!
+          ( sleep 60; kill -9 "$app_pid" 2>/dev/null ) &
+          watchdog_pid=$!
           set +e
-          ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1
+          wait "$app_pid"
           status=$?
           set -e
+          kill "$watchdog_pid" 2>/dev/null || true
 
           cat "$probe"
           if [ "$status" -ne 0 ]; then
-            echo "::error::the packaged app exited $status without starting — dyld could not load its own frameworks."
+            echo "::error::the packaged app exited $status without starting — dyld could not load its own frameworks, or it hung."
             exit 1
           fi
           if ! grep -qx '1' "$probe"; then
@@ -571,15 +578,21 @@ jobs:
               # Read the bundle, then run it. dyld loads the Electron Framework
               # at start-up, so this is where a bundle nobody can launch fails —
               # on the artifact users actually downloaded, not a build tree.
+              # Bounded, so a launch that hangs cannot stall the audit.
               exe="$app/Contents/MacOS/Paseo"
               probe="$RUNNER_TEMP/paseo-smoke-${name}.log"
+              ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1 &
+              app_pid=$!
+              ( sleep 60; kill -9 "$app_pid" 2>/dev/null ) &
+              watchdog_pid=$!
               set +e
-              ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1
+              wait "$app_pid"
               probe_status=$?
               set -e
+              kill "$watchdog_pid" 2>/dev/null || true
               cat "$probe"
               if [ "$probe_status" -ne 0 ] || ! grep -qx '1' "$probe"; then
-                echo "::error::$app cannot launch (exit $probe_status) — dyld could not load its own frameworks."
+                echo "::error::$app cannot launch (exit $probe_status) — dyld could not load its own frameworks, or it hung."
                 status=1
               fi
             fi
