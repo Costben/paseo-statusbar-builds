@@ -14,6 +14,10 @@ name: Build patched Paseo for macOS
 #
 # The built app is pointed at THIS repo's Releases for its own updates. See
 # README ("Update hijack") for what that does and does not buy you on macOS.
+#
+# `verify_only` re-checks what is already published instead of building: it
+# expands each released archive and re-runs the same signature assertions, so a
+# bundle users have already downloaded can be audited without rebuilding it.
 
 on:
   workflow_run:
@@ -29,6 +33,11 @@ on:
         type: string
       force:
         description: "Rebuild even if this release already has every macOS artifact"
+        required: false
+        type: boolean
+        default: false
+      verify_only:
+        description: "Only re-verify the archives already published for the resolved tag"
         required: false
         type: boolean
         default: false
@@ -133,7 +142,7 @@ jobs:
   build:
     name: build and publish (macOS ${{ matrix.electron_arch }})
     needs: resolve
-    if: needs.resolve.outputs.should_build == 'true'
+    if: ${{ needs.resolve.outputs.should_build == 'true' && github.event.inputs.verify_only != 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -374,6 +383,28 @@ jobs:
           fi
           echo "Signed with a stable designated requirement; this build can install its own updates."
 
+      - name: Assert nested code carries the app's signature
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          shopt -s nullglob
+          apps=( "$release_dir"/mac*/*.app )
+          shopt -u nullglob
+          app="${apps[0]}"
+
+          # The root signature is not the whole story. Electron ships pre-signed
+          # binaries, so a signing pass that covers the app but misses a nested
+          # framework leaves two certificates inside one bundle — and nothing here
+          # fails. It fails on someone's Mac, where dyld refuses to load a
+          # framework whose Team ID differs from the process's and the app dies
+          # before it can draw a window.
+          echo "Sealed resources:"
+          codesign --verify --deep --strict "$app"
+          echo "Nested binaries:"
+          node "${GITHUB_WORKSPACE}/scripts/assert-mac-signatures.mjs" "$app"
+
       - name: Publish artifacts to GitHub Release
         working-directory: upstream
         env:
@@ -422,6 +453,55 @@ jobs:
           name: mac-manifest-${{ matrix.electron_arch }}
           path: manifest-staging/${{ matrix.electron_arch }}
           retention-days: 1
+
+  verify:
+    name: verify published assets
+    needs: [resolve]
+    if: ${{ github.event.inputs.verify_only == 'true' }}
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout build repo (the verification script lives here)
+        uses: actions/checkout@v4
+
+      - name: Download the published archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+          mkdir -p downloaded
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Paseo-*-arm64.zip' --pattern 'Paseo-*-x64.zip' \
+            --dir downloaded
+          ls -la downloaded
+
+      - name: Expand and verify each architecture
+        run: |
+          set -euo pipefail
+          status=0
+          for archive in downloaded/*.zip; do
+            arch="$(basename "$archive" .zip)"
+            mkdir -p "expanded/$arch"
+
+            # ditto, not unzip: an .app is a tree of symlinks, and a symlink
+            # flattened into a text file breaks a bundle in ways that read as a
+            # signing problem.
+            ditto -x -k "$archive" "expanded/$arch"
+
+            app="$(find "expanded/$arch" -maxdepth 2 -name '*.app' -type d -print -quit)"
+            if [ -z "$app" ]; then
+              echo "::error::$archive contains no .app"
+              status=1
+              continue
+            fi
+
+            echo "::group::$arch: $(basename "$app")"
+            codesign --verify --deep --strict "$app" || status=1
+            node scripts/assert-mac-signatures.mjs "$app" || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"
 
   finalize:
     name: merge arch manifests and publish

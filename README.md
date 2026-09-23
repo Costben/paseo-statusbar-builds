@@ -307,6 +307,13 @@ The workflow then imports the certificate, marks it trusted, and the
 that assertion exists because electron-builder's fallback is *silent*, and an
 ad-hoc build looks like a successful one right up until a user cannot update.
 
+A second assertion walks every Mach-O in the bundle
+(`scripts/assert-mac-signatures.mjs`). The root signature can be perfect while a
+nested framework still carries Electron's own certificate, and macOS refuses to
+load a framework whose Team ID differs from the app's — the app then dies with
+`Library not loaded: @rpath/Electron Framework.framework/Electron Framework …
+different Team IDs` before it can draw a window.
+
 Two things this does not fix:
 
 - **The first install is still manual.** The requirement comes from the app being
@@ -320,6 +327,17 @@ Two things this does not fix:
 
 ## Desktop maintenance
 
+- **App dies at launch with `different Team IDs`** → the bundle on disk is not the
+  one that was published; a nested framework kept another signer's certificate,
+  which is what a replacement that only overwrote part of `/Applications/Paseo.app`
+  leaves behind. Delete the app and install the archive again rather than dragging
+  it over the existing copy. Verifying the published archive is the arbiter:
+  `codesign --verify --deep --strict /Applications/Paseo.app` and
+  `node scripts/assert-mac-signatures.mjs /Applications/Paseo.app` name the files
+  that disagree — an empty report against a released archive means the bundle itself
+  is sound. To launch an already-broken copy anyway,
+  `sudo codesign --force --deep --sign - /Applications/Paseo.app` re-signs the whole
+  bundle ad-hoc, at the cost of in-app updates on that copy.
 - **Patch does not apply** → upstream moved the code it targets. Rebuild the
   patch against the new tag (`git diff > patches/<name>.patch`) and refresh the
   markers in `apply-desktop-patch.mjs`.
@@ -336,5 +354,8 @@ Two things this does not fix:
   `desktop-windows-build.yml`. It would roughly double that job's runtime.
 - **Add a channel**: append to `EXTRA_CHANNELS` in the workflow `env` block.
 - **Rebuild an existing tag**: run the workflow manually with `force: true`.
+- **Re-check a published archive**: run the macOS workflow with `verify_only: true`.
+  It downloads the released zips, expands them with `ditto`, and re-runs the same
+  two assertions without building or publishing anything.
 - **Timeouts**: 150 minutes per desktop job. Both platforms build the full web
   bundle with Metro and pack ~2 GB of `node_modules`, so expect 30–60 minutes.
