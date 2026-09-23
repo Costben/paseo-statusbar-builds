@@ -6,6 +6,13 @@ name: Build patched Paseo for macOS
 # latest-mac.yml is what points it there, so both are published: install the .dmg
 # once and every later version arrives through the app.
 #
+# The Release is tagged with the version it contains. Normally that version comes
+# from the upstream tag; the `version` input overrides it, which is how this repo
+# publishes a build of its own — a fix upstream has not shipped yet, or simply a
+# version newer than the installed one so the update path can be exercised. An
+# override must be valid semver: electron-updater parses the manifest version and
+# throws ERR_UPDATER_INVALID_VERSION on anything else, on every check, silently.
+#
 # Code signing is optional: with `MAC_CSC_LINK` configured the build signs itself
 # with the certificate pinned in that secret; without it electron-builder falls
 # back to an ad-hoc signature. Signing matters here for more than updates: macOS
@@ -56,6 +63,10 @@ on:
         description: "Upstream tag to build (blank = latest non-draft release)"
         required: false
         type: string
+      version:
+        description: "Publish this version instead of the tag's (blank = the tag's). Must be valid semver."
+        required: false
+        type: string
       force:
         description: "Rebuild even if this release already has every macOS artifact"
         required: false
@@ -100,6 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.pick.outputs.tag }}
+      release_tag: ${{ steps.pick.outputs.release_tag }}
       version: ${{ steps.pick.outputs.version }}
       is_prerelease: ${{ steps.pick.outputs.is_prerelease }}
       should_build: ${{ steps.check.outputs.should_build }}
@@ -129,7 +141,24 @@ jobs:
           fi
           # v0.9.1 / desktop-v0.9.1 / desktop-macos-v0.9.1 -> 0.9.1
           version="$(printf '%s' "$tag" | sed -E 's/^(desktop(-(windows|linux|macos))?|android)-v/v/; s/^v//')"
+
+          # The Release is tagged with the version it holds, so overriding the
+          # version moves the Release with it. Without an override, tag and
+          # release_tag are the same string and nothing below changes.
+          override="${{ github.event.inputs.version }}"
+          release_tag="$tag"
+          if [ -n "$override" ]; then
+            version="$override"
+            release_tag="v$version"
+            # GET /releases/latest ignores prereleases, and that endpoint is how
+            # the updater finds the feed: publishing an override as a prerelease
+            # would produce a release the app cannot see.
+            is_prerelease="false"
+            echo "Publishing version $version as Release $release_tag (built from upstream $tag)"
+          fi
+
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
           echo "Resolved upstream $tag as version $version"
@@ -140,13 +169,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ steps.pick.outputs.tag }}"
+          release_tag="${{ steps.pick.outputs.release_tag }}"
           if [ "${{ github.event.inputs.force }}" = "true" ]; then
             echo "Force requested; will rebuild."
             echo "should_build=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          assets="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
           missing=()
           # Everything the app needs to install its own update: the .dmg for a
           # first install, and the .zip plus the manifest naming it for every
@@ -160,10 +189,10 @@ jobs:
             grep -Eq "$pattern" <<< "$assets" || missing+=("$pattern")
           done
           if (( ${#missing[@]} == 0 )); then
-            echo "Release $tag already has every macOS artifact; skipping build."
+            echo "Release $release_tag already has every macOS artifact; skipping build."
             echo "should_build=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Release $tag is missing: ${missing[*]}"
+            echo "Release $release_tag is missing: ${missing[*]}"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -375,6 +404,13 @@ jobs:
 
           grep -q '^files:' "$manifest" || { echo "::error::$manifest has no files list"; cat "$manifest"; exit 1; }
           grep -q "$arch" "$manifest" || { echo "::error::$manifest does not mention $arch"; cat "$manifest"; exit 1; }
+          # The manifest's version is what the updater compares against, and a
+          # `version` override reaches it only through package.json — this is what
+          # makes that wiring visible.
+          grep -q "^version: ${{ needs.resolve.outputs.version }}$" "$manifest" || {
+            echo "::error::$manifest does not declare version ${{ needs.resolve.outputs.version }}; the package.json version did not take"
+            cat "$manifest"; exit 1
+          }
 
           echo "Artifacts for $arch:"
           ls -la "${dmgs[@]}" "${zips[@]}" "$manifest"
@@ -513,16 +549,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ needs.resolve.outputs.tag }}"
+          release_tag="${{ needs.resolve.outputs.release_tag }}"
+          upstream_tag="${{ needs.resolve.outputs.tag }}"
           release_dir="${DESKTOP_PACKAGE_PATH}/release"
 
           # The Android workflow normally created the release already. Create it
-          # here too so a desktop-only run still produces something usable.
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            release_args=(release create "$tag" \
+          # here too so a desktop-only run still produces something usable, and so
+          # a `version` override — whose release_tag is that version, not the
+          # upstream tag — has a Release of its own to land in.
+          if ! gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_args=(release create "$release_tag" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Paseo $tag (status bar fixed + Kimi support)" \
-              --notes "Automated build of upstream ${UPSTREAM_REPO}@$tag.")
+              --title "Paseo $release_tag (status bar fixed + Kimi support)" \
+              --notes "Automated build of upstream ${UPSTREAM_REPO}@$upstream_tag.")
             if [ "${{ needs.resolve.outputs.is_prerelease }}" = "true" ]; then
               release_args+=(--prerelease)
             fi
@@ -530,7 +569,7 @@ jobs:
           fi
 
           node "${GITHUB_WORKSPACE}/scripts/upload-release-assets.mjs" \
-            "$tag" "$release_dir" "$GITHUB_REPOSITORY"
+            "$release_tag" "$release_dir" "$GITHUB_REPOSITORY"
 
   verify:
     name: verify published assets
@@ -547,13 +586,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ needs.resolve.outputs.tag }}"
+          release_tag="${{ needs.resolve.outputs.release_tag }}"
           mkdir -p downloaded
           # Both macOS archives and both channel manifests: the .dmg is what a user
           # mounts, the .zip is what the updater installs, and the manifests are
           # what send it there. Windows publishes a Paseo-Setup-*.exe and the APK
           # is not a bundle, so neither is fetched.
-          gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$release_tag" --repo "$GITHUB_REPOSITORY" \
             --pattern 'Paseo-*.dmg' \
             --pattern 'Paseo-*.zip' \
             --pattern '*-mac.yml' \

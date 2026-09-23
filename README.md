@@ -120,13 +120,20 @@ Two more workflows build the same patched Paseo for desktop and publish to the
 | `desktop-macos-build.yml` | `macos-14` (arm64) | `Paseo-<ver>-arm64.dmg`, `Paseo-<ver>-arm64.zip`, `latest-mac.yml`, `beta-mac.yml` |
 | `desktop-windows-build.yml` | `windows-latest` (x64) | `Paseo-Setup-<ver>-x64.exe` |
 
-On macOS the app installs its own updates: `MacUpdater` downloads the `.zip`, and
-`latest-mac.yml` is what tells it to. The `.dmg` is for the first install — and
-for anyone who would rather replace the app by hand. Windows publishes its
-installer alone, so updating there means running the installer again.
+Both desktop platforms install their own updates. macOS downloads the `.zip`
+(`MacUpdater`) and Windows runs the NSIS `.exe` (`NsisUpdater`); `latest-mac.yml`
+and `latest.yml` are what point them there, and each has a byte-identical `beta`
+twin. The `.dmg` and a manual run of the `.exe` are for a first install, and for
+anyone who would rather replace the app by hand.
 
 `.blockmap` files for differential downloads are built on the runner but never
 uploaded — `scripts/upload-release-assets.mjs` decides what reaches the Release.
+electron-updater treats them as optional: without one it logs "fallback to full
+download" and the update still installs, just without the smaller transfer.
+
+The Release is tagged with the version it contains. Normally that version comes
+from the upstream tag; the `version` input overrides it, which is how this repo
+publishes a build of its own — see "Publishing a version of our own".
 
 ```
 statusbar-build.yml          schedule */6h
@@ -173,11 +180,10 @@ for no behaviour change.
 
 ## Update hijack
 
-> **Live on macOS.** `latest-mac.yml` / `beta-mac.yml` are published alongside the
-> `.zip` they name, so the app offers and installs its own updates there. Windows
-> still publishes its installer alone, so updating there means running the
-> installer again. Everything below describes what the feed needs in order to
-> work.
+> **Live on both platforms.** `latest-mac.yml` / `beta-mac.yml` and `latest.yml` /
+> `beta.yml` are published alongside the archives they name, so the app offers and
+> installs its own updates. Everything below describes what the feed needs in
+> order to work.
 
 The built app checks **this repo's** Releases for its own updates instead of
 `getpaseo/paseo`. Nothing is patched to achieve this — it is three build-config
@@ -374,6 +380,32 @@ Two things this does not fix:
   flag as part of installing. Notarizing needs a real Developer ID certificate,
   not a self-signed one.
 
+## Publishing a version of our own
+
+The Release is tagged with the version it contains, so publishing `0.9.2` puts it
+in a Release tagged `v0.9.2`. Normally both come from the upstream tag; the
+`version` input decouples them:
+
+```bash
+gh workflow run desktop-macos-build.yml --repo Costben/paseo-statusbar-builds \
+  -f tag=v0.9.1 -f version=0.9.2
+```
+
+That builds upstream `v0.9.1` and publishes it as `0.9.2`. It exists for two
+reasons: shipping a fix before upstream has a tag for it, and producing a version
+newer than the one installed so the update path can be exercised end to end.
+
+Two things to know before using it:
+
+- **The version must be valid semver.** `electron-updater` parses the manifest
+  version and throws `ERR_UPDATER_INVALID_VERSION` on anything it cannot parse.
+  `0.9.1.1` is not semver, so a Release published under it would never offer an
+  update — and nothing in the build would say so.
+- **A later upstream release of the same version is skipped.** The first build of
+  a real upstream `v0.9.2` finds a Release that already carries `0.9.2` assets and
+  counts the work as done, so it needs `force: true` once. Until then the Release
+  page pairs desktop builds of `0.9.1` with a `0.9.2` APK if one exists.
+
 ## Desktop maintenance
 
 - **App dies at launch with `different Team IDs`** → on any build from before
@@ -394,9 +426,12 @@ Two things this does not fix:
   patch against the new tag (`git diff > patches/<name>.patch`) and refresh the
   markers in `apply-desktop-patch.mjs`.
 - **`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`** → the manifest for the app's channel
-  is missing from the latest Release, so the update check resolves nothing.
-  `latest-mac.yml` and `beta-mac.yml` should both be there; if one is gone, the
+  is missing from the latest Release, so the update check resolves nothing. Both
+  `latest[-mac].yml` and `beta[-mac].yml` should be there; if one is gone, the
   installers still work and re-running the workflow republishes it.
+- **`ERR_UPDATER_INVALID_VERSION`** → the manifest's `version` is not valid
+  semver, which is what a `version` override that is not semver produces (see
+  "Publishing a version of our own"). No update is offered while it stands.
 - **Updater finds nothing after a tag bump** → confirm the Release is neither a
   draft nor a prerelease. `GET /releases/latest` ignores both.
 
@@ -405,9 +440,10 @@ Two things this does not fix:
 - **Cadence**: `cron` in each desktop workflow (daily safety nets).
 - **Windows on ARM**: add `--arm64` to the `build_args` arch list in
   `desktop-windows-build.yml`. It would roughly double that job's runtime.
-- **Turn the macOS update feed off again**: drop the `.zip` from `resolve`'s
-  patterns, the `Stage updater manifests` step, and the `-arm64.zip` / `-mac.yml`
-  entries in `scripts/upload-release-assets.mjs`. Nothing else consumes them.
+- **Turn the update feeds off again**: drop the `resolve` patterns for the `.zip`
+  and the manifests, the `Stage updater manifests` step in each desktop workflow,
+  and the `zip` / `yml` entries in `scripts/upload-release-assets.mjs`. Nothing
+  else consumes them.
 - **Rebuild an existing tag**: run the workflow manually with `force: true`.
 - **Change what a Release holds**: the filter is `scripts/upload-release-assets.mjs`.
   Anything it drops is still built, just never uploaded.
