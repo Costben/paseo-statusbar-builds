@@ -281,9 +281,6 @@ auto-update works as built.
 
 ### Turning on macOS signing
 
-Until a certificate is configured, macOS builds are unsigned and **users
-download and replace the `.dmg` by hand**. To turn signing on:
-
 1. On a Mac, from the repo root:
 
    ```bash
