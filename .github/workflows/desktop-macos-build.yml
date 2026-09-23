@@ -220,12 +220,68 @@ jobs:
           console.log(`Set ${packageJsonPath} version to ${version}`);
           NODE
 
+      - name: Prepare code signing
+        env:
+          CSC_LINK_SECRET: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CSC_LINK_SECRET:-}" ]; then
+            {
+              echo "### macOS build is unsigned"
+              echo ""
+              echo "No \`MAC_CSC_LINK\` secret is configured, so this build cannot"
+              echo "install its own updates on macOS. Users must replace the .dmg"
+              echo "by hand. See the README for how to fix that."
+            } >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "CSC_IDENTITY_AUTO_DISCOVERY=false"
+              echo "EXPECT_SIGNED=false"
+            } >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+
+          printf '%s' "$CSC_LINK_SECRET" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" \
+            -P "$CSC_KEY_PASSWORD_SECRET" \
+            -T /usr/bin/codesign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$keychain_password" "$keychain" >/dev/null
+
+          # electron-builder imports CSC_LINK into its own keychain but never sets
+          # trust, and `security find-identity -v` — the command it uses to find
+          # the identity — only reports *trusted* ones. Without this the
+          # certificate is invisible and the build silently falls back to an
+          # ad-hoc signature that can never self-update.
+          security find-certificate -a -p "$keychain" > "$RUNNER_TEMP/signing.pem"
+          if ! grep -q "BEGIN CERTIFICATE" "$RUNNER_TEMP/signing.pem"; then
+            echo "::error::MAC_CSC_LINK did not yield a certificate (wrong password, or not a .p12 identity)."
+            exit 1
+          fi
+          sudo security add-trusted-cert -d -r trustRoot \
+            -k /Library/Keychains/System.keychain "$RUNNER_TEMP/signing.pem"
+
+          echo "Identity as electron-builder will see it:"
+          security find-identity -v -p codesigning "$keychain"
+
+          {
+            echo "CSC_LINK=$RUNNER_TEMP/signing.p12"
+            echo "CSC_KEY_PASSWORD=$CSC_KEY_PASSWORD_SECRET"
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
+            echo "EXPECT_SIGNED=true"
+          } >> "$GITHUB_ENV"
+
       - name: Build desktop release
         working-directory: upstream
         env:
-          # No Apple Developer ID certificate on this runner, so build unsigned
-          # and skip notarization rather than fail on a missing identity.
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          # CSC_IDENTITY_AUTO_DISCOVERY / CSC_LINK come from the step above:
+          # "false" and no certificate when no secret is configured, otherwise
+          # the imported identity.
           # Metro's web-bundle export OOMs on the last module of the generated
           # validator. Node sizes its default heap from runner RAM, which is not
           # enough on the Intel runner.
@@ -278,6 +334,43 @@ jobs:
           ls -la "${dmgs[@]}" "${zips[@]}" "$manifest"
           echo "--- $manifest ---"
           cat "$manifest"
+
+      - name: Assert code signature
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          shopt -s nullglob
+          apps=( "$release_dir"/mac*/*.app )
+          shopt -u nullglob
+          if (( ${#apps[@]} == 0 )); then
+            echo "::error::no .app under $release_dir"; ls -la "$release_dir"; exit 1
+          fi
+          app="${apps[0]}"
+
+          requirement="$(codesign -d -r- "$app" 2>/dev/null \
+            | sed -n 's/^#\{0,1\}[[:space:]]*designated => //p')"
+          echo "App: $app"
+          echo "Designated requirement: ${requirement:-<none>}"
+
+          if [ "${EXPECT_SIGNED:-false}" != "true" ]; then
+            echo "::warning::Publishing an unsigned build — macOS auto-update will not work on it."
+            exit 0
+          fi
+
+          if [ -z "$requirement" ]; then
+            echo "::error::$app is not code signed, but a signing certificate was configured."
+            echo "::error::electron-builder did not find the identity; check the trust step above."
+            exit 1
+          fi
+          if printf '%s' "$requirement" | grep -q 'cdhash'; then
+            echo "::error::$app fell back to an ad-hoc signature. Its designated requirement is pinned"
+            echo "::error::to a cdhash that changes on every build, so Squirrel.Mac would reject every"
+            echo "::error::future update. The certificate was not visible to electron-builder."
+            exit 1
+          fi
+          echo "Signed with a stable designated requirement; this build can install its own updates."
 
       - name: Publish artifacts to GitHub Release
         working-directory: upstream
