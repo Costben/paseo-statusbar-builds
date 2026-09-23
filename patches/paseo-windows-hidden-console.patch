@@ -1,0 +1,136 @@
+diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
+index 5d48491f2..2a2ae8385 100644
+--- a/packages/server/scripts/supervisor.ts
++++ b/packages/server/scripts/supervisor.ts
+@@ -1,8 +1,9 @@
+-import { fork, spawn, type ChildProcess } from "child_process";
++import { spawn, type ChildProcess } from "child_process";
+ import { mkdirSync } from "node:fs";
+ import path from "node:path";
+ import { createStream as createRotatingFileStream } from "rotating-file-stream";
+ import { signalProcessTree } from "../src/utils/tree-kill.js";
++import { forkProcess } from "../src/utils/spawn.js";
+ 
+ const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
+ const WORKER_TERMINATION_GRACE_MS = 10_000;
+@@ -234,12 +235,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
+     const spawnSpec = resolveWorkerSpawnSpec?.(workerEntry) ?? null;
+     writeLifecycleLog("Spawning worker", { workerEntry });
+     if (spawnSpec) {
++      // The supervisor runs detached without a console, so an unhidden console
++      // child would allocate a brand-new visible terminal window for the worker
++      // on Windows — closing that window then takes the whole daemon down with
++      // STATUS_CONTROL_C_EXIT.
+       child = spawn(spawnSpec.command, spawnSpec.args, {
+         stdio: ["inherit", "pipe", "pipe", "ipc"],
+         env: spawnSpec.env ?? workerEnv,
++        windowsHide: true,
+       });
+     } else {
+-      child = fork(workerEntry, workerArgs, {
++      child = forkProcess(workerEntry, workerArgs, {
+         stdio: ["inherit", "pipe", "pipe", "ipc"],
+         env: workerEnv,
+         execArgv: workerExecArgv,
+diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
+index 473cc6f35..dfece89c1 100644
+--- a/packages/server/src/server/plugins/runtime.ts
++++ b/packages/server/src/server/plugins/runtime.ts
+@@ -1,6 +1,6 @@
+ import type { PluginBeforeRequests, PluginLifecycleEvents } from "@getpaseo/plugin/server";
+ import { validateBeforeRequest, validateBeforeResult } from "./lifecycle/index.js";
+-import { fork } from "node:child_process";
++import { forkProcess } from "../../utils/spawn.js";
+ import { stat } from "node:fs/promises";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+@@ -221,7 +221,7 @@ function resolveWorkerExecArgv(): string[] {
+ }
+ 
+ function spawnPluginChild(): PluginChild {
+-  return fork(fileURLToPath(resolveWorkerUrl()), [], {
++  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
+     execArgv: resolveWorkerExecArgv(),
+     serialization: "advanced",
+     stdio: ["ignore", "pipe", "pipe", "ipc"],
+diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
+index 1f0fa96b9..7136338b7 100644
+--- a/packages/server/src/server/speech/providers/local/worker-client.ts
++++ b/packages/server/src/server/speech/providers/local/worker-client.ts
+@@ -1,4 +1,4 @@
+-import { fork } from "node:child_process";
++import { forkProcess } from "../../../../utils/spawn.js";
+ import { randomUUID } from "node:crypto";
+ import { EventEmitter } from "node:events";
+ import { Readable } from "node:stream";
+@@ -94,7 +94,7 @@ function resolveWorkerExecArgv(): string[] {
+ function forkLocalSpeechWorker(): LocalSpeechWorkerProcess {
+   const env = { ...process.env };
+   applySherpaLoaderEnv(env);
+-  return fork(fileURLToPath(resolveWorkerUrl()), [], {
++  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
+     env,
+     execArgv: resolveWorkerExecArgv(),
+     serialization: "advanced",
+diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
+index 0f0243d7a..ad6243ff1 100644
+--- a/packages/server/src/terminal/worker-terminal-manager.ts
++++ b/packages/server/src/terminal/worker-terminal-manager.ts
+@@ -1,6 +1,6 @@
+ import { fileURLToPath } from "node:url";
+-import { fork } from "node:child_process";
+ import { randomBytes, randomUUID } from "node:crypto";
++import { forkProcess } from "../utils/spawn.js";
+ import { assertAbsolutePath, isSameOrDescendantPath } from "../server/path-utils.js";
+ import type { TerminalState } from "@getpaseo/protocol/messages";
+ import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
+@@ -140,7 +140,7 @@ function cloneTerminalInfo(info: RequiredWorkerTerminalInfo): RequiredWorkerTerm
+ }
+ 
+ function forkTerminalWorker(): TerminalWorkerProcess {
+-  return fork(fileURLToPath(resolveWorkerUrl()), [], {
++  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
+     execArgv: resolveWorkerExecArgv(),
+     serialization: "advanced",
+     stdio: ["ignore", "ignore", "inherit", "ipc"],
+diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
+index 8fac115f0..689b91cfa 100644
+--- a/packages/server/src/utils/spawn.ts
++++ b/packages/server/src/utils/spawn.ts
+@@ -1,4 +1,11 @@
+-import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
++import {
++  execFile,
++  fork,
++  spawn,
++  type ChildProcess,
++  type ForkOptions,
++  type SpawnOptions,
++} from "node:child_process";
+ import { extname } from "node:path";
+ import { promisify } from "node:util";
+ 
+@@ -83,6 +90,23 @@ export function spawnProcess(
+   });
+ }
+ 
++interface ForkProcessOptions extends ForkOptions {
++  /**
++   * `child_process.fork` forwards its options to `spawn`, so `windowsHide` takes
++   * effect at runtime; @types/node just omits the flag from `ForkOptions`.
++   */
++  windowsHide?: boolean;
++}
++
++export function forkProcess(
++  modulePath: string,
++  args: string[],
++  options?: ForkProcessOptions,
++): ChildProcess {
++  const forkOptions: ForkProcessOptions = { ...options, windowsHide: true };
++  return fork(modulePath, args, forkOptions);
++}
++
+ export async function execCommand(
+   command: string,
+   args: string[],
