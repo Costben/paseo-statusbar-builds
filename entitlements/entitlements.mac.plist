@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <!--
+    Hardened runtime turns on library validation: a process may only load code
+    signed by the same Team ID. Our certificate is self-signed, so the Team ID
+    comes from the OU field of its subject (see generate-mac-signing-cert.sh) —
+    and if that field is ever missing, codesign writes *no* Team ID at all and
+    the main process refuses to load the Electron Framework it ships with:
+
+      Library not loaded: @rpath/Electron Framework.framework/Electron Framework
+      Reason: ... mapping process and mapped file (non-platform) have different Team IDs
+
+    That is a launch-time crash, not a signing-time error, so it never shows up
+    until someone installs the .dmg. Disabling library validation removes the
+    dependency on the certificate being shaped correctly: the nested binaries
+    still have to be signed by the same certificate, but the launch no longer
+    dies when the Team ID is empty on both sides.
+  -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

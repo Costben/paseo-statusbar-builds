@@ -12,6 +12,15 @@ name: Build patched Paseo for macOS
 # half-signed bundle dies at launch with `different Team IDs`. See the "Assert
 # nested code" step below.
 #
+# Hardened runtime is on, and with it library validation — a process may only
+# load code signed by its own Team ID. A self-signed certificate never gets a
+# Team ID, so every binary in the bundle reads `TeamIdentifier=not set` and macOS
+# refuses to load the nested frameworks anyway: the build signs cleanly, passes
+# every signature check, publishes, and only then dies on the user's Mac. Two
+# things hold that shut — `entitlements/` disables library validation, and the
+# smoke step launches the packaged app. See README, "A self-signed certificate
+# has no Team ID, and hardened runtime cares".
+#
 # arm64 only, and the runner has to match the target architecture: `npm ci`
 # installs the prebuilt native packages (sherpa-onnx, sharp) for the *runner's*
 # architecture, so an x64 build on an arm64 runner silently ships without them.
@@ -28,8 +37,9 @@ name: Build patched Paseo for macOS
 # README ("Update hijack") for what that does and does not buy you on macOS.
 #
 # `verify_only` re-checks what is already published instead of building: it
-# mounts each released .dmg and re-runs the same signature assertions, so a bundle
-# users have already downloaded can be audited without rebuilding it.
+# mounts each released .dmg, re-runs the same signature assertions, and launches
+# the .app inside, so a bundle users have already downloaded can be audited —
+# including whether it starts at all — without rebuilding it.
 
 on:
   workflow_run:
@@ -249,6 +259,11 @@ jobs:
             {
               echo "CSC_IDENTITY_AUTO_DISCOVERY=false"
               echo "EXPECT_SIGNED=false"
+              # No certificate at all, so an ad-hoc bundle is the expected
+              # outcome and the nested-code assertion must not insist that every
+              # binary carries one. The smoke step still runs: the entitlements
+              # have to keep even an ad-hoc bundle launchable.
+              echo "ALLOW_UNSIGNED_APP=1"
             } >> "$GITHUB_ENV"
             exit 0
           fi
@@ -286,6 +301,9 @@ jobs:
             echo "CSC_KEY_PASSWORD=$CSC_KEY_PASSWORD_SECRET"
             echo "CSC_IDENTITY_AUTO_DISCOVERY=true"
             echo "EXPECT_SIGNED=true"
+            # A certificate is configured, so every binary has to carry it: an
+            # ad-hoc fallback here is a bug, not an expected outcome.
+            echo "ALLOW_UNSIGNED_APP=0"
           } >> "$GITHUB_ENV"
 
       - name: Build desktop release
@@ -307,6 +325,11 @@ jobs:
             # published, so building it is wasted time and disk.
             -c.mac.target=dmg
             -c.mac.notarize=false
+            # Our own entitlements rather than the ones upstream ships: they add
+            # the library-validation exemption hardened runtime needs once the
+            # certificate's Team ID is empty. See entitlements/.
+            "-c.mac.entitlements=${GITHUB_WORKSPACE}/entitlements/entitlements.mac.plist"
+            "-c.mac.entitlementsInherit=${GITHUB_WORKSPACE}/entitlements/entitlements.mac.inherit.plist"
             "-c.publish.owner=${PUBLISH_OWNER}"
             "-c.publish.repo=${PUBLISH_REPO}"
             -c.publish.releaseType=release
@@ -389,10 +412,88 @@ jobs:
           # fails. It fails on someone's Mac, where dyld refuses to load a
           # framework whose Team ID differs from the process's and the app dies
           # before it can draw a window.
+          #
+          # The script compares signing certificates rather than Team IDs, because
+          # a self-signed certificate produces no Team ID — comparing those found
+          # everything equal and passed the very bundle that shipped and crashed.
           echo "Sealed resources:"
           codesign --verify --deep --strict "$app"
           echo "Nested binaries:"
           node "${GITHUB_WORKSPACE}/scripts/assert-mac-signatures.mjs" "$app"
+
+      - name: Assert the entitlements reached the bundle
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          shopt -s nullglob
+          apps=( "$release_dir"/mac*/*.app )
+          shopt -u nullglob
+          app="${apps[0]}"
+
+          # entitlements/ is wired in with -c.mac.entitlements above, and a typo
+          # in that path is silent: electron-builder signs without the file and
+          # the bundle still verifies. This is what makes the wiring visible.
+          # Written to a file rather than piped so `grep -q` exiting early cannot
+          # trip `pipefail`.
+          entitlements="$RUNNER_TEMP/entitlements.plist"
+          codesign -d --entitlements - "$app" > "$entitlements" 2>/dev/null || true
+          cat "$entitlements"
+
+          for key in \
+            com.apple.security.cs.disable-library-validation \
+            com.apple.security.cs.allow-jit; do
+            if ! grep -qa "$key" "$entitlements"; then
+              echo "::error::$app does not carry $key — -c.mac.entitlements did not take effect."
+              exit 1
+            fi
+          done
+          echo "The bundle carries the entitlements from entitlements/."
+
+      - name: Smoke-launch the packaged app
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          shopt -s nullglob
+          apps=( "$release_dir"/mac*/*.app )
+          shopt -u nullglob
+          app="${apps[0]}"
+          exe="$app/Contents/MacOS/Paseo"
+
+          # The steps above read the bundle; this one runs it. dyld resolves the
+          # Electron Framework at load time, so a bundle whose nested code cannot
+          # be loaded dies right here with `different Team IDs` — the same failure
+          # a user hits on install, caught while the run can still go red and
+          # before anything is published.
+          #
+          # ELECTRON_RUN_AS_NODE=1 runs the binary as Node instead of opening a
+          # window. A second Paseo GUI on a machine already running one is not
+          # something a build should cause.
+          if [ ! -x "$exe" ]; then
+            echo "::error::no executable at $exe"; exit 1
+          fi
+
+          # Captured to a file for the same reason as above: no upstream pipe for
+          # an early-exiting `grep -q` to break under `pipefail`.
+          probe="$RUNNER_TEMP/paseo-smoke.log"
+          set +e
+          ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1
+          status=$?
+          set -e
+
+          cat "$probe"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::the packaged app exited $status without starting — dyld could not load its own frameworks."
+            exit 1
+          fi
+          if ! grep -qx '1' "$probe"; then
+            echo "::error::the packaged app started but the probe printed nothing."
+            exit 1
+          fi
+          echo "The packaged app loads its own frameworks and runs."
 
       - name: Publish artifacts to GitHub Release
         working-directory: upstream
@@ -466,6 +567,21 @@ jobs:
             else
               codesign --verify --deep --strict "$app" || status=1
               node scripts/assert-mac-signatures.mjs "$app" || status=1
+
+              # Read the bundle, then run it. dyld loads the Electron Framework
+              # at start-up, so this is where a bundle nobody can launch fails —
+              # on the artifact users actually downloaded, not a build tree.
+              exe="$app/Contents/MacOS/Paseo"
+              probe="$RUNNER_TEMP/paseo-smoke-${name}.log"
+              set +e
+              ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1
+              probe_status=$?
+              set -e
+              cat "$probe"
+              if [ "$probe_status" -ne 0 ] || ! grep -qx '1' "$probe"; then
+                echo "::error::$app cannot launch (exit $probe_status) — dyld could not load its own frameworks."
+                status=1
+              fi
             fi
 
             hdiutil detach "$mount" >/dev/null || true

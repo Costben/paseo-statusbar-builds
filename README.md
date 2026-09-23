@@ -321,11 +321,45 @@ that assertion exists because electron-builder's fallback is *silent*, and an
 ad-hoc build looks like a successful one right up until a user cannot update.
 
 A second assertion walks every Mach-O in the bundle
-(`scripts/assert-mac-signatures.mjs`). The root signature can be perfect while a
-nested framework still carries Electron's own certificate, and macOS refuses to
-load a framework whose Team ID differs from the app's — the app then dies with
-`Library not loaded: @rpath/Electron Framework.framework/Electron Framework …
-different Team IDs` before it can draw a window.
+(`scripts/assert-mac-signatures.mjs`) and requires the signing **certificate** to
+be the same everywhere. The root signature can be perfect while a nested
+framework still carries Electron's own certificate, and macOS refuses to load
+code signed by a different party — the app then dies before it can draw a window.
+
+### A self-signed certificate has no Team ID, and hardened runtime cares
+
+Measured on the macOS 14 runner and locally, and the reason a *perfectly signed*
+build can still refuse to start.
+
+codesign writes a `TeamIdentifier` only for a certificate issued by Apple. Every
+certificate this repo can produce is self-signed, so `codesign -dvvv` reports
+`TeamIdentifier=not set` on **every** binary it signs — with an OU in the subject
+and without one, trusted and untrusted, and for the ad-hoc fallback too. Keeping
+`OU = paseo-builds` in the subject is still right (it is what a Developer ID
+designated requirement matches on, and what the certificate carries if this ever
+moves to a real Apple certificate), but it does not create a Team ID. Nothing
+that can be generated here does.
+
+Hardened runtime is on, and with it library validation: a process may only load
+code signed by *its own* Team ID. With no Team ID on either side there is nothing
+to match, so the load fails and the app dies at launch:
+
+```
+Library not loaded: @rpath/Electron Framework.framework/Electron Framework
+Reason: ... mapping process and mapped file (non-platform) have different Team IDs
+```
+
+Two things keep that from shipping again, and neither is a signature check — the
+broken build was signed by one certificate, top to bottom, which is exactly why
+every signature check passed:
+
+1. `entitlements/` adds `com.apple.security.cs.disable-library-validation` to the
+   app and to every nested helper, wired in with `-c.mac.entitlements` and
+   `-c.mac.entitlementsInherit`. This is what actually makes the bundle launch.
+2. The workflow launches the packaged app
+   (`ELECTRON_RUN_AS_NODE=1 … -e 'console.log(1)'`) and fails if dyld refuses to
+   load its own frameworks. It is the only check that can catch the failure
+   above, because it is the only one that runs the app.
 
 Two things this does not fix:
 
@@ -340,17 +374,20 @@ Two things this does not fix:
 
 ## Desktop maintenance
 
-- **App dies at launch with `different Team IDs`** → the bundle on disk is not the
-  one that was published; a nested framework kept another signer's certificate,
-  which is what a replacement that only overwrote part of `/Applications/Paseo.app`
-  leaves behind. Delete the app and install the archive again rather than dragging
-  it over the existing copy. Verifying the published archive is the arbiter:
-  `codesign --verify --deep --strict /Applications/Paseo.app` and
+- **App dies at launch with `different Team IDs`** → on any build from before
+  `entitlements/` was wired in, this was the self-signed-certificate trap above,
+  not a partial install: the bundle was signed consistently, by one certificate,
+  and still could not load its own frameworks. Check which one it is before
+  reinstalling anything —
+  `codesign -d --entitlements - /Applications/Paseo.app` reporting no
+  `disable-library-validation` means the copy predates the fix, and reinstalling
+  is the answer. A bundle that *does* carry it and still fails is something else:
+  a nested framework left with another signer's certificate, which is what
+  replacing a build by dragging it over an existing `/Applications/Paseo.app`
+  leaves behind. Delete the app and install it again rather than dragging it
+  over the existing copy; `codesign --verify --deep --strict` and
   `node scripts/assert-mac-signatures.mjs /Applications/Paseo.app` name the files
-  that disagree — an empty report against a released archive means the bundle itself
-  is sound. To launch an already-broken copy anyway,
-  `sudo codesign --force --deep --sign - /Applications/Paseo.app` re-signs the whole
-  bundle ad-hoc, at the cost of in-app updates on that copy.
+  that disagree.
 - **Patch does not apply** → upstream moved the code it targets. Rebuild the
   patch against the new tag (`git diff > patches/<name>.patch`) and refresh the
   markers in `apply-desktop-patch.mjs`.
@@ -374,7 +411,12 @@ Two things this does not fix:
   Anything it drops is still built, just never uploaded.
 - **Re-check a published installer**: run the macOS workflow with
   `verify_only: true`. It downloads the released `.dmg`s, mounts them read-only,
-  and re-runs the same two assertions on the `.app` inside — without building or
-  publishing anything.
+  re-runs the same assertions on the `.app` inside and launches it — without
+  building or publishing anything.
+- **Entitlements**: `entitlements/` is this repo's own pair of plists, pointed at
+  with `-c.mac.entitlements` and `-c.mac.entitlementsInherit`, chosen over
+  upstream's because they add `disable-library-validation` (see "A self-signed
+  certificate has no Team ID"). Add a key to both files — `entitlementsInherit`
+  covers every nested helper, and library validation is enforced per process.
 - **Timeouts**: 150 minutes per desktop job. Both platforms build the full web
   bundle with Metro and pack ~2 GB of `node_modules`, so expect 30–60 minutes.
