@@ -7,11 +7,11 @@
 // that asset, and the retry usually recovers it.
 //
 // What is uploaded is what a user or an updater actually fetches: the installers
-// (.dmg / .apk / NSIS .exe), the archives the updaters install (the macOS .zip,
-// the Windows .zip), and the <channel>[-mac].yml manifests that name them. The
-// .blockmap files for differential downloads are dropped: electron-updater falls
-// back to a full download when one is missing, so they only buy a smaller
-// transfer.
+// (.dmg / .apk / NSIS .exe), the archive the macOS updater installs (the .zip;
+// NsisUpdater installs by running the .exe instead, so Windows ships no archive),
+// and the <channel>[-mac].yml manifests that name them. The .blockmap files for
+// differential downloads are dropped: electron-updater falls back to a full
+// download when one is missing, so they only buy a smaller transfer.
 //
 // Usage: node upload-release-assets.mjs <release> <dir> <repo>
 
@@ -29,9 +29,10 @@ if (!release || !releaseDir || !repo) {
 }
 
 // Paseo-<ver>-arm64.dmg, Paseo-<ver>-arm64.zip (upstream's mac.artifactName bakes
-// the arch into the name), Paseo-Setup-<ver>-x64.exe, Paseo-Setup-<ver>-x64.zip,
+// the arch into the name), Paseo-Setup-<ver>-x64.exe,
 // paseo-<tag>-statusbar-fixed.apk, and the latest/beta manifest of either
-// platform. `.blockmap` files are left out on purpose: electron-updater falls
+// platform. The `-(arm64|x64).zip` arm of the pattern is what the macOS build
+// matches. `.blockmap` files are left out on purpose: electron-updater falls
 // back to a full download when one is missing, so they buy a smaller transfer
 // and nothing else.
 const ARCHIVE = /(\.dmg|\.apk|-setup-.*\.exe|-(arm64|x64)\.zip)$/i;
