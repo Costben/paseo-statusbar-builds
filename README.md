@@ -388,23 +388,32 @@ in a Release tagged `v0.9.2`. Normally both come from the upstream tag; the
 
 ```bash
 gh workflow run desktop-macos-build.yml --repo Costben/paseo-statusbar-builds \
-  -f tag=v0.9.1 -f version=0.9.2
+  -f tag=v0.9.1 -f version=0.9.2-beta.1
 ```
 
-That builds upstream `v0.9.1` and publishes it as `0.9.2`. It exists for two
+That builds upstream `v0.9.1` and publishes it as `0.9.2-beta.1`. It exists for two
 reasons: shipping a fix before upstream has a tag for it, and producing a version
 newer than the one installed so the update path can be exercised end to end.
 
-Two things to know before using it:
+The version must be valid semver, and a prerelease component decides how the
+Release is treated:
 
-- **The version must be valid semver.** `electron-updater` parses the manifest
-  version and throws `ERR_UPDATER_INVALID_VERSION` on anything it cannot parse.
-  `0.9.1.1` is not semver, so a Release published under it would never offer an
-  update — and nothing in the build would say so.
-- **A later upstream release of the same version is skipped.** The first build of
-  a real upstream `v0.9.2` finds a Release that already carries `0.9.2` assets and
-  counts the work as done, so it needs `force: true` once. Until then the Release
-  page pairs desktop builds of `0.9.1` with a `0.9.2` APK if one exists.
+- **`0.9.2-beta.1` style.** Published as a prerelease Release under a tag of the
+  same shape (`v0.9.2-beta.1`), exactly how an upstream beta is treated — this
+  repo keeps mirroring upstream rather than inventing a version space of its own.
+  Only an app on a non-default channel sees it: the default channel reads
+  `GET /releases/latest`, which ignores prereleases, while a `beta` channel walks
+  the release feed and finds them.
+- **A plain `0.9.2`.** Published as a normal Release, visible to every channel —
+  and it takes the tag a real upstream `v0.9.2` will later need, so that build
+  finds the Release already populated and needs `force: true` once.
+- **The prerelease identifier has to be `beta`, not `beta1`.** electron-updater
+  treats every other identifier as a *custom* channel: it skips that tag and then
+  looks for `<identifier>-mac.yml`. `0.9.2-beta.1` resolves; `0.9.2-beta1` is a
+  release nobody is ever offered.
+- **Never a fourth component.** `0.9.1.1` is not semver — electron-updater parses
+  the manifest version and throws `ERR_UPDATER_INVALID_VERSION` on every check, so
+  no update is ever offered and nothing says why.
 
 ## Desktop maintenance
 

@@ -150,11 +150,17 @@ jobs:
           if [ -n "$override" ]; then
             version="$override"
             release_tag="v$version"
-            # GET /releases/latest ignores prereleases, and that endpoint is how
-            # the updater finds the feed: publishing an override as a prerelease
-            # would produce a release the app cannot see.
-            is_prerelease="false"
-            echo "Publishing version $version as Release $release_tag (built from upstream $tag)"
+            # A version carrying a prerelease component (0.9.2-beta.1) is
+            # published as a prerelease Release under a tag of the same shape,
+            # exactly as an upstream beta is. That is what separates the two
+            # audiences: an app on the default channel reads GET /releases/latest,
+            # which ignores prereleases, while one on a non-default channel walks
+            # the release feed and finds them.
+            case "$version" in
+              *-*) is_prerelease="true" ;;
+              *) is_prerelease="false" ;;
+            esac
+            echo "Publishing version $version as Release $release_tag (prerelease=$is_prerelease, built from upstream $tag)"
           fi
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"

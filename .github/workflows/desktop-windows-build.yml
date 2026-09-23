@@ -111,10 +111,13 @@ jobs:
           if [ -n "$override" ]; then
             version="$override"
             release_tag="v$version"
-            # GET /releases/latest ignores prereleases, and that endpoint is how
-            # the updater finds the feed.
-            is_prerelease="false"
-            echo "Publishing version $version as Release $release_tag (built from upstream $tag)"
+            # A version carrying a prerelease component is published as a
+            # prerelease Release, as on macOS.
+            case "$version" in
+              *-*) is_prerelease="true" ;;
+              *) is_prerelease="false" ;;
+            esac
+            echo "Publishing version $version as Release $release_tag (prerelease=$is_prerelease, built from upstream $tag)"
           fi
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
