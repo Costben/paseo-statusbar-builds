@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// Uploads built release artifacts one file at a time, with retries.
+// Uploads built release assets one file at a time, with retries.
 //
 // Why not a single `gh release upload release/*`: uploads.github.com returns
 // HTTP 500 on large desktop binaries often enough that one failure would
 // discard a ~50 minute build. Uploading per file means a bad asset only costs
 // that asset, and the retry usually recovers it.
 //
-// Only installers are uploaded. A Release is meant to hold one file per platform
-// — the macOS .dmg, the Windows NSIS .exe and the Android .apk — so the archives
-// (.zip), the differential-update blockmaps and the updater manifests (*.yml)
-// that electron-builder also produces never reach it. Everything this leaves out
-// is what a manual download would not use.
+// What is uploaded is what a user or an updater actually fetches: the installers
+// (.dmg / .apk / NSIS .exe), the macOS .zip MacUpdater installs, and the
+// <channel>-mac.yml manifests that name them. The .blockmap files for
+// differential downloads are dropped — nothing resolves them once publishing is
+// left to this script instead of to electron-builder.
 //
 // Usage: node upload-release-assets.mjs <release> <dir> <repo>
 
@@ -27,13 +27,20 @@ if (!release || !releaseDir || !repo) {
   process.exit(2);
 }
 
-// Paseo-<ver>-arm64.dmg, Paseo-Setup-<ver>-x64.exe, paseo-<tag>-statusbar-fixed.apk.
-const INSTALLER = /(\.dmg|\.apk|-setup-.*\.exe)$/i;
+// Paseo-<ver>-arm64.dmg, Paseo-<ver>-arm64.zip (upstream's mac.artifactName bakes
+// the arch into the name), Paseo-Setup-<ver>-x64.exe, paseo-<tag>-statusbar-
+// fixed.apk, latest-mac.yml / beta-mac.yml.
+const ARCHIVE = /(\.dmg|\.apk|-setup-.*\.exe|-(arm64|x64)\.zip)$/i;
+const MANIFEST = /-mac\.yml$/i;
 
+const isManifest = (file) => MANIFEST.test(path.basename(file));
+
+// Manifests are uploaded last: an updater that reads a manifest naming an archive
+// which has not landed yet fails its check instead of retrying.
 const files = readdirSync(releaseDir)
   .map((name) => path.join(releaseDir, name))
-  .filter((file) => statSync(file).isFile() && INSTALLER.test(path.basename(file)))
-  .sort();
+  .filter((file) => statSync(file).isFile() && (ARCHIVE.test(path.basename(file)) || isManifest(file)))
+  .sort((a, b) => Number(isManifest(a)) - Number(isManifest(b)) || a.localeCompare(b));
 
 if (files.length === 0) {
   console.error(`[upload-release-assets] ERROR: no release artifacts found in ${releaseDir}`);

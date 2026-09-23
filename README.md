@@ -112,19 +112,21 @@ pick up each new upstream release on its own.
 # Desktop builds (macOS + Windows)
 
 Two more workflows build the same patched Paseo for desktop and publish to the
-**same Release** as the APK. Every Release ends up holding exactly three files —
-one installer per platform:
+**same Release** as the APK:
 
 | Workflow | Runner | Output |
 |---|---|---|
 | `statusbar-build.yml` | `ubuntu-latest` | `paseo-<tag>-statusbar-fixed.apk` |
-| `desktop-macos-build.yml` | `macos-14` (arm64) | `Paseo-<ver>-arm64.dmg` |
+| `desktop-macos-build.yml` | `macos-14` (arm64) | `Paseo-<ver>-arm64.dmg`, `Paseo-<ver>-arm64.zip`, `latest-mac.yml`, `beta-mac.yml` |
 | `desktop-windows-build.yml` | `windows-latest` (x64) | `Paseo-Setup-<ver>-x64.exe` |
 
-`.zip` archives, `.blockmap` files and `<channel>.yml` updater manifests are
-built on the runner but never uploaded — `scripts/upload-release-assets.mjs`
-decides what reaches the Release. The consequence is that the app's own update
-check has nothing to resolve, so updating means downloading the installer.
+On macOS the app installs its own updates: `MacUpdater` downloads the `.zip`, and
+`latest-mac.yml` is what tells it to. The `.dmg` is for the first install — and
+for anyone who would rather replace the app by hand. Windows publishes its
+installer alone, so updating there means running the installer again.
+
+`.blockmap` files for differential downloads are built on the runner but never
+uploaded — `scripts/upload-release-assets.mjs` decides what reaches the Release.
 
 ```
 statusbar-build.yml          schedule */6h
@@ -171,11 +173,11 @@ for no behaviour change.
 
 ## Update hijack
 
-> **Dormant.** `app-update.yml` still points at this repo, but no
-> `<channel>.yml` / `<channel>-mac.yml` is published — a Release holds installers
-> only — so the update check resolves nothing and the app keeps running on the
-> build that was installed. Everything below describes what the feed would need
-> for manifests to be published again.
+> **Live on macOS.** `latest-mac.yml` / `beta-mac.yml` are published alongside the
+> `.zip` they name, so the app offers and installs its own updates there. Windows
+> still publishes its installer alone, so updating there means running the
+> installer again. Everything below describes what the feed needs in order to
+> work.
 
 The built app checks **this repo's** Releases for its own updates instead of
 `getpaseo/paseo`. Nothing is patched to achieve this — it is three build-config
@@ -391,9 +393,10 @@ Two things this does not fix:
 - **Patch does not apply** → upstream moved the code it targets. Rebuild the
   patch against the new tag (`git diff > patches/<name>.patch`) and refresh the
   markers in `apply-desktop-patch.mjs`.
-- **`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`** → expected: no manifests are
-  published, so the update check has nothing to resolve. Update by downloading the
-  installer.
+- **`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`** → the manifest for the app's channel
+  is missing from the latest Release, so the update check resolves nothing.
+  `latest-mac.yml` and `beta-mac.yml` should both be there; if one is gone, the
+  installers still work and re-running the workflow republishes it.
 - **Updater finds nothing after a tag bump** → confirm the Release is neither a
   draft nor a prerelease. `GET /releases/latest` ignores both.
 
@@ -402,17 +405,18 @@ Two things this does not fix:
 - **Cadence**: `cron` in each desktop workflow (daily safety nets).
 - **Windows on ARM**: add `--arm64` to the `build_args` arch list in
   `desktop-windows-build.yml`. It would roughly double that job's runtime.
-- **Publish updater manifests again**: no `<channel>.yml` is staged or uploaded
-  any more. Restoring it means putting the manifest step back in each desktop
-  workflow, restoring the `MANIFEST_CHANNEL` / `EXTRA_CHANNELS` env pair, and
-  widening the filter in `scripts/upload-release-assets.mjs`.
+- **Turn the macOS update feed off again**: drop the `.zip` from `resolve`'s
+  patterns, the `Stage updater manifests` step, and the `-arm64.zip` / `-mac.yml`
+  entries in `scripts/upload-release-assets.mjs`. Nothing else consumes them.
 - **Rebuild an existing tag**: run the workflow manually with `force: true`.
 - **Change what a Release holds**: the filter is `scripts/upload-release-assets.mjs`.
   Anything it drops is still built, just never uploaded.
-- **Re-check a published installer**: run the macOS workflow with
-  `verify_only: true`. It downloads the released `.dmg`s, mounts them read-only,
-  re-runs the same assertions on the `.app` inside and launches it — without
-  building or publishing anything.
+- **Re-check a published release**: run the macOS workflow with
+  `verify_only: true`. It downloads the released `.dmg`s, the `.zip`s and the
+  manifests, mounts each disk image read-only, expands each archive with `ditto`,
+  re-runs the same signature assertions on the `.app` inside, launches it, and
+  checks each manifest's `sha512` against the archives it names — without building
+  or publishing anything.
 - **Entitlements**: `entitlements/` is this repo's own pair of plists, pointed at
   with `-c.mac.entitlements` and `-c.mac.entitlementsInherit`, chosen over
   upstream's because they add `disable-library-validation` (see "A self-signed

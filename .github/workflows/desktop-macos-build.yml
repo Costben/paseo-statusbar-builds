@@ -1,9 +1,10 @@
 name: Build patched Paseo for macOS
 
-# Builds a patched Paseo .dmg for macOS (arm64) and publishes it to this repo's
-# Releases, alongside the Android APK and the Windows installer for the same
-# upstream tag. A Release carries installers only — no archives and no updater
-# manifests — so updating means downloading the installer again.
+# Builds a patched Paseo .dmg and .zip for macOS (arm64) and publishes them to
+# this repo's Releases, alongside the Android APK and the Windows installer for
+# the same upstream tag. The .zip is what the in-app updater installs and the
+# latest-mac.yml is what points it there, so both are published: install the .dmg
+# once and every later version arrives through the app.
 #
 # Code signing is optional: with `MAC_CSC_LINK` configured the build signs itself
 # with the certificate pinned in that secret; without it electron-builder falls
@@ -36,10 +37,12 @@ name: Build patched Paseo for macOS
 # The built app is pointed at THIS repo's Releases for its own updates. See
 # README ("Update hijack") for what that does and does not buy you on macOS.
 #
-# `verify_only` re-checks what is already published instead of building: it
-# mounts each released .dmg, re-runs the same signature assertions, and launches
-# the .app inside, so a bundle users have already downloaded can be audited —
-# including whether it starts at all — without rebuilding it.
+# `verify_only` re-checks what is already published instead of building: it mounts
+# each released .dmg, expands each released .zip, re-runs the same signature
+# assertions on the .app inside, launches it, and compares each manifest's sha512
+# against the archives it names — so a release users have already downloaded can be
+# audited, including whether the updater would really install from it, without
+# rebuilding anything.
 
 on:
   workflow_run:
@@ -84,11 +87,13 @@ env:
   PUBLISH_OWNER: Costben
   PUBLISH_REPO: paseo-statusbar-builds
 
-  # The channel the app's updater asks for. No <channel>-mac.yml is published any
-  # more, so this only decides which feed name the app looks for; the check finds
-  # nothing and the app keeps running. Set explicitly so the feed name stays
+  # electron-updater resolves <channel>-mac.yml, where <channel> is the app's
+  # release-channel setting ("latest" for stable, "beta" for beta). We generate
+  # `latest` and publish a byte-identical copy per EXTRA_CHANNELS entry, so either
+  # setting resolves to the same build. Set explicitly so the feed name stays
   # pinned at Costben's repo instead of upstream's.
   UPDATE_CHANNEL: latest
+  EXTRA_CHANNELS: beta
 
 jobs:
   resolve:
@@ -143,10 +148,15 @@ jobs:
           fi
           assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
           missing=()
-          # Installers only: a Release carries no archives and no manifests, so the
-          # .dmg is the whole contract for this platform.
+          # Everything the app needs to install its own update: the .dmg for a
+          # first install, and the .zip plus the manifest naming it for every
+          # update after that. A Release missing the zip is one whose updater
+          # 404s, so the build keeps running until all four are there.
           for pattern in \
-            '^Paseo-.*-arm64\.dmg$'; do
+            '^Paseo-.*-arm64\.dmg$' \
+            '^Paseo-.*-arm64\.zip$' \
+            '^latest-mac\.yml$' \
+            '^beta-mac\.yml$'; do
             grep -Eq "$pattern" <<< "$assets" || missing+=("$pattern")
           done
           if (( ${#missing[@]} == 0 )); then
@@ -321,9 +331,8 @@ jobs:
           build_args=(
             --publish never
             --mac "--${{ matrix.electron_arch }}"
-            # Installers only: the .zip electron-updater would want is not
-            # published, so building it is wasted time and disk.
-            -c.mac.target=dmg
+            # No -c.mac.target override: upstream's default builds the .dmg and
+            # the .zip, and MacUpdater installs the zip.
             -c.mac.notarize=false
             # Our own entitlements rather than the ones upstream ships: they add
             # the library-validation exemption hardened runtime needs once the
@@ -349,14 +358,43 @@ jobs:
           # and the upload step below would publish a release with holes in it.
           shopt -s nullglob
           dmgs=( "$release_dir"/*-"$arch".dmg )
+          zips=( "$release_dir"/*-"$arch".zip )
+          manifest="$release_dir/${UPDATE_CHANNEL}-mac.yml"
           shopt -u nullglob
 
           if (( ${#dmgs[@]} == 0 )); then
             echo "::error::no .dmg for $arch in $release_dir"; ls -la "$release_dir"; exit 1
           fi
+          if (( ${#zips[@]} == 0 )); then
+            echo "::error::no .zip for $arch in $release_dir (MacUpdater installs the zip, not the dmg)"
+            ls -la "$release_dir"; exit 1
+          fi
+          if [ ! -f "$manifest" ]; then
+            echo "::error::updater manifest is missing: $manifest"; ls -la "$release_dir"; exit 1
+          fi
+
+          grep -q '^files:' "$manifest" || { echo "::error::$manifest has no files list"; cat "$manifest"; exit 1; }
+          grep -q "$arch" "$manifest" || { echo "::error::$manifest does not mention $arch"; cat "$manifest"; exit 1; }
 
           echo "Artifacts for $arch:"
-          ls -la "${dmgs[@]}"
+          ls -la "${dmgs[@]}" "${zips[@]}" "$manifest"
+          echo "--- $manifest ---"
+          cat "$manifest"
+
+      - name: Stage updater manifests
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          # The manifest carries no channel name inside it, so the extra channels
+          # are byte-identical copies and either release-channel setting resolves
+          # to the same build. upload-release-assets.mjs uploads them last, after
+          # the archives they name.
+          for channel in ${EXTRA_CHANNELS}; do
+            cp "${release_dir}/${UPDATE_CHANNEL}-mac.yml" "${release_dir}/${channel}-mac.yml"
+          done
+          ls -la "$release_dir"/*-mac.yml
 
       - name: Assert code signature
         working-directory: upstream
@@ -461,46 +499,13 @@ jobs:
           apps=( "$release_dir"/mac*/*.app )
           shopt -u nullglob
           app="${apps[0]}"
-          exe="$app/Contents/MacOS/Paseo"
 
-          # The steps above read the bundle; this one runs it. dyld resolves the
-          # Electron Framework at load time, so a bundle whose nested code cannot
-          # be loaded dies right here with `different Team IDs` — the same failure
-          # a user hits on install, caught while the run can still go red and
-          # before anything is published.
-          #
-          # ELECTRON_RUN_AS_NODE=1 runs the binary as Node instead of opening a
-          # window. A second Paseo GUI on a machine already running one is not
-          # something a build should cause.
-          if [ ! -x "$exe" ]; then
-            echo "::error::no executable at $exe"; exit 1
-          fi
-
-          # Captured to a file for the same reason as above: no upstream pipe for
-          # an early-exiting `grep -q` to break under `pipefail`. Bounded too: a
-          # launch that hangs is a failure, not a reason to spend the job's whole
-          # 150-minute budget waiting for it.
-          probe="$RUNNER_TEMP/paseo-smoke.log"
-          ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1 &
-          app_pid=$!
-          ( sleep 60; kill -9 "$app_pid" 2>/dev/null ) &
-          watchdog_pid=$!
-          set +e
-          wait "$app_pid"
-          status=$?
-          set -e
-          kill "$watchdog_pid" 2>/dev/null || true
-
-          cat "$probe"
-          if [ "$status" -ne 0 ]; then
-            echo "::error::the packaged app exited $status without starting — dyld could not load its own frameworks, or it hung."
-            exit 1
-          fi
-          if ! grep -qx '1' "$probe"; then
-            echo "::error::the packaged app started but the probe printed nothing."
-            exit 1
-          fi
-          echo "The packaged app loads its own frameworks and runs."
+          # The steps above read the bundle; this one runs it, because dyld
+          # resolves the Electron Framework at load time and a bundle whose nested
+          # code cannot be loaded dies right here with `different Team IDs` — the
+          # same failure a user hits on install, caught while the run can still go
+          # red and before anything is published. See scripts/smoke-launch.sh.
+          bash "${GITHUB_WORKSPACE}/scripts/smoke-launch.sh" "$app"
 
       - name: Publish artifacts to GitHub Release
         working-directory: upstream
@@ -537,18 +542,40 @@ jobs:
       - name: Checkout build repo (the verification script lives here)
         uses: actions/checkout@v4
 
-      - name: Download the published disk images
+      - name: Download the published assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           tag="${{ needs.resolve.outputs.tag }}"
           mkdir -p downloaded
-          # A .dmg is the only thing on the Release that carries an .app, so this
-          # pattern is exact where a Paseo-*.zip pattern was not.
+          # Both macOS archives and both channel manifests: the .dmg is what a user
+          # mounts, the .zip is what the updater installs, and the manifests are
+          # what send it there. Windows publishes a Paseo-Setup-*.exe and the APK
+          # is not a bundle, so neither is fetched.
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
-            --pattern 'Paseo-*.dmg' --dir downloaded
+            --pattern 'Paseo-*.dmg' \
+            --pattern 'Paseo-*.zip' \
+            --pattern '*-mac.yml' \
+            --dir downloaded
           ls -la downloaded
+
+      - name: Assert the updater manifests match the published archives
+        run: |
+          set -euo pipefail
+          # assert-mac-manifest.mjs imports js-yaml; installing it at the repo root
+          # is what makes the bare specifier resolve from scripts/.
+          [ -f package.json ] || printf '{"private":true}\n' > package.json
+          npm install --no-save --no-audit --no-fund --no-package-lock js-yaml@4.1.0
+
+          # One manifest per channel, byte-identical, so checking each checks the
+          # feed an app on either release-channel setting would read. A manifest
+          # whose sha512 no longer matches the archive it names is an update that
+          # installs nothing, and nothing else here would notice.
+          for manifest in downloaded/*-mac.yml; do
+            node scripts/assert-mac-manifest.mjs \
+              "$manifest" downloaded "${{ needs.resolve.outputs.version }}"
+          done
 
       - name: Mount, verify and unmount each disk image
         run: |
@@ -575,26 +602,10 @@ jobs:
               codesign --verify --deep --strict "$app" || status=1
               node scripts/assert-mac-signatures.mjs "$app" || status=1
 
-              # Read the bundle, then run it. dyld loads the Electron Framework
-              # at start-up, so this is where a bundle nobody can launch fails —
-              # on the artifact users actually downloaded, not a build tree.
-              # Bounded, so a launch that hangs cannot stall the audit.
-              exe="$app/Contents/MacOS/Paseo"
-              probe="$RUNNER_TEMP/paseo-smoke-${name}.log"
-              ELECTRON_RUN_AS_NODE=1 "$exe" -e 'console.log(1)' > "$probe" 2>&1 &
-              app_pid=$!
-              ( sleep 60; kill -9 "$app_pid" 2>/dev/null ) &
-              watchdog_pid=$!
-              set +e
-              wait "$app_pid"
-              probe_status=$?
-              set -e
-              kill "$watchdog_pid" 2>/dev/null || true
-              cat "$probe"
-              if [ "$probe_status" -ne 0 ] || ! grep -qx '1' "$probe"; then
-                echo "::error::$app cannot launch (exit $probe_status) — dyld could not load its own frameworks, or it hung."
-                status=1
-              fi
+              # Read the bundle, then run it: dyld loads the Electron Framework at
+              # start-up, so this is where a bundle nobody can launch fails — on
+              # the artifact users actually downloaded, not a build tree.
+              bash scripts/smoke-launch.sh "$app" || status=1
             fi
 
             hdiutil detach "$mount" >/dev/null || true
@@ -603,3 +614,34 @@ jobs:
           done
           exit "$status"
 
+      - name: Expand and verify the updater archives
+        run: |
+          set -euo pipefail
+          status=0
+          for archive in downloaded/*.zip; do
+            case "$(basename "$archive")" in
+              Paseo-Setup-*) continue ;; # a Windows installer, not a bundle
+            esac
+
+            name="$(basename "$archive" .zip)"
+            echo "::group::$name"
+            mkdir -p "expanded/$name"
+
+            # ditto, not unzip: an .app is a tree of symlinks, and a symlink
+            # flattened into a text file breaks a bundle in ways that read as a
+            # signing problem. This is also the exact tree Squirrel.Mac installs an
+            # update from, so it has to pass everything the .dmg passes.
+            ditto -x -k "$archive" "expanded/$name"
+
+            app="$(find "expanded/$name" -maxdepth 2 -name '*.app' -type d -print -quit)"
+            if [ -z "$app" ]; then
+              echo "::error::$archive contains no .app"
+              status=1
+            else
+              codesign --verify --deep --strict "$app" || status=1
+              node scripts/assert-mac-signatures.mjs "$app" || status=1
+              bash scripts/smoke-launch.sh "$app" || status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
