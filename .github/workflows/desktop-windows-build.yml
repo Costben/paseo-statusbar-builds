@@ -1,0 +1,307 @@
+name: Build patched Paseo for Windows
+
+# Builds an unsigned, patched Paseo NSIS installer for Windows x64 and publishes
+# it to this repo's Releases, alongside the Android APK and the macOS .dmg for
+# the same upstream tag.
+#
+# Chained off the macOS workflow so the three builds run one after another
+# instead of racing on the same Release. The daily schedule is the safety net.
+#
+# x64 only: Windows on ARM is a small share, and adding it would roughly double
+# this job's runtime for a second manifest entry. Add `--arm64` to the build
+# step's arch list if that changes.
+#
+# The built app is pointed at THIS repo's Releases for its own updates. Unlike
+# macOS, Windows auto-update actually works from an unsigned build. See README.
+
+on:
+  workflow_run:
+    workflows: ["Build patched Paseo for macOS"]
+    types: [completed]
+  schedule:
+    - cron: "23 6 * * *" # daily, off-peak minute
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream tag to build (blank = latest non-draft release)"
+        required: false
+        type: string
+      force:
+        description: "Rebuild even if this release already has every Windows artifact"
+        required: false
+        type: boolean
+        default: false
+
+# Shared with the macOS workflow so the two desktop builds never write to the
+# same Release at the same time.
+concurrency:
+  group: paseo-desktop-builds-v1
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: getpaseo/paseo
+  DESKTOP_PACKAGE_PATH: packages/desktop
+
+  # Where the built app looks for its own updates. electron-builder writes this
+  # into resources/app-update.yml at pack time, so redirecting the updater is a
+  # build-config change, not a code patch.
+  PUBLISH_OWNER: Costben
+  PUBLISH_REPO: paseo-statusbar-builds
+
+  # electron-updater resolves <channel>.yml on Windows, where <channel> is the
+  # app's release-channel setting ("latest" for stable, "beta" for beta). We
+  # generate `latest` and publish a byte-identical copy for EXTRA_CHANNELS.
+  MANIFEST_CHANNEL: latest
+  EXTRA_CHANNELS: beta
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+      version: ${{ steps.pick.outputs.version }}
+      is_prerelease: ${{ steps.pick.outputs.is_prerelease }}
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Resolve upstream tag
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          requested="${{ github.event.inputs.tag }}"
+          if [ -n "$requested" ]; then
+            tag="$requested"
+            is_prerelease="$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${tag}" --jq '.prerelease' 2>/dev/null || echo false)"
+            echo "Using requested tag: $tag"
+          else
+            release="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" \
+              --jq 'map(select(.draft == false))
+                    | sort_by(.published_at) | reverse | .[0]')"
+            tag="$(jq -r '.tag_name // empty' <<< "$release")"
+            is_prerelease="$(jq -r '.prerelease // false' <<< "$release")"
+            echo "Latest upstream release: $tag (prerelease=$is_prerelease)"
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Could not resolve an upstream tag." >&2
+            exit 1
+          fi
+          # v0.9.1 / desktop-v0.9.1 / desktop-windows-v0.9.1 -> 0.9.1
+          version="$(printf '%s' "$tag" | sed -E 's/^(desktop(-(windows|linux|macos))?|android)-v/v/; s/^v//')"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
+          echo "Resolved upstream $tag as version $version"
+
+      - name: Check if already built
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.pick.outputs.tag }}"
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "Force requested; will rebuild."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          missing=()
+          for pattern in \
+            '^Paseo-Setup-.*-x64\.exe$' \
+            '^Paseo-Setup-.*-x64\.zip$' \
+            '^latest\.yml$' \
+            '^beta\.yml$'; do
+            grep -Eq "$pattern" <<< "$assets" || missing+=("$pattern")
+          done
+          if (( ${#missing[@]} == 0 )); then
+            echo "Release $tag already has every Windows artifact; skipping build."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release $tag is missing: ${missing[*]}"
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: build and publish (Windows x64)
+    needs: resolve
+    if: needs.resolve.outputs.should_build == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout build repo (patch scripts live here)
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream tag
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ needs.resolve.outputs.tag }}
+          path: upstream
+          fetch-depth: 1
+
+      - name: Report runner disk space
+        run: |
+          set -euo pipefail
+          df -h /c
+
+          # Nothing in this job needs a JDK, Python, Ruby or Go. On the Windows
+          # image they are the cheap wins; unlike the Linux runner there is no
+          # apt cache or large SDK to reclaim.
+          rm -rf \
+            /c/hostedtoolcache/windows/Java_* \
+            /c/hostedtoolcache/windows/PyPy \
+            /c/hostedtoolcache/windows/Python \
+            /c/hostedtoolcache/windows/Ruby \
+            /c/hostedtoolcache/windows/go || true
+
+          echo "After cleanup:"
+          df -h /c
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: upstream/package-lock.json
+
+      - name: Apply desktop patches
+        run: node scripts/apply-desktop-patch.mjs upstream win
+
+      - name: Install JS dependencies
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "::warning::npm ci failed (attempt ${attempt}/3); retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
+
+      - name: Set desktop package version from tag
+        working-directory: upstream
+        env:
+          DESKTOP_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+
+          const version = process.env.DESKTOP_VERSION;
+          if (!version) throw new Error("DESKTOP_VERSION env var is missing");
+
+          const packageJsonPath = path.join(process.env.DESKTOP_PACKAGE_PATH, "package.json");
+          const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+          packageJson.version = version;
+          fs.writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
+          console.log(`Set ${packageJsonPath} version to ${version}`);
+          NODE
+
+      - name: Build desktop release
+        working-directory: upstream
+        env:
+          # No Windows code-signing certificate on this runner. electron-builder
+          # then omits `publisherName` from app-update.yml, which is exactly what
+          # makes the auto-updater skip Authenticode verification at install
+          # time — see the README.
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          set -euo pipefail
+          build_args=(
+            --publish never
+            --win --x64
+            "-c.publish.owner=${PUBLISH_OWNER}"
+            "-c.publish.repo=${PUBLISH_REPO}"
+            -c.publish.releaseType=release
+            "-c.publish.channel=${MANIFEST_CHANNEL}"
+          )
+          echo "electron-builder args: ${build_args[*]}"
+          npm run build:desktop -- "${build_args[@]}"
+
+      - name: Verify build artifacts
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          shopt -s nullglob
+          installers=( "$release_dir"/*-x64.exe )
+          zips=( "$release_dir"/*-x64.zip )
+          manifest="$release_dir/${MANIFEST_CHANNEL}.yml"
+          shopt -u nullglob
+
+          if (( ${#installers[@]} == 0 )); then
+            echo "::error::no NSIS installer in $release_dir"; ls -la "$release_dir"; exit 1
+          fi
+          if (( ${#zips[@]} == 0 )); then
+            echo "::error::no .zip in $release_dir"; ls -la "$release_dir"; exit 1
+          fi
+          if [ ! -f "$manifest" ]; then
+            echo "::error::updater manifest is missing: $manifest"; ls -la "$release_dir"; exit 1
+          fi
+
+          grep -q '^files:' "$manifest" || { echo "::error::$manifest has no files list"; cat "$manifest"; exit 1; }
+          # electron-updater on Windows installs the NSIS .exe, so the manifest
+          # has to point at the installer and not only at the zip.
+          grep -q '\.exe' "$manifest" || { echo "::error::$manifest does not reference the .exe"; cat "$manifest"; exit 1; }
+
+          echo "Artifacts:"
+          ls -la "${installers[@]}" "${zips[@]}" "$manifest"
+          echo "--- $manifest ---"
+          cat "$manifest"
+
+      - name: Publish artifacts to GitHub Release
+        working-directory: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+
+          # The Android workflow normally created the release already. Create it
+          # here too so a desktop-only run still produces something usable.
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            release_args=(release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Paseo $tag (status bar + desktop patches)" \
+              --notes "Automated build of upstream ${UPSTREAM_REPO}@$tag.")
+            if [ "${{ needs.resolve.outputs.is_prerelease }}" = "true" ]; then
+              release_args+=(--prerelease)
+            fi
+            gh "${release_args[@]}"
+          fi
+
+          node "${GITHUB_WORKSPACE}/scripts/upload-release-assets.mjs" \
+            "$tag" "$release_dir" "$GITHUB_REPOSITORY"
+
+      - name: Publish updater manifests
+        working-directory: upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.resolve.outputs.tag }}"
+          release_dir="${DESKTOP_PACKAGE_PATH}/release"
+          staging="${GITHUB_WORKSPACE}/manifest-staging"
+          mkdir -p "$staging"
+
+          # A single Windows manifest already covers every arch we ship, so
+          # there is nothing to merge — just the extra channel copies.
+          cp "${release_dir}/${MANIFEST_CHANNEL}.yml" "$staging/"
+          for channel in ${EXTRA_CHANNELS}; do
+            cp "${release_dir}/${MANIFEST_CHANNEL}.yml" "$staging/${channel}.yml"
+          done
+
+          ls -la "$staging"
+          gh release upload "$tag" "$staging"/*.yml \
+            --clobber --repo "$GITHUB_REPOSITORY"
