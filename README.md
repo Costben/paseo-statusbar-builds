@@ -201,16 +201,16 @@ overrides deep-merge onto `packages/desktop/electron-builder.yml`
 - **Never rename the artifacts.** The `files[].url` entries in the manifest point
   at the exact asset names electron-builder produced. A friendlier name means a
   manifest that 404s.
-- **Both channels are published.** `auto-updater.ts` sets
+- **Both channels need publishing.** `auto-updater.ts` sets
   `autoUpdater.channel` from the app's release-channel setting (`beta` by
   default in a fresh install) and fetches `<channel>-<plat>.yml`. `latest.yml`
   and `beta.yml` are byte-identical copies, so either setting resolves.
 - **macOS needs the `.zip`, not just the `.dmg`.** `MacUpdater.doDownloadUpdate`
   calls `findFile(files, "zip", ["pkg", "dmg"])` and throws
-  `ERR_UPDATER_ZIP_FILE_NOT_FOUND` if the manifest has no zip. Both are built and
-  uploaded.
+  `ERR_UPDATER_ZIP_FILE_NOT_FOUND` if the manifest has no zip. Both need building
+  and uploading.
 - **A second macOS architecture would need the manifests merged again.** Only
-  arm64 is built, so the single manifest is uploaded as-is. Two architectures need
+  arm64 is built, so one manifest would cover the platform. Two architectures need
   one runner each (npm installs `sherpa-onnx` / `sharp` prebuilds for the
   *runner's* arch, so a cross-arch build silently ships without them) plus a
   `finalize` job merging the partial manifests with
@@ -365,7 +365,10 @@ Two things this does not fix:
 - **Cadence**: `cron` in each desktop workflow (daily safety nets).
 - **Windows on ARM**: add `--arm64` to the `build_args` arch list in
   `desktop-windows-build.yml`. It would roughly double that job's runtime.
-- **Add a channel**: append to `EXTRA_CHANNELS` in the workflow `env` block.
+- **Publish updater manifests again**: no `<channel>.yml` is staged or uploaded
+  any more. Restoring it means putting the manifest step back in each desktop
+  workflow, restoring the `MANIFEST_CHANNEL` / `EXTRA_CHANNELS` env pair, and
+  widening the filter in `scripts/upload-release-assets.mjs`.
 - **Rebuild an existing tag**: run the workflow manually with `force: true`.
 - **Change what a Release holds**: the filter is `scripts/upload-release-assets.mjs`.
   Anything it drops is still built, just never uploaded.
