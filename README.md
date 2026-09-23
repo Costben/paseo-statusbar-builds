@@ -112,12 +112,19 @@ pick up each new upstream release on its own.
 # Desktop builds (macOS + Windows)
 
 Two more workflows build the same patched Paseo for desktop and publish to the
-**same Release** as the APK:
+**same Release** as the APK. Every Release ends up holding exactly three files —
+one installer per platform:
 
-| Workflow | Runner(s) | Output |
+| Workflow | Runner | Output |
 |---|---|---|
-| `desktop-macos-build.yml` | `macos-14` (arm64) + `macos-15-intel` (x64) | `Paseo-<ver>-arm64.dmg` / `.zip`, `Paseo-<ver>-x64.dmg` / `.zip` |
-| `desktop-windows-build.yml` | `windows-latest` | `Paseo-Setup-<ver>-x64.exe`, `Paseo-Setup-<ver>-x64.zip` |
+| `statusbar-build.yml` | `ubuntu-latest` | `paseo-<tag>-statusbar-fixed.apk` |
+| `desktop-macos-build.yml` | `macos-14` (arm64) | `Paseo-<ver>-arm64.dmg` |
+| `desktop-windows-build.yml` | `windows-latest` (x64) | `Paseo-Setup-<ver>-x64.exe` |
+
+`.zip` archives, `.blockmap` files and `<channel>.yml` updater manifests are
+built on the runner but never uploaded — `scripts/upload-release-assets.mjs`
+decides what reaches the Release. The consequence is that the app's own update
+check has nothing to resolve, so updating means downloading the installer.
 
 ```
 statusbar-build.yml          schedule */6h
@@ -164,6 +171,12 @@ for no behaviour change.
 
 ## Update hijack
 
+> **Dormant.** `app-update.yml` still points at this repo, but no
+> `<channel>.yml` / `<channel>-mac.yml` is published — a Release holds installers
+> only — so the update check resolves nothing and the app keeps running on the
+> build that was installed. Everything below describes what the feed would need
+> for manifests to be published again.
+
 The built app checks **this repo's** Releases for its own updates instead of
 `getpaseo/paseo`. Nothing is patched to achieve this — it is three build-config
 values:
@@ -196,12 +209,12 @@ overrides deep-merge onto `packages/desktop/electron-builder.yml`
   calls `findFile(files, "zip", ["pkg", "dmg"])` and throws
   `ERR_UPDATER_ZIP_FILE_NOT_FOUND` if the manifest has no zip. Both are built and
   uploaded.
-- **The two macOS architectures need merging.** electron-builder emits one
-  manifest per build, and the runners must be split per architecture (npm
-  installs `sherpa-onnx` / `sharp` prebuilds for the *runner's* arch, so a
-  cross-arch build silently ships without them). The `finalize` job downloads
-  both partial manifests and merges them with
-  `scripts/merge-mac-manifest.mjs`.
+- **A second macOS architecture would need the manifests merged again.** Only
+  arm64 is built, so the single manifest is uploaded as-is. Two architectures need
+  one runner each (npm installs `sherpa-onnx` / `sharp` prebuilds for the
+  *runner's* arch, so a cross-arch build silently ships without them) plus a
+  `finalize` job merging the partial manifests with
+  `scripts/merge-mac-manifest.mjs`, which is kept for exactly that.
 - **The rollout gate is not a blocker.** `shouldAdmitAppUpdate` returns `true`
   when the channel is not `stable`, when `rolloutHours` is absent, or when the
   check throws. The manifests we publish carry no `rolloutHours`, so updates are
@@ -341,9 +354,9 @@ Two things this does not fix:
 - **Patch does not apply** → upstream moved the code it targets. Rebuild the
   patch against the new tag (`git diff > patches/<name>.patch`) and refresh the
   markers in `apply-desktop-patch.mjs`.
-- **`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`** → the manifest for the app's channel
-  is missing from the Release. Check that `EXTRA_CHANNELS` still covers the
-  channel the app reports.
+- **`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`** → expected: no manifests are
+  published, so the update check has nothing to resolve. Update by downloading the
+  installer.
 - **Updater finds nothing after a tag bump** → confirm the Release is neither a
   draft nor a prerelease. `GET /releases/latest` ignores both.
 
@@ -354,8 +367,11 @@ Two things this does not fix:
   `desktop-windows-build.yml`. It would roughly double that job's runtime.
 - **Add a channel**: append to `EXTRA_CHANNELS` in the workflow `env` block.
 - **Rebuild an existing tag**: run the workflow manually with `force: true`.
-- **Re-check a published archive**: run the macOS workflow with `verify_only: true`.
-  It downloads the released zips, expands them with `ditto`, and re-runs the same
-  two assertions without building or publishing anything.
+- **Change what a Release holds**: the filter is `scripts/upload-release-assets.mjs`.
+  Anything it drops is still built, just never uploaded.
+- **Re-check a published installer**: run the macOS workflow with
+  `verify_only: true`. It downloads the released `.dmg`s, mounts them read-only,
+  and re-runs the same two assertions on the `.app` inside — without building or
+  publishing anything.
 - **Timeouts**: 150 minutes per desktop job. Both platforms build the full web
   bundle with Metro and pack ~2 GB of `node_modules`, so expect 30–60 minutes.

@@ -6,8 +6,11 @@
 // discard a ~50 minute build. Uploading per file means a bad asset only costs
 // that asset, and the retry usually recovers it.
 //
-// Updater manifests (*.yml) are deliberately skipped — they are published
-// separately so the per-architecture macOS manifests can be merged first.
+// Only installers are uploaded. A Release is meant to hold one file per platform
+// — the macOS .dmg, the Windows NSIS .exe and the Android .apk — so the archives
+// (.zip), the differential-update blockmaps and the updater manifests (*.yml)
+// that electron-builder also produces never reach it. Everything this leaves out
+// is what a manual download would not use.
 //
 // Usage: node upload-release-assets.mjs <release> <dir> <repo>
 
@@ -24,9 +27,12 @@ if (!release || !releaseDir || !repo) {
   process.exit(2);
 }
 
+// Paseo-<ver>-arm64.dmg, Paseo-Setup-<ver>-x64.exe, paseo-<tag>-statusbar-fixed.apk.
+const INSTALLER = /(\.dmg|\.apk|-setup-.*\.exe)$/i;
+
 const files = readdirSync(releaseDir)
   .map((name) => path.join(releaseDir, name))
-  .filter((file) => statSync(file).isFile() && !file.endsWith(".yml"))
+  .filter((file) => statSync(file).isFile() && INSTALLER.test(path.basename(file)))
   .sort();
 
 if (files.length === 0) {

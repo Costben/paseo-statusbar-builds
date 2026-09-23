@@ -2,17 +2,15 @@ name: Build patched Paseo for Windows
 
 # Builds an unsigned, patched Paseo NSIS installer for Windows x64 and publishes
 # it to this repo's Releases, alongside the Android APK and the macOS .dmg for
-# the same upstream tag.
+# the same upstream tag. A Release carries installers only — no archives and no
+# updater manifests — so updating means running the installer again.
 #
 # Chained off the macOS workflow so the three builds run one after another
 # instead of racing on the same Release. The daily schedule is the safety net.
 #
 # x64 only: Windows on ARM is a small share, and adding it would roughly double
-# this job's runtime for a second manifest entry. Add `--arm64` to the build
-# step's arch list if that changes.
-#
-# The built app is pointed at THIS repo's Releases for its own updates. Unlike
-# macOS, Windows auto-update actually works from an unsigned build. See README.
+# this job's runtime. Add `--arm64` to the build step's arch list if that
+# changes, and the extra architecture patterns to `resolve`.
 
 on:
   workflow_run:
@@ -51,11 +49,11 @@ env:
   PUBLISH_OWNER: Costben
   PUBLISH_REPO: paseo-statusbar-builds
 
-  # electron-updater resolves <channel>.yml on Windows, where <channel> is the
-  # app's release-channel setting ("latest" for stable, "beta" for beta). We
-  # generate `latest` and publish a byte-identical copy for EXTRA_CHANNELS.
-  MANIFEST_CHANNEL: latest
-  EXTRA_CHANNELS: beta
+  # The channel the app's updater asks for. No <channel>.yml is published any
+  # more, so this only decides which feed name the app looks for; the check finds
+  # nothing and the app keeps running. Set explicitly so the feed name stays
+  # pinned at Costben's repo instead of upstream's.
+  UPDATE_CHANNEL: latest
 
 jobs:
   resolve:
@@ -110,11 +108,10 @@ jobs:
           fi
           assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
           missing=()
+          # Installers only: a Release carries no archives and no manifests, so the
+          # NSIS .exe is the whole contract for this platform.
           for pattern in \
-            '^Paseo-Setup-.*-x64\.exe$' \
-            '^Paseo-Setup-.*-x64\.zip$' \
-            '^latest\.yml$' \
-            '^beta\.yml$'; do
+            '^Paseo-Setup-.*-x64\.exe$'; do
             grep -Eq "$pattern" <<< "$assets" || missing+=("$pattern")
           done
           if (( ${#missing[@]} == 0 )); then
@@ -219,10 +216,13 @@ jobs:
           build_args=(
             --publish never
             --win --x64
+            # Installers only: the .zip electron-updater would want is not
+            # published, so building it is wasted time and disk.
+            -c.win.target=nsis
             "-c.publish.owner=${PUBLISH_OWNER}"
             "-c.publish.repo=${PUBLISH_REPO}"
             -c.publish.releaseType=release
-            "-c.publish.channel=${MANIFEST_CHANNEL}"
+            "-c.publish.channel=${UPDATE_CHANNEL}"
           )
           echo "electron-builder args: ${build_args[*]}"
           npm run build:desktop -- "${build_args[@]}"
@@ -235,29 +235,14 @@ jobs:
 
           shopt -s nullglob
           installers=( "$release_dir"/*-x64.exe )
-          zips=( "$release_dir"/*-x64.zip )
-          manifest="$release_dir/${MANIFEST_CHANNEL}.yml"
           shopt -u nullglob
 
           if (( ${#installers[@]} == 0 )); then
             echo "::error::no NSIS installer in $release_dir"; ls -la "$release_dir"; exit 1
           fi
-          if (( ${#zips[@]} == 0 )); then
-            echo "::error::no .zip in $release_dir"; ls -la "$release_dir"; exit 1
-          fi
-          if [ ! -f "$manifest" ]; then
-            echo "::error::updater manifest is missing: $manifest"; ls -la "$release_dir"; exit 1
-          fi
-
-          grep -q '^files:' "$manifest" || { echo "::error::$manifest has no files list"; cat "$manifest"; exit 1; }
-          # electron-updater on Windows installs the NSIS .exe, so the manifest
-          # has to point at the installer and not only at the zip.
-          grep -q '\.exe' "$manifest" || { echo "::error::$manifest does not reference the .exe"; cat "$manifest"; exit 1; }
 
           echo "Artifacts:"
-          ls -la "${installers[@]}" "${zips[@]}" "$manifest"
-          echo "--- $manifest ---"
-          cat "$manifest"
+          ls -la "${installers[@]}"
 
       - name: Publish artifacts to GitHub Release
         working-directory: upstream
@@ -273,7 +258,7 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             release_args=(release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Paseo $tag (status bar + desktop patches)" \
+              --title "Paseo $tag (status bar fixed + Kimi support)" \
               --notes "Automated build of upstream ${UPSTREAM_REPO}@$tag.")
             if [ "${{ needs.resolve.outputs.is_prerelease }}" = "true" ]; then
               release_args+=(--prerelease)
@@ -284,24 +269,3 @@ jobs:
           node "${GITHUB_WORKSPACE}/scripts/upload-release-assets.mjs" \
             "$tag" "$release_dir" "$GITHUB_REPOSITORY"
 
-      - name: Publish updater manifests
-        working-directory: upstream
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag="${{ needs.resolve.outputs.tag }}"
-          release_dir="${DESKTOP_PACKAGE_PATH}/release"
-          staging="${GITHUB_WORKSPACE}/manifest-staging"
-          mkdir -p "$staging"
-
-          # A single Windows manifest already covers every arch we ship, so
-          # there is nothing to merge — just the extra channel copies.
-          cp "${release_dir}/${MANIFEST_CHANNEL}.yml" "$staging/"
-          for channel in ${EXTRA_CHANNELS}; do
-            cp "${release_dir}/${MANIFEST_CHANNEL}.yml" "$staging/${channel}.yml"
-          done
-
-          ls -la "$staging"
-          gh release upload "$tag" "$staging"/*.yml \
-            --clobber --repo "$GITHUB_REPOSITORY"

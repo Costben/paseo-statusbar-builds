@@ -480,7 +480,7 @@ jobs:
           if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             release_args=(release create "$tag" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "Paseo $tag (status bar fixed)" \
+              --title "Paseo $tag (status bar fixed + Kimi support)" \
               --notes "Automated status-bar-fixed build of upstream ${UPSTREAM_REPO}@$tag.")
             if [ "${{ needs.resolve.outputs.is_prerelease }}" = "true" ]; then
               release_args+=(--prerelease)
