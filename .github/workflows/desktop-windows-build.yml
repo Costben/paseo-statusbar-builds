@@ -13,8 +13,9 @@ name: Build patched Paseo for Windows
 # instead of racing on the same Release. The daily schedule is the safety net.
 #
 # x64 only: Windows on ARM is a small share, and adding it would roughly double
-# this job's runtime. Add `--arm64` to the build step's arch list if that
-# changes, and the extra architecture patterns to `resolve`.
+# this job's runtime. `build_args` pins `-c.win.target=nsis` precisely so `--x64`
+# is the only architecture packed; adding `--arm64` means dropping that pin and
+# restoring the per-target arch lists, plus the extra patterns in `resolve`.
 #
 # The Release is tagged with the version it contains; the `version` input
 # overrides the upstream tag's version, exactly as in the macOS workflow.
@@ -141,11 +142,10 @@ jobs:
           assets="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
           missing=()
           # Everything the app needs to install its own update: the NSIS .exe the
-          # updater runs, the .zip it falls back to, and the manifest naming them.
-          # A Release missing the manifest is one whose updater 404s.
+          # updater runs and the manifest naming it. A Release missing the
+          # manifest is one whose updater 404s.
           for pattern in \
             '^Paseo-Setup-.*-x64\.exe$' \
-            '^Paseo-Setup-.*-x64\.zip$' \
             '^latest\.yml$' \
             '^beta\.yml$'; do
             grep -Eq "$pattern" <<< "$assets" || missing+=("$pattern")
@@ -252,8 +252,13 @@ jobs:
           build_args=(
             --publish never
             --win --x64
-            # No -c.win.target override: upstream's default builds the NSIS
-            # installer and the .zip, and the updater runs the installer.
+            # Pin the target as a bare string, which is what makes `--x64` the
+            # only architecture built. Upstream's default is a per-target list
+            # (nsis: [x64, arm64], zip: [x64, arm64]) and an explicit arch list
+            # beats the command line, so leaving it alone packs an arm64
+            # installer too — built on an x64 runner, from x64 native modules.
+            # Nothing needs the .zip: NsisUpdater installs by running the .exe.
+            -c.win.target=nsis
             "-c.publish.owner=${PUBLISH_OWNER}"
             "-c.publish.repo=${PUBLISH_REPO}"
             -c.publish.releaseType=release
@@ -271,23 +276,27 @@ jobs:
 
           shopt -s nullglob
           installers=( "$release_dir"/*-x64.exe )
-          zips=( "$release_dir"/*-x64.zip )
+          arm64=( "$release_dir"/*arm64* )
           manifest="$release_dir/${UPDATE_CHANNEL}.yml"
           shopt -u nullglob
 
           if (( ${#installers[@]} == 0 )); then
             echo "::error::no NSIS installer in $release_dir"; ls -la "$release_dir"; exit 1
           fi
-          if (( ${#zips[@]} == 0 )); then
-            echo "::error::no .zip in $release_dir"; ls -la "$release_dir"; exit 1
+          # This job is x64 only. An arm64 artifact here is not a spare: it was
+          # packed on an x64 runner from x64 native modules, so publishing it
+          # hands Windows-on-ARM an installer that cannot work.
+          if (( ${#arm64[@]} > 0 )); then
+            echo "::error::arm64 artifacts on an x64-only job"; ls -la "${arm64[@]}"; exit 1
           fi
           if [ ! -f "$manifest" ]; then
             echo "::error::updater manifest is missing: $manifest"; ls -la "$release_dir"; exit 1
           fi
 
           grep -q '^files:' "$manifest" || { echo "::error::$manifest has no files list"; cat "$manifest"; exit 1; }
-          # NsisUpdater runs the NSIS .exe, so a manifest that lists only the .zip
-          # leaves Windows with nothing to install.
+          # NsisUpdater installs by running the NSIS .exe (`findFile(files,
+          # "exe")`), so a manifest without one leaves Windows with nothing to
+          # install.
           grep -q '\.exe' "$manifest" || { echo "::error::$manifest does not reference the .exe"; cat "$manifest"; exit 1; }
           # The manifest's version is what the updater compares against, and a
           # `version` override reaches it only through package.json — this is what
@@ -298,7 +307,7 @@ jobs:
           }
 
           echo "Artifacts:"
-          ls -la "${installers[@]}" "${zips[@]}" "$manifest"
+          ls -la "${installers[@]}" "$manifest"
           echo "--- $manifest ---"
           cat "$manifest"
 

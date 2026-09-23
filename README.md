@@ -447,12 +447,16 @@ Release is treated:
 ## Desktop knobs
 
 - **Cadence**: `cron` in each desktop workflow (daily safety nets).
-- **Windows on ARM**: add `--arm64` to the `build_args` arch list in
-  `desktop-windows-build.yml`. It would roughly double that job's runtime.
+- **Windows on ARM**: drop the `-c.win.target=nsis` pin in
+  `desktop-windows-build.yml` and add `--arm64`, then widen the patterns in
+  `resolve` and the arm64 guard in `Verify build artifacts`. The pin is what
+  makes `--x64` stick — upstream's per-target arch lists override the command
+  line, so without it an arm64 installer is packed from x64 native modules.
 - **Turn the update feeds off again**: drop the `resolve` patterns for the `.zip`
   and the manifests, the `Stage updater manifests` step in each desktop workflow,
   and the `zip` / `yml` entries in `scripts/upload-release-assets.mjs`. Nothing
-  else consumes them.
+  else consumes them. On Windows that leaves the `.exe` alone, which is all
+  `NsisUpdater` installs from.
 - **Rebuild an existing tag**: run the workflow manually with `force: true`.
 - **Change what a Release holds**: the filter is `scripts/upload-release-assets.mjs`.
   Anything it drops is still built, just never uploaded.
