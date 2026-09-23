@@ -1,0 +1,79 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 237e98892..1ec41114e 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -950,6 +950,39 @@ describe("ACPAgentSession Zed parity", () => {
+     );
+   });
+ 
++  test("emits usage_updated from an ACP usage_update notification", () => {
++    const session = createSession();
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    const events = internals.translateSessionUpdate({
++      sessionUpdate: "usage_update",
++      used: 27144,
++      size: 300000,
++    });
++
++    expect(events).toEqual([
++      {
++        type: "usage_updated",
++        provider: "claude-acp",
++        usage: {
++          contextWindowUsedTokens: 27144,
++          contextWindowMaxTokens: 300000,
++        },
++      },
++    ]);
++  });
++
++  test("ignores a usage_update without usable numbers", () => {
++    const session = createSession();
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    const events = internals.translateSessionUpdate({
++      sessionUpdate: "usage_update",
++    } as unknown as SessionUpdate);
++
++    expect(events).toEqual([]);
++  });
++
+   test("routes config_option_update and refreshes derived mode, model, and thinking state", async () => {
+     const session = createSession();
+     const internals = asInternals<ACPSessionInternals>(session);
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 4b14f924e..6b6c2b150 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -2907,8 +2907,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+         this.handleSessionInfoUpdate(update);
+         return pendingUserEvents;
+       case "usage_update":
+-        this.handleUsageUpdate(update);
+-        return pendingUserEvents;
++        return [...pendingUserEvents, ...this.handleUsageUpdate(update)];
+       case "available_commands_update":
+         this.cachedCommands = update.availableCommands.map((command) => ({
+           name: command.name,
+@@ -3068,8 +3067,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
+-  private handleUsageUpdate(update: UsageUpdate): void {
+-    void update;
++  private handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[] {
++    const usage: AgentUsage = {};
++    if (typeof update.used === "number") {
++      usage.contextWindowUsedTokens = update.used;
++    }
++    if (typeof update.size === "number") {
++      usage.contextWindowMaxTokens = update.size;
++    }
++    if (usage.contextWindowUsedTokens === undefined && usage.contextWindowMaxTokens === undefined) {
++      return [];
++    }
++    return [{ type: "usage_updated", provider: this.provider, usage }];
+   }
+ 
+   private handlePromptResponse(response: PromptResponse, turnId: string): void {
