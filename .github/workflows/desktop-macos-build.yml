@@ -471,9 +471,11 @@ jobs:
           set -euo pipefail
           tag="${{ needs.resolve.outputs.tag }}"
           mkdir -p downloaded
+          # Every desktop archive is called Paseo-*.zip, Windows installers
+          # (Paseo-Setup-*) included, so the loop below skips those rather than
+          # hunting for an .app inside one.
           gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
-            --pattern 'Paseo-*-arm64.zip' --pattern 'Paseo-*-x64.zip' \
-            --dir downloaded
+            --pattern 'Paseo-*.zip' --dir downloaded
           ls -la downloaded
 
       - name: Expand and verify each architecture
@@ -481,6 +483,10 @@ jobs:
           set -euo pipefail
           status=0
           for archive in downloaded/*.zip; do
+            case "$(basename "$archive")" in
+              Paseo-Setup-*) continue ;; # Windows installer, not a bundle
+            esac
+
             arch="$(basename "$archive" .zip)"
             mkdir -p "expanded/$arch"
 
