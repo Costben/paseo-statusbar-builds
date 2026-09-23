@@ -1,7 +1,9 @@
 name: Build patched Paseo for macOS
 
-# Builds an unsigned, patched Paseo .dmg/.zip for macOS and publishes it to this
-# repo's Releases, alongside the Android APK for the same upstream tag.
+# Builds a patched Paseo .dmg/.zip for macOS and publishes it to this repo's
+# Releases, alongside the Android APK for the same upstream tag. Code signing is
+# optional: with `MAC_CSC_LINK` configured the build signs itself and can
+# self-update; without it the build is ad-hoc and users replace the .dmg by hand.
 #
 # Chained off the Android workflow so one upstream release produces
 # apk -> dmg/zip -> exe in order, without three workflows racing on the same
