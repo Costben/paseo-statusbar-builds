@@ -12,6 +12,16 @@
 //                           forkProcess() and sets windowsHide, so a forked
 //                           worker cannot allocate a visible console window that
 //                           takes the whole daemon down when closed.
+//   acp-plan-card           tags an ACP ExitPlanMode approval request as kind
+//                           "plan" and carries the plan text in metadata, so the
+//                           approval renders as the full-height plan card instead
+//                           of a 200px scroll box.
+//   acp-compaction-timeline accepts the "_paseo.dev/session/compaction"
+//                           extension notification and turns it into a
+//                           compaction timeline marker. ACP 0.17 has no
+//                           compaction update, so the Kimi Goal Bridge proxy
+//                           reads the agent's own session log and reports the
+//                           event over this extension method.
 //
 // - Idempotent: re-running on an already-patched tree is a no-op.
 // - Fails loudly: if upstream moved the code these patches touch, exits non-zero
@@ -49,6 +59,16 @@ const PATCHES = [
     file: "paseo-windows-hidden-console.patch",
     platforms: ["win"],
   },
+  {
+    name: "acp-plan-card",
+    file: "paseo-acp-plan-card.patch",
+    platforms: ["mac", "win"],
+  },
+  {
+    name: "acp-compaction-timeline",
+    file: "paseo-acp-compaction-timeline.patch",
+    platforms: ["mac", "win"],
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -63,6 +83,16 @@ const MARKERS = [
     label: "ACP usage_update event emission",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "return [...pendingUserEvents, ...this.handleUsageUpdate(update)]",
+  },
+  {
+    label: "ACP ExitPlanMode plan metadata",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "...(planText === undefined ? {} : { planText }),",
+  },
+  {
+    label: "ACP compaction extension method",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: 'const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";',
   },
 ];
 
