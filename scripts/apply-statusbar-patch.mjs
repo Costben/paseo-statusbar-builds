@@ -10,8 +10,14 @@
 //
 // Usage: node apply-statusbar-patch.mjs [sourceDir]   (sourceDir default ".")
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const patchDir = resolve(here, "..", "patches");
+const badgePatch = join(patchDir, "paseo-app-composer-badges.patch");
 
 const sourceDir = process.argv[2] ?? ".";
 
@@ -152,8 +158,31 @@ function patchRootLayout(dir) {
   }
 }
 
+function patchComposerBadges(dir) {
+  if (!existsSync(badgePatch)) return;
+  try {
+    execFileSync("git", ["apply", "--check", "--reverse", badgePatch], {
+      cwd: dir,
+      stdio: "ignore",
+    });
+    console.log("[statusbar-patch] composer badges patch already applied");
+    return;
+  } catch {}
+  try {
+    execFileSync("git", ["apply", badgePatch], {
+      cwd: dir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    console.log("[statusbar-patch] applied composer badges patch");
+  } catch (error) {
+    const stderr = error.stderr?.toString?.() ?? String(error);
+    fail(`failed to apply ${badgePatch}:\n${stderr.trim()}`);
+  }
+}
+
 console.log(`[statusbar-patch] source dir: ${sourceDir}`);
 assertDependency(sourceDir);
 patchAppConfig(sourceDir);
 patchRootLayout(sourceDir);
+patchComposerBadges(sourceDir);
 console.log("[statusbar-patch] done");
