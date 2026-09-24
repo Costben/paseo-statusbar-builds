@@ -1,0 +1,380 @@
+diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
+index 31ea9af..9d8080b 100644
+--- a/packages/server/src/server/agent/agent-manager.ts
++++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -2418,7 +2418,7 @@ export class AgentManager {
+         pendingRun.start = { status: "failed", error: error.message };
+         agent.pendingReplacement = false;
+         if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
+-        this.runs.settleForegroundRun(agentId, pendingRun.token);
++        this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "start_failed");
+         throw error;
+       }
+       agent.pendingReplacement = false;
+@@ -2430,7 +2430,7 @@ export class AgentManager {
+         error: errorMsg,
+       });
+       this.finalizeForegroundTurn(agent);
+-      this.runs.settleForegroundRun(agentId, pendingRun.token);
++      this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "start_failed");
+       throw error;
+     }
+   }
+@@ -2560,7 +2560,7 @@ export class AgentManager {
+         if (turnStream) {
+           this.runs.deleteWaiter(agent, turnStream.waiter);
+         }
+-        this.runs.settleForegroundRun(agentId, pendingRun.token);
++        this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "stream_finished");
+         if (!agent.activeForegroundTurnId) {
+           await this.refreshRuntimeInfo(agent);
+         }
+@@ -2619,6 +2619,24 @@ export class AgentManager {
+     agent.activeTurnStartedAt = startedAt;
+   }
+ 
++  private settleForegroundRunWithDiagnostics(agentId: string, token: string, reason: string): void {
++    const pending = this.runs.getPendingRun(agentId);
++    if (pending?.token === token && pending.stagedEvents.length > 0) {
++      this.logger.warn(
++        {
++          agentId,
++          reason: "staged_events_discarded",
++          settlementReason: reason,
++          stagedEventCount: pending.stagedEvents.length,
++          eventTypes: pending.stagedEvents.map((event) => event.type),
++        },
++        "agent.manager.event_dropped",
++      );
++      pending.stagedEvents.length = 0;
++    }
++    this.runs.settleForegroundRun(agentId, token);
++  }
++
+   private applyActiveTurnTerminal(
+     agent: ActiveManagedAgent,
+     turnId?: string,
+@@ -3021,7 +3039,7 @@ export class AgentManager {
+         { agentId, kind: run.kind },
+         "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
+       );
+-      this.runs.settleForegroundRun(agentId, run.token);
++      this.settleForegroundRunWithDiagnostics(agentId, run.token, "interrupt_timeout");
+       if (!agent.pendingReplacement) {
+         agent.lifecycle = "idle";
+         this.touchUpdatedAt(agent);
+@@ -3159,7 +3177,7 @@ export class AgentManager {
+       );
+       throw error;
+     } finally {
+-      this.runs.settleForegroundRun(agentId, lock.token);
++      this.settleForegroundRunWithDiagnostics(agentId, lock.token, "rewind_finally");
+     }
+   }
+ 
+@@ -3724,9 +3742,28 @@ export class AgentManager {
+       .then(async () => {
+         const current = this.agents.get(agentId);
+         if (!current) {
++          this.logger.warn(
++            {
++              agentId,
++              provider: event.provider,
++              eventType: event.type,
++              reason: "no_current_agent",
++            },
++            "agent.manager.event_dropped",
++          );
+           return;
+         }
+         if (current.session == null) {
++          this.logger.warn(
++            {
++              agentId,
++              provider: event.provider,
++              sessionId: current.persistence?.sessionId ?? undefined,
++              eventType: event.type,
++              reason: "no_current_session",
++            },
++            "agent.manager.event_dropped",
++          );
+           return;
+         }
+         this.logger.trace(
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 9f5463a..fd80b35 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -185,6 +185,7 @@ function createSessionWithConfig(
+     featureValues?: Record<string, unknown>;
+   } = {},
+   logger: ReturnType<typeof createTestLogger> = createTestLogger(),
++  capabilityOverrides: Partial<AgentCapabilityFlags> = {},
+ ): ACPAgentSession {
+   return new ACPAgentSession(
+     {
+@@ -206,6 +207,7 @@ function createSessionWithConfig(
+         supportsMcpServers: true,
+         supportsReasoningStream: true,
+         supportsToolInvocations: true,
++        ...capabilityOverrides,
+       },
+     },
+   );
+@@ -2939,6 +2941,61 @@ describe("ACPAgentSession", () => {
+     expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
+   });
+ 
++  test("Kimi reliable mode fails explicitly when completion has no assistant timeline event", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: async () => ({ stopReason: "end_turn" }),
++    };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        type: "turn_failed",
++        code: "kimi_timeline_missing",
++        turnId,
++      }),
++    );
++  });
++
++  test("Kimi reliable mode buffers mismatched-session assistant updates for history replay", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++
++    await session.sessionUpdate({
++      sessionId: "session-2",
++      update: {
++        sessionUpdate: "agent_message_chunk",
++        messageId: "assistant-recovered",
++        content: { type: "text", text: "recovered" },
++      } as SessionUpdate,
++    });
++
++    const history = [];
++    for await (const event of session.streamHistory()) {
++      history.push(event);
++    }
++    expect(history).toContainEqual(
++      expect.objectContaining({
++        type: "timeline",
++        item: expect.objectContaining({
++          type: "assistant_message",
++          text: "recovered",
++          messageId: "assistant-recovered",
++        }),
++      }),
++    );
++  });
++
+   test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
+     const session = createSession();
+     const events: AgentStreamEvent[] = [];
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 8774306..e955c88 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -1685,6 +1685,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private commandsReadySettled = false;
+   private waitForInitialCommands: boolean;
+   private initialCommandsWaitTimeoutMs: number;
++  private readonly requiresAssistantTimeline: boolean;
++  private currentTurnSawAssistant = false;
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
+   private currentTurnUsage: AgentUsage | undefined;
+   private activeForegroundTurnId: string | null = null;
+@@ -1725,6 +1727,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.currentTitle = config.title ?? null;
+     this.waitForInitialCommands = options.waitForInitialCommands ?? false;
+     this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
++    this.requiresAssistantTimeline = options.capabilities.kimiReliableQueue === true;
+     this.extensionCommandsParser = options.extensionCommandsParser;
+   }
+ 
+@@ -1855,6 +1858,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     const turnId = randomUUID();
+     const messageId = options?.clientMessageId ?? randomUUID();
+     this.activeForegroundTurnId = turnId;
++    this.currentTurnSawAssistant = false;
+     this.fallbackAssistantMessageId = null;
+     this.submittedUserMessageTurnId = null;
+     this.emitBootstrapThreadEvent();
+@@ -2518,6 +2522,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       "provider.acp.raw_event",
+     );
+     if (params.sessionId !== this.sessionId) {
++      if (this.requiresAssistantTimeline) {
++        const sawAssistant = this.currentTurnSawAssistant;
++        const events = this.translateSessionUpdate(params.update);
++        this.currentTurnSawAssistant = sawAssistant;
++        for (const event of events) {
++          if (event.type === "timeline") {
++            this.persistedHistory.push(event.item);
++          }
++        }
++        this.historyPending = this.persistedHistory.length > 0;
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            expectedSessionId: this.sessionId ?? undefined,
++            receivedSessionId: params.sessionId,
++            reason: "session_mismatch_buffered",
++            eventCount: events.length,
++          },
++          "provider.acp.event_buffered",
++        );
++        return;
++      }
++      this.logger.warn(
++        {
++          agentId: this.agentId,
++          provider: this.provider,
++          expectedSessionId: this.sessionId ?? undefined,
++          receivedSessionId: params.sessionId,
++          reason: "session_mismatch",
++        },
++        "provider.acp.event_dropped",
++      );
+       return;
+     }
+ 
+@@ -2538,6 +2575,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+ 
+   private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
+     if (this.replayingHistory) {
++      if (events.length > 0) {
++        this.logger.trace(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            sessionId: this.sessionId ?? undefined,
++            reason: "history_replay",
++            eventCount: events.length,
++          },
++          "provider.acp.event_buffered",
++        );
++      }
+       for (const event of events) {
+         if (event.type === "timeline") {
+           this.persistedHistory.push(event.item);
+@@ -2566,6 +2615,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (method === COMPACTION_EXTENSION_METHOD) {
+       const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
+       if (sessionId !== null && sessionId !== this.sessionId) {
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            expectedSessionId: this.sessionId ?? undefined,
++            receivedSessionId: sessionId,
++            reason: "session_mismatch",
++          },
++          "provider.acp.extension_dropped",
++        );
+         return;
+       }
+       const item = mapCompactionExtension(params);
+@@ -2882,6 +2941,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     const pendingUserEvents = this.flushPendingUserMessage();
+     switch (update.sessionUpdate) {
+       case "agent_message_chunk": {
++        this.currentTurnSawAssistant = true;
+         const item = this.createMessageTimelineItem("assistant_message", update);
+         return item ? [...pendingUserEvents, this.wrapTimeline(item)] : pendingUserEvents;
+       }
+@@ -3102,6 +3162,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private handlePromptResponse(response: PromptResponse, turnId: string): void {
+     this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
+ 
++    if (
++      this.requiresAssistantTimeline &&
++      response.stopReason !== "cancelled" &&
++      !this.currentTurnSawAssistant
++    ) {
++      this.finishTurn({
++        type: "turn_failed",
++        provider: this.provider,
++        error: "Kimi ACP completed without an assistant timeline event",
++        code: "kimi_timeline_missing",
++        diagnostic: this.collectDiagnostic(
++          "Prompt completed without assistant_message; proxy journal reconciliation is required",
++        ),
++        turnId,
++      });
++      return;
++    }
++
+     switch (response.stopReason) {
+       case "cancelled":
+         this.synthesizeCanceledToolCalls();
+diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
+index 3fcabb5..f25891b 100644
+--- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
+@@ -52,6 +52,7 @@ interface GenericACPAgentClientOptions {
+   extensionCommandsParser?: ACPExtensionCommandsParser;
+   catalogModelResolver?: ACPCatalogModelResolver;
+   now?: () => number;
++  capabilityOverrides?: Partial<AgentCapabilityFlags>;
+ }
+ 
+ export class GenericACPAgentClient extends ACPAgentClient {
+@@ -69,7 +70,10 @@ export class GenericACPAgentClient extends ACPAgentClient {
+         env: options.env,
+       },
+       defaultCommand: options.command,
+-      capabilities: buildGenericACPCapabilities(providerParams),
++      capabilities: {
++        ...buildGenericACPCapabilities(providerParams),
++        ...options.capabilityOverrides,
++      },
+       waitForInitialCommands: options.waitForInitialCommands,
+       initialCommandsWaitTimeoutMs: options.initialCommandsWaitTimeoutMs,
+       clientCapabilities: providerParams.clientCapabilities,
+diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
+index 50effdf..0fee535 100644
+--- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
+@@ -1,6 +1,7 @@
+ import type { Logger } from "pino";
+ 
+ import type { AgentModelDefinition } from "../agent-sdk-types.js";
++import type { AgentCapabilityFlags } from "../agent-sdk-types.js";
+ import {
+   type ACPCatalogModelResolverContext,
+   deriveSelectorOptions,
+@@ -90,6 +91,20 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+       label: options.label,
+       providerParams: options.providerParams,
+       catalogModelResolver: resolveKimiCatalogModels,
++      capabilityOverrides: KIMI_ACP_CAPABILITIES,
+     });
+   }
+ }
++
++/**
++ * Kimi ACP is serialized by the companion proxy. It does not expose a
++ * request/response steer acknowledgement, so busy prompts must be queued and
++ * recovered from the Kimi journal rather than replaced in-place.
++ */
++export const KIMI_ACP_CAPABILITIES: Partial<AgentCapabilityFlags> = {
++  kimiReliableQueue: true,
++  busyBehaviorQueue: true,
++  cancelAckRequired: true,
++  cancelBeforeTurnId: true,
++  persistentHistoryRecovery: true,
++};
