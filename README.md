@@ -172,6 +172,8 @@ statusbar-build.yml          schedule */6h
 |---|---|---|---|
 | `acp-usage-update` | yes | yes | map ACP's `usage_update` into an `usage_updated` agent event (fills the native context table) |
 | `windows-hidden-console` | no | yes | route the daemon's `fork()` call sites through `forkProcess()` with `windowsHide`, so a forked worker cannot allocate a visible console window |
+| `acp-plan-card` | yes | yes | tag an ACP `ExitPlanMode` approval request as kind `plan` and carry the plan text in metadata, so the approval renders as the full-height plan card instead of a 200px scroll box |
+| `acp-compaction-timeline` | yes | yes | accept the `_paseo.dev/session/compaction` extension notification and turn it into a compaction timeline marker; ACP 0.17 has no compaction update, so the Kimi Goal Bridge proxy reads the agent's own session log and reports it |
 
 It is idempotent (re-runs are a no-op) and fails loudly on a missing anchor,
 naming the patch file to refresh. `windows-hidden-console` is skipped on macOS
