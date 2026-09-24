@@ -1,0 +1,114 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 1ec4111..75e87c5 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -1271,6 +1271,64 @@ describe("ACPAgentSession Zed parity", () => {
+     });
+   });
+ 
++  test("maps an ExitPlanMode hand-off to the plan card", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const planText = "Plan saved to: /tmp/plan.md\n\n# Plan\n\n1. Read the code.";
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: {
++        toolCallId: "2:ExitPlanMode-1790130392773383053-591",
++        title: "ExitPlanMode",
++        content: [{ type: "content", content: { type: "text", text: planText } }],
++      },
++      options: [
++        { optionId: "plan_opt_0", name: "Do all of it", kind: "allow_once" },
++        { optionId: "plan_revise", name: "Revise", kind: "reject_once" },
++      ],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++    expect(requested.request.kind).toBe("plan");
++    expect(requested.request.metadata?.planText).toBe(planText);
++    expect(requested.request.actions).toEqual([
++      { id: "plan_opt_0", label: "Do all of it", behavior: "allow" },
++      { id: "plan_revise", label: "Revise", behavior: "deny" },
++    ]);
++  });
++
++  test("keeps an ExitPlanMode request without plan content on the tool card", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "2:ExitPlanMode-1", title: "ExitPlanMode" },
++      options: [{ optionId: "plan_approve", name: "Approve", kind: "allow_once" }],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++    expect(requested.request.kind).toBe("tool");
++    expect(requested.request.metadata?.planText).toBeUndefined();
++  });
++
+   test("preserves ACP permission requests after invalid selected actions", async () => {
+     const session = createSessionWithConfig({ provider: "generic-acp" });
+     const events: AgentStreamEvent[] = [];
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 6b6c2b1..2e30182 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -3766,7 +3766,17 @@ function mapPermissionRequest(
+   params: RequestPermissionRequest,
+   snapshot: ACPToolSnapshot,
+ ): AgentPermissionRequest {
+-  const kind: AgentPermissionRequestKind = snapshot.kind === "switch_mode" ? "mode" : "tool";
++  const toolName = params.toolCall.title ?? snapshot.title;
++  // ExitPlanMode asks the user to review a plan, and the agent puts the plan
++  // file's contents in the request's content. The `plan` kind is what makes the
++  // approval card render that text at full height; the `tool` kind renders it
++  // inside a 200px scroll box.
++  const planText =
++    toolName === "ExitPlanMode" ? extractToolText(params.toolCall.content) : undefined;
++  let kind: AgentPermissionRequestKind = snapshot.kind === "switch_mode" ? "mode" : "tool";
++  if (planText !== undefined) {
++    kind = "plan";
++  }
+   const chooserText = isACPChooserRequest(params.options)
+     ? extractToolText(params.toolCall.content)
+     : undefined;
+@@ -3775,11 +3785,11 @@ function mapPermissionRequest(
+     provider,
+     name: snapshot.kind ?? snapshot.title,
+     kind,
+-    title: params.toolCall.title ?? snapshot.title,
++    title: toolName,
+     detail: chooserText
+       ? {
+           type: "plain_text",
+-          label: params.toolCall.title ?? snapshot.title,
++          label: toolName,
+           text: chooserText,
+           icon: "wrench",
+         }
+@@ -3793,6 +3803,7 @@ function mapPermissionRequest(
+       toolCallId: params.toolCall.toolCallId,
+       rawRequest: params,
+       options: params.options,
++      ...(planText === undefined ? {} : { planText }),
+     },
+   };
+ }
