@@ -22,6 +22,13 @@
 //                           compaction update, so the Kimi Goal Bridge proxy
 //                           reads the agent's own session log and reports the
 //                           event over this extension method.
+//   app-composer-badges     strips redundant "Thinking " prefixes from thinking
+//                           option badges and makes composer pills shrinkable
+//                           so long labels do not evict adjacent controls.
+//   acp-kimi-reliability    adds Kimi ACP capability descriptors, logs instead
+//                           of silently dropping session/staged events, and
+//                           flags Kimi turns that complete with no assistant
+//                           timeline items.
 //
 // - Idempotent: re-running on an already-patched tree is a no-op.
 // - Fails loudly: if upstream moved the code these patches touch, exits non-zero
@@ -53,21 +60,55 @@ const PATCHES = [
     name: "acp-usage-update",
     file: "paseo-acp-usage-update.patch",
     platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: "handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[]",
+    },
   },
   {
     name: "windows-hidden-console",
     file: "paseo-windows-hidden-console.patch",
     platforms: ["win"],
+    marker: {
+      path: "packages/server/src/utils/spawn.ts",
+      needle: "export function forkProcess(",
+    },
   },
   {
     name: "acp-plan-card",
     file: "paseo-acp-plan-card.patch",
     platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: "...(planText === undefined ? {} : { planText }),",
+    },
   },
   {
     name: "acp-compaction-timeline",
     file: "paseo-acp-compaction-timeline.patch",
     platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: 'const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";',
+    },
+  },
+  {
+    name: "app-composer-badges",
+    file: "paseo-app-composer-badges.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/app/src/agent-controls/labels.ts",
+      needle: "function stripThinkingPrefix(",
+    },
+  },
+  {
+    name: "acp-kimi-reliability",
+    file: "paseo-acp-kimi-reliability.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: 'code: "kimi_timeline_missing"',
+    },
   },
 ];
 
@@ -93,6 +134,36 @@ const MARKERS = [
     label: "ACP compaction extension method",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: 'const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";',
+  },
+  {
+    label: "Thinking label prefix stripper",
+    path: "packages/app/src/agent-controls/labels.ts",
+    needle: "function stripThinkingPrefix(",
+  },
+  {
+    label: "Composer pill shrinkable",
+    path: "packages/app/src/composer/pill-styles.ts",
+    needle: "minWidth: 0,",
+  },
+  {
+    label: "AgentManager staged events diagnostics",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: 'reason: "staged_events_discarded"',
+  },
+  {
+    label: "Kimi timeline missing validation",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: 'code: "kimi_timeline_missing"',
+  },
+  {
+    label: "ACP session mismatch recovery",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: 'reason: "session_mismatch"',
+  },
+  {
+    label: "Kimi ACP capability descriptor",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: "export const KIMI_ACP_CAPABILITIES",
   },
 ];
 
@@ -160,7 +231,12 @@ for (const patch of PATCHES) {
   }
 
   // Already applied? Then leave the tree alone. This is what makes a re-run safe.
-  if (checkApplies(patchPath, { reverse: true })) {
+  const hasMarker =
+    Boolean(patch.marker) &&
+    existsSync(join(sourceDir, patch.marker.path)) &&
+    readFileSync(join(sourceDir, patch.marker.path), "utf8").includes(patch.marker.needle);
+
+  if (checkApplies(patchPath, { reverse: true }) || hasMarker) {
     console.log(`[desktop-patch] ${patch.name} already applied`);
     skipped += 1;
     continue;
