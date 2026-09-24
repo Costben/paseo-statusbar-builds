@@ -1,0 +1,76 @@
+diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
+index 4f1302f..4a15f6b 100644
+--- a/packages/app/src/agent-controls/labels.test.ts
++++ b/packages/app/src/agent-controls/labels.test.ts
+@@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
+     expect(formatThinkingOptionLabel({ id: "think-hard", label: "think-hard" })).toBe("Think hard");
+     expect(formatThinkingOptionLabel({ id: "xhigh", label: "XHigh" })).toBe("Extra high");
+   });
++
++  it("drops the prefix agents already caption the option with", () => {
++    expect(formatThinkingOptionLabel({ id: "off", label: "Thinking Off" })).toBe("Off");
++    expect(formatThinkingOptionLabel({ id: "medium", label: "Thinking Medium" })).toBe("Medium");
++    expect(formatThinkingOptionLabel({ id: "high", label: "Thinking High" })).toBe("High");
++    expect(formatThinkingOptionLabel({ id: "xhigh", label: "Thinking Xhigh" })).toBe("Extra high");
++  });
++
++  it("leaves an unprefixed label alone", () => {
++    expect(formatThinkingOptionLabel({ id: "high", label: "High" })).toBe("High");
++    expect(formatThinkingOptionLabel({ id: "thinking" })).toBe("Thinking");
++  });
+ });
+diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
+index ff32aaf..d329cdd 100644
+--- a/packages/app/src/agent-controls/labels.ts
++++ b/packages/app/src/agent-controls/labels.ts
+@@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
+   return formatControlLabel(mode, mode.label == null);
+ }
+ 
++/** Agents such as Kimi caption the entry themselves ("Thinking High"); the badge already sits under that caption. */
++const REDUNDANT_THINKING_PREFIX = /^thinking[\s:_-]+/i;
++
++function stripThinkingPrefix(label: string): string {
++  const stripped = label.replace(REDUNDANT_THINKING_PREFIX, "").trim();
++  return stripped || label;
++}
++
+ export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+   const rawLabel = (option.label ?? option.id).trim();
+   const compactId = option.id.replace(/[\s_-]+/g, "").toLowerCase();
+@@ -41,5 +49,5 @@ export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+     return i18n.t("agentControls.thinking.extraHigh");
+   }
+ 
+-  return formatControlLabel(option, true);
++  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
+ }
+diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
+index 1bebc8a..82bfd27 100644
+--- a/packages/app/src/composer/agent-controls/model-sheet.tsx
++++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
+@@ -412,7 +412,8 @@ const styles = StyleSheet.create((theme) => ({
+     gap: theme.spacing[1],
+   },
+   triggerThinking: {
+-    flexShrink: 0,
++    minWidth: 0,
++    flexShrink: 1,
+     color: theme.colors.foregroundExtraMuted,
+     fontSize: theme.fontSize.base,
+     fontWeight: theme.fontWeight.normal,
+diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
+index 3ab03c8..69a9923 100644
+--- a/packages/app/src/composer/pill-styles.ts
++++ b/packages/app/src/composer/pill-styles.ts
+@@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
+     flexDirection: "row",
+     alignItems: "center",
+     gap: theme.spacing[2],
++    // The track is a single non-scrolling row, so a pill that refuses to yield evicts its
++    // neighbours. Every pill ellipsizes instead.
++    minWidth: 0,
++    flexShrink: 1,
+     minHeight: COMPOSER_PILL_MIN_HEIGHT,
+     paddingHorizontal: theme.spacing[3],
+     paddingVertical: theme.spacing[1],
