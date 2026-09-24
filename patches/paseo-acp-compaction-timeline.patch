@@ -1,0 +1,131 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 75e87c5..9f5463a 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -2580,6 +2580,55 @@ describe("ACPAgentSession", () => {
+     );
+   });
+ 
++  test("maps the compaction extension notification into a timeline marker", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/compaction", {
++      sessionId: "session-1",
++      status: "in_progress",
++      trigger: "auto",
++    });
++    await session.extNotification("_paseo.dev/session/compaction", {
++      sessionId: "session-1",
++      status: "completed",
++      trigger: "auto",
++      preTokens: 253457,
++    });
++
++    expect(events.filter((event) => event.type === "timeline")).toEqual([
++      {
++        type: "timeline",
++        provider: "kimi",
++        item: { type: "compaction", status: "loading", trigger: "auto" },
++        turnId: undefined,
++      },
++      {
++        type: "timeline",
++        provider: "kimi",
++        item: { type: "compaction", status: "completed", trigger: "auto", preTokens: 253457 },
++        turnId: undefined,
++      },
++    ]);
++  });
++
++  test("ignores a compaction notification for another session or without a status", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/compaction", {
++      sessionId: "session-2",
++      status: "completed",
++    });
++    await session.extNotification("_paseo.dev/session/compaction", { sessionId: "session-1" });
++
++    expect(events.filter((event) => event.type === "timeline")).toEqual([]);
++  });
++
+   test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
+     const session = createKiroSession({
+       waitForInitialCommands: true,
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 2e30182..8774306 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -84,6 +84,7 @@ import {
+   type AgentStreamEvent,
+   type AgentTimelineItem,
+   type AgentUsage,
++  type CompactionTimelineItem,
+   type FetchCatalogOptions,
+   type ProviderRefreshContext,
+   type ImportableProviderSession,
+@@ -128,6 +129,11 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+ 
+ const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
+ 
++// ACP 0.17 has no compaction update, so Paseo's Kimi proxy watches the agent's
++// own session log and reports compaction over an extension method instead. See
++// `mapCompactionExtension`.
++const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";
++
+ function assertChildWithPipes(
+   child: ChildProcess,
+ ): asserts child is ChildProcessWithoutNullStreams {
+@@ -2557,6 +2563,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       "provider.acp.extension_notification",
+     );
+ 
++    if (method === COMPACTION_EXTENSION_METHOD) {
++      const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
++      if (sessionId !== null && sessionId !== this.sessionId) {
++        return;
++      }
++      const item = mapCompactionExtension(params);
++      if (item !== null) {
++        this.deliverTranslatedEvents([this.wrapTimeline(item)]);
++      }
++      return;
++    }
++
+     const parsedCommands = this.extensionCommandsParser?.(method, params);
+     if (parsedCommands) {
+       this.applyResolvedCommands(parsedCommands, {
+@@ -3505,6 +3523,27 @@ function mergeToolSnapshot(
+   };
+ }
+ 
++/**
++ * Read Paseo's compaction extension notification into a timeline marker.
++ *
++ * `status` decides whether the marker is still open or settled, matching the
++ * `loading` / `completed` pair the app merges into one row. `trigger` and
++ * `preTokens` are optional and only shape the label.
++ */
++function mapCompactionExtension(params: Record<string, unknown>): CompactionTimelineItem | null {
++  const status = params.status;
++  if (status !== "in_progress" && status !== "completed") {
++    return null;
++  }
++  const preTokens = params.preTokens;
++  return {
++    type: "compaction",
++    status: status === "in_progress" ? "loading" : "completed",
++    trigger: params.trigger === "manual" ? "manual" : "auto",
++    ...(typeof preTokens === "number" && preTokens > 0 ? { preTokens } : {}),
++  };
++}
++
+ function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
+   return {
+     type: "todo",
