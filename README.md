@@ -176,6 +176,7 @@ statusbar-build.yml          schedule */6h
 | `acp-compaction-timeline` | yes | yes | accept the `_paseo.dev/session/compaction` extension notification and turn it into a compaction timeline marker; ACP 0.17 has no compaction update, so the Kimi Goal Bridge proxy reads the agent's own session log and reports it |
 | `app-composer-badges` | yes | yes | strip redundant "Thinking " prefix from option badges, and make composer pills shrinkable so long labels do not evict adjacent buttons |
 | `acp-kimi-reliability` | yes | yes | add Kimi ACP capability descriptors, log instead of silently dropping session/staged events, and flag Kimi turns that complete with no assistant output |
+| `acp-goal-state` | yes | yes | make a provider-reported goal first-class agent state: accept the `_paseo.dev/session/goal` extension notification and carry the goal in the agent snapshot, so any client sees it instead of the plugin deducing it from the agent's own session log |
 
 It is idempotent (re-runs are a no-op) and fails loudly on a missing anchor,
 naming the patch file to refresh. `windows-hidden-console` is skipped on macOS
