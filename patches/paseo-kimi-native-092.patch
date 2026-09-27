@@ -2478,11 +2478,11 @@ index 0000000..5790de1
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..681a5e9
+index 0000000..99fc996
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,432 @@
-+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+@@ -0,0 +1,681 @@
++import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
 +import { afterEach, describe, expect, test } from "vitest";
@@ -2492,14 +2492,20 @@ index 0000000..681a5e9
 +import {
 +  EMPTY_KIMI_SESSION_LOG_STATE,
 +  KimiSessionLog,
++  loadKimiModelContextWindows,
 +  parseKimiSessionLogLines,
 +  resolveKimiWireLogPath,
 +} from "./session-log.js";
 +
 +const SESSION_ID = "session_82309639-50ca-4052-953b-d59fb53668cb";
 +const GOAL_ID = "69196b30-598e-43a2-a908-249cfd28c200";
++const MODEL_ALIAS = "erlapi/gemini-3.8-flash";
++const OTHER_MODEL_ALIAS = "erlapi/deepseek-flash";
++/** Fixed so the config mtime cache is exercised without relying on clock granularity. */
++const CONFIG_MTIME = new Date(1_790_000_000_000);
 +const OBJECTIVE = "在当前目录创建 goal-ok.txt 并写入 hello";
-+const CRITERION = "当前工作目录 D:\\Erl-Project\\AntiVIP\\.tmp\\goal-ws-test 下存在 goal-ok.txt，且其内容为 hello";
++const CRITERION =
++  "当前工作目录 D:\\Erl-Project\\AntiVIP\\.tmp\\goal-ws-test 下存在 goal-ok.txt，且其内容为 hello";
 +
 +interface GoalCreateOverrides {
 +  goalId?: string;
@@ -2547,6 +2553,69 @@ index 0000000..681a5e9
 +    tokens,
 +    time: 1790486843052,
 +  });
++}
++
++interface UsageParts {
++  inputOther?: number;
++  inputCacheRead?: number;
++  inputCacheCreation?: number;
++  output?: number;
++}
++
++function usageRecordLine(usage: UsageParts, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "usage.record",
++    agentId: "main",
++    model: MODEL_ALIAS,
++    usage,
++    usageScope: "turn",
++    time,
++  });
++}
++
++function loopEventLine(eventType: string, usage: UsageParts, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "context.append_loop_event",
++    agentId: "main",
++    event: { type: eventType, turnId: "0", step: 1, usage },
++    time,
++  });
++}
++
++function profileBindLine(modelAlias: string, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "profile.bind",
++    agentId: "main",
++    modelAlias,
++    profileName: "agent",
++    time,
++  });
++}
++
++function llmRequestLine(modelAlias: string, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "llm.request",
++    agentId: "main",
++    kind: "loop",
++    provider: "openai",
++    model: modelAlias,
++    modelAlias,
++    time,
++  });
++}
++
++function configFor(modelAlias: string, maxContextSize: number): string {
++  return `[models."${modelAlias}"]\nmax_context_size = ${maxContextSize}\n`;
++}
++
++function writeKimiConfig(home: string, text: string): string {
++  const configPath = path.join(home, "config.toml");
++  writeFileSync(configPath, text);
++  return configPath;
++}
++
++function setConfigMtime(configPath: string, mtime: Date): void {
++  utimesSync(configPath, mtime, mtime);
 +}
 +
 +describe("parseKimiSessionLogLines", () => {
@@ -2642,14 +2711,78 @@ index 0000000..681a5e9
 +    expect(state.goal?.tokensUsed).toBe(0);
 +  });
 +
-+  test("reads the real context size from token_counting.turn_recorded", () => {
++  test("sums the context usage parts of a usage.record", () => {
 +    const state = parseKimiSessionLogLines(
-+      [goalCreateLine(), turnRecordedLine(48184), turnRecordedLine(48817, 2)],
++      [
++        usageRecordLine({
++          inputOther: 22063,
++          inputCacheRead: 28456,
++          inputCacheCreation: 512,
++          output: 310,
++        }),
++      ],
 +      EMPTY_KIMI_SESSION_LOG_STATE,
 +    );
 +
-+    expect(state.contextWindowUsedTokens).toBe(48817);
-+    expect(state.goal?.turnsUsed).toBe(0);
++    expect(state.contextWindowUsedTokens).toBe(22063 + 28456 + 512 + 310);
++  });
++
++  test("counts missing usage parts as zero", () => {
++    const state = parseKimiSessionLogLines(
++      [usageRecordLine({ inputOther: 120 })],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(120);
++  });
++
++  test("reads the context usage of a step.end loop event and ignores other loop events", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        loopEventLine("step.end", { inputOther: 100, output: 20 }),
++        loopEventLine("step.begin", { inputOther: 9999 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(120);
++  });
++
++  test("keeps the previous usage when a record carries no positive tokens", () => {
++    const state = parseKimiSessionLogLines(
++      [usageRecordLine({ inputOther: 5000, output: 25 }), usageRecordLine({})],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(5025);
++  });
++
++  test("ignores token_counting.turn_recorded, which measures another quantity", () => {
++    const state = parseKimiSessionLogLines(
++      [turnRecordedLine(89159), turnRecordedLine(89160, 2)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBeNull();
++  });
++
++  test("tracks the model alias, letting the later record win", () => {
++    const state = parseKimiSessionLogLines(
++      [profileBindLine(MODEL_ALIAS), llmRequestLine(OTHER_MODEL_ALIAS)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.modelAlias).toBe(OTHER_MODEL_ALIAS);
++  });
++
++  test("carries the model alias across incremental replays", () => {
++    const first = parseKimiSessionLogLines(
++      [profileBindLine(MODEL_ALIAS)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines([llmRequestLine(OTHER_MODEL_ALIAS)], first);
++
++    expect(second.modelAlias).toBe(OTHER_MODEL_ALIAS);
 +  });
 +
 +  test("ignores malformed, partial, and non-object lines", () => {
@@ -2696,6 +2829,47 @@ index 0000000..681a5e9
 +      resolveKimiWireLogPath(SESSION_ID, { kimiHome: path.join(tmpdir(), "kimi-home-absent") }),
 +    ).toBeNull();
 +    expect(resolveKimiWireLogPath("", { kimiHome: tmpdir() })).toBeNull();
++  });
++});
++
++describe("loadKimiModelContextWindows", () => {
++  test("reads max_context_size for every model alias", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-config-"));
++    writeKimiConfig(
++      home,
++      [
++        "# Kimi Code config",
++        `[models."${MODEL_ALIAS}"]`,
++        "max_context_size = 300000",
++        "",
++        `[models."${OTHER_MODEL_ALIAS}"]`,
++        "max_context_size = 128000",
++        "",
++        "[general]",
++        "max_context_size = 999",
++      ].join("\n"),
++    );
++
++    expect(await loadKimiModelContextWindows(home)).toEqual({
++      [MODEL_ALIAS]: 300_000,
++      [OTHER_MODEL_ALIAS]: 128_000,
++    });
++  });
++
++  test("skips malformed values and returns nothing for a missing config", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-config-"));
++    writeKimiConfig(
++      home,
++      [
++        "# max_context_size = 1",
++        `[models."${MODEL_ALIAS}"]`,
++        'max_context_size = "300000"',
++        "max_context_size = 0",
++      ].join("\n"),
++    );
++
++    expect(await loadKimiModelContextWindows(home)).toEqual({});
++    expect(await loadKimiModelContextWindows(path.join(home, "absent"))).toEqual({});
 +  });
 +});
 +
@@ -2768,16 +2942,91 @@ index 0000000..681a5e9
 +    expect(log.getGoal()?.objective).toBe(OBJECTIVE);
 +  });
 +
-+  test("emits usage from the token counter", async () => {
++  test("emits usage with the model's context window once both are known", async () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
-+    appendFileSync(file, `${goalCreateLine()}\n${turnRecordedLine(48817)}\n`);
++    writeKimiConfig(home, configFor(MODEL_ALIAS, 300_000));
++    appendFileSync(
++      file,
++      `${profileBindLine(MODEL_ALIAS)}\n${usageRecordLine({ inputOther: 22063, inputCacheRead: 28456, inputCacheCreation: 0, output: 310 })}\n`,
++    );
 +
 +    const usage: AgentUsage[] = [];
 +    const log = createLog(home, { onUsage: (value) => usage.push(value) });
 +    log.start();
 +    await waitFor(() => usage.length > 0);
 +
-+    expect(usage.at(-1)).toEqual({ contextWindowUsedTokens: 48817 });
++    expect(usage.at(-1)).toEqual({
++      contextWindowUsedTokens: 50829,
++      contextWindowMaxTokens: 300_000,
++    });
++  });
++
++  test("reports no usage while the context window is unknown", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${goalCreateLine()}\n${profileBindLine(MODEL_ALIAS)}\n${usageRecordLine({ inputOther: 50829 })}\n`,
++    );
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => log.getGoal() !== null);
++    await delay(150);
++
++    expect(usage).toEqual([]);
++  });
++
++  test("does not repeat an unchanged usage", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    writeKimiConfig(home, configFor(MODEL_ALIAS, 300_000));
++    const record = usageRecordLine({ inputOther: 50829 });
++    appendFileSync(file, `${profileBindLine(MODEL_ALIAS)}\n${record}\n`);
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => usage.length === 1);
++
++    appendFileSync(file, `${record}\n`);
++    await delay(150);
++
++    expect(usage).toHaveLength(1);
++  });
++
++  test("re-reads config.toml only after its mtime changes", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    const configPath = writeKimiConfig(home, configFor(MODEL_ALIAS, 300_000));
++    setConfigMtime(configPath, CONFIG_MTIME);
++    appendFileSync(
++      file,
++      `${profileBindLine(MODEL_ALIAS)}\n${usageRecordLine({ inputOther: 50829 })}\n`,
++    );
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => usage.length === 1);
++    expect(usage.at(-1)?.contextWindowMaxTokens).toBe(300_000);
++
++    // Same mtime: the cached parse is served even though the file now says otherwise.
++    writeFileSync(configPath, configFor(MODEL_ALIAS, 400_000));
++    setConfigMtime(configPath, CONFIG_MTIME);
++    appendFileSync(file, `${usageRecordLine({ inputOther: 60000 })}\n`);
++    await waitFor(() => usage.length === 2);
++    expect(usage.at(-1)).toEqual({
++      contextWindowUsedTokens: 60000,
++      contextWindowMaxTokens: 300_000,
++    });
++
++    // New mtime: the parse is redone.
++    setConfigMtime(configPath, new Date(CONFIG_MTIME.getTime() + 60_000));
++    appendFileSync(file, `${usageRecordLine({ inputOther: 70000 })}\n`);
++    await waitFor(() => usage.length === 3);
++    expect(usage.at(-1)).toEqual({
++      contextWindowUsedTokens: 70000,
++      contextWindowMaxTokens: 400_000,
++    });
 +  });
 +
 +  test("emits a null goal once the goal is cleared", async () => {
@@ -2916,12 +3165,12 @@ index 0000000..681a5e9
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..502a6b7
+index 0000000..3c66762
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,570 @@
+@@ -0,0 +1,756 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
-+import { stat } from "node:fs/promises";
++import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
 +import path from "node:path";
 +import { createInterface } from "node:readline";
@@ -2949,12 +3198,14 @@ index 0000000..502a6b7
 + * derivable from the id the daemon already holds.
 + */
 +
++const ACTIVE_POLL_INTERVAL_MS = 500;
 +const LIVE_POLL_INTERVAL_MS = 2_000;
 +const IDLE_POLL_INTERVAL_MS = 10_000;
 +const SETTLE_POLL_INTERVAL_MS = 250;
 +/** Unchanged goals are re-announced once per bucket so a late subscriber still sees them. */
 +const GOAL_REANNOUNCE_BUCKET_MS = 30_000;
 +const DEFAULT_KIMI_HOME = "~/.kimi-code";
++const KIMI_CONFIG_FILENAME = "config.toml";
 +
 +/**
 + * Locate the wire log for a Kimi session. Returns null when the file does not
@@ -2992,11 +3243,14 @@ index 0000000..502a6b7
 +export interface KimiSessionLogState {
 +  goal: AgentGoal | null;
 +  contextWindowUsedTokens: number | null;
++  /** Model alias bound by the last `profile.bind` or `llm.request`; keys the config lookup. */
++  modelAlias: string | null;
 +}
 +
 +export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
 +  goal: null,
 +  contextWindowUsedTokens: null,
++  modelAlias: null,
 +});
 +
 +/**
@@ -3007,7 +3261,12 @@ index 0000000..502a6b7
 + * - `goal.create` sets the goal to `active` with zeroed counters.
 + * - `goal.update` carries either `tokensUsed` (one per goal turn) or `status`.
 + * - `goal.clear` drops the goal.
-+ * - `token_counting.turn_recorded` reports the real context size.
++ * - `profile.bind` and `llm.request` carry the bound model alias; the later
++ *   record wins, because the alias changes when the user switches model.
++ * - `usage.record` and `context.append_loop_event` of type `step.end` carry the
++ *   context size of one step. `token_counting.turn_recorded` is deliberately not
++ *   read: its `tokens` measures something else and lands well below the real
++ *   context size.
 + *
 + * Anything unparseable is skipped; a half-written line must not abort a replay.
 + */
@@ -3017,6 +3276,7 @@ index 0000000..502a6b7
 +): KimiSessionLogState {
 +  let goal = previous.goal;
 +  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
++  let modelAlias = previous.modelAlias;
 +
 +  for (const raw of lines) {
 +    const line = raw.trim();
@@ -3043,27 +3303,38 @@ index 0000000..502a6b7
 +      case "goal.clear":
 +        goal = null;
 +        break;
-+      case "token_counting.turn_recorded": {
-+        const tokens = readNumber(entry.tokens);
-+        if (tokens !== undefined) {
-+          contextWindowUsedTokens = tokens;
++      case "profile.bind":
++      case "llm.request": {
++        const alias = readString(entry.modelAlias);
++        if (alias !== undefined && alias.length > 0) {
++          modelAlias = alias;
 +        }
 +        break;
 +      }
-+      default:
++      default: {
++        const used = stepContextUsage(entry);
++        if (used !== null) {
++          contextWindowUsedTokens = used;
++        }
 +        break;
++      }
 +    }
 +  }
 +
-+  return { goal, contextWindowUsedTokens };
++  return { goal, contextWindowUsedTokens, modelAlias };
 +}
 +
 +export interface KimiSessionLogOptions {
 +  kimiSessionId: string;
 +  kimiHome?: string;
 +  logger: Logger;
-+  /** Overrides both cadences. Defaults to 2000ms while a goal is live, 10000ms otherwise. */
++  /**
++   * Overrides all three cadences. Defaults to 500ms right after the log grew,
++   * 2000ms while a goal is live, and 10000ms otherwise.
++   */
 +  pollIntervalMs?: number;
++  /** Cadence used right after the log grew. Defaults to 500ms. */
++  activeIntervalMs?: number;
 +  onGoal?: (goal: AgentGoal | null) => void;
 +  onUsage?: (usage: AgentUsage) => void;
 +}
@@ -3074,11 +3345,16 @@ index 0000000..502a6b7
 + * Reads incrementally by byte offset, so a long session is never re-read. A
 + * goal created before the tailer attached is still picked up because the first
 + * read starts at byte 0.
++ *
++ * Usage needs both numbers: the used side comes from the log, the max side from
++ * the model alias plus `<kimiHome>/config.toml`. While either is unknown nothing
++ * is reported, because the client renders a context ring only for a full pair.
 + */
 +export class KimiSessionLog {
 +  private readonly kimiSessionId: string;
 +  private readonly kimiHome: string | undefined;
 +  private readonly logger: Logger;
++  private readonly activeIntervalMs: number;
 +  private readonly liveIntervalMs: number;
 +  private readonly idleIntervalMs: number;
 +  private readonly onGoal: ((goal: AgentGoal | null) => void) | undefined;
@@ -3090,6 +3366,7 @@ index 0000000..502a6b7
 +  private pending = "";
 +  private goal: AgentGoal | null = null;
 +  private contextWindowUsedTokens: number | null = null;
++  private modelAlias: string | null = null;
 +  /** Value signature of the last goal considered; null means "nothing considered yet". */
 +  private goalSignature: string | null = null;
 +  private goalBucket = -1;
@@ -3104,6 +3381,8 @@ index 0000000..502a6b7
 +    this.kimiSessionId = options.kimiSessionId;
 +    this.kimiHome = options.kimiHome;
 +    this.logger = options.logger;
++    this.activeIntervalMs =
++      options.pollIntervalMs ?? options.activeIntervalMs ?? ACTIVE_POLL_INTERVAL_MS;
 +    this.liveIntervalMs = options.pollIntervalMs ?? LIVE_POLL_INTERVAL_MS;
 +    this.idleIntervalMs = options.pollIntervalMs ?? IDLE_POLL_INTERVAL_MS;
 +    this.onGoal = options.onGoal;
@@ -3196,8 +3475,9 @@ index 0000000..502a6b7
 +  }
 +
 +  private async tick(): Promise<void> {
++    let readNewBytes = false;
 +    try {
-+      await this.readAppended();
++      readNewBytes = await this.readAppended();
 +    } catch (error) {
 +      this.logger.warn(
 +        { err: error, sessionId: this.kimiSessionId },
@@ -3208,14 +3488,29 @@ index 0000000..502a6b7
 +      return;
 +    }
 +    this.publishGoal();
-+    this.publishUsage();
-+    this.scheduleTick(this.isLive() ? this.liveIntervalMs : this.idleIntervalMs);
++    await this.publishUsage();
++    if (this.stopped) {
++      return;
++    }
++    this.scheduleTick(this.nextIntervalMs(readNewBytes));
 +  }
 +
-+  private async readAppended(): Promise<void> {
++  /**
++   * A log that just grew is polled fast, so a step's number lands while the turn
++   * is still running; a live goal is polled slowly, an idle session slower still.
++   */
++  private nextIntervalMs(readNewBytes: boolean): number {
++    if (readNewBytes) {
++      return this.activeIntervalMs;
++    }
++    return this.isLive() ? this.liveIntervalMs : this.idleIntervalMs;
++  }
++
++  /** Returns whether the file yielded bytes this tick. */
++  private async readAppended(): Promise<boolean> {
 +    const filePath = this.resolvePath();
 +    if (!filePath) {
-+      return;
++      return false;
 +    }
 +    let size: number;
 +    try {
@@ -3223,7 +3518,7 @@ index 0000000..502a6b7
 +    } catch {
 +      // The file vanished; re-resolve on the next tick.
 +      this.resolvedPath = null;
-+      return;
++      return false;
 +    }
 +    if (size < this.offset) {
 +      // Truncated or replaced: rebuild from the beginning.
@@ -3232,13 +3527,14 @@ index 0000000..502a6b7
 +      this.resetDerivedState();
 +    }
 +    if (size === this.offset) {
-+      return;
++      return false;
 +    }
 +    const { lines, fragment } = await readLinesFromRange(filePath, this.offset, size);
 +    this.offset = size;
 +    const merged = mergePendingFragment(this.pending, lines);
 +    this.pending = fragment;
 +    this.applyLines(merged);
++    return true;
 +  }
 +
 +  private resolvePath(): string | null {
@@ -3254,15 +3550,18 @@ index 0000000..502a6b7
 +  private resetDerivedState(): void {
 +    this.goal = null;
 +    this.contextWindowUsedTokens = null;
++    this.modelAlias = null;
 +  }
 +
 +  private applyLines(lines: string[]): void {
 +    const next = parseKimiSessionLogLines(lines, {
 +      goal: this.goal,
 +      contextWindowUsedTokens: this.contextWindowUsedTokens,
++      modelAlias: this.modelAlias,
 +    });
 +    this.goal = next.goal;
 +    this.contextWindowUsedTokens = next.contextWindowUsedTokens;
++    this.modelAlias = next.modelAlias;
 +  }
 +
 +  private publishGoal(): void {
@@ -3292,24 +3591,50 @@ index 0000000..502a6b7
 +    }
 +  }
 +
-+  private publishUsage(): void {
++  private async publishUsage(): Promise<void> {
 +    const used = this.contextWindowUsedTokens;
 +    if (used === null) {
 +      return;
 +    }
-+    const signature = String(used);
++    let max: number | null;
++    try {
++      max = await this.contextWindowMax();
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log context window lookup failed",
++      );
++      return;
++    }
++    // The client draws the context ring only when both numbers are present, so a
++    // half-known pair would be reported and then dropped.
++    if (max === null) {
++      return;
++    }
++    const signature = `${used}:${max}`;
 +    if (signature === this.usageSignature) {
 +      return;
 +    }
 +    this.usageSignature = signature;
 +    try {
-+      this.onUsage?.({ contextWindowUsedTokens: used });
++      this.onUsage?.({ contextWindowUsedTokens: used, contextWindowMaxTokens: max });
 +    } catch (error) {
 +      this.logger.warn(
 +        { err: error, sessionId: this.kimiSessionId },
 +        "Kimi session log usage listener failed",
 +      );
 +    }
++  }
++
++  /** Context window of the bound model, or null while the alias or the config is unknown. */
++  private async contextWindowMax(): Promise<number | null> {
++    const alias = this.modelAlias;
++    if (alias === null) {
++      return null;
++    }
++    const windows = await loadKimiModelContextWindows(resolveKimiHome(this.kimiHome));
++    const max = windows[alias];
++    return Number.isFinite(max) && max > 0 ? max : null;
 +  }
 +}
 +
@@ -3483,6 +3808,116 @@ index 0000000..502a6b7
 +
 +function readNumber(value: unknown): number | undefined {
 +  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
++}
++
++function asRecord(value: unknown): Record<string, unknown> | null {
++  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
++}
++
++/** A usage part that is missing, non-numeric, or non-positive counts as zero. */
++function positiveNumber(value: unknown): number {
++  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
++}
++
++/**
++ * Context tokens of one logged step, matching the number Kimi itself reports.
++ *
++ * Only the per-step records are read: Kimi writes them while the turn runs,
++ * whereas `token_counting.turn_recorded` measures a different quantity and
++ * lands far below the real context size. `output` is part of the count because
++ * it is what the next step's context starts from.
++ */
++function stepContextUsage(entry: Record<string, unknown>): number | null {
++  let usage: Record<string, unknown> | null = null;
++  if (entry.type === "usage.record") {
++    usage = asRecord(entry.usage);
++  } else if (entry.type === "context.append_loop_event") {
++    const event = asRecord(entry.event);
++    if (event === null || event.type !== "step.end") {
++      return null;
++    }
++    usage = asRecord(event.usage);
++  }
++  if (usage === null) {
++    return null;
++  }
++  const used =
++    positiveNumber(usage.inputOther) +
++    positiveNumber(usage.inputCacheRead) +
++    positiveNumber(usage.inputCacheCreation) +
++    positiveNumber(usage.output);
++  return used > 0 ? used : null;
++}
++
++interface ConfigWindowCacheEntry {
++  mtimeMs: number;
++  windows: Record<string, number>;
++}
++
++/** Keyed by config path, so two Kimi homes in one process never share an entry. */
++const configWindowCache = new Map<string, ConfigWindowCacheEntry>();
++
++/**
++ * Reads `[models."<alias>"] max_context_size` pairs out of Kimi's `config.toml`.
++ *
++ * A line scan rather than a TOML parse: the file is user-edited, so a value the
++ * daemon cannot read is skipped instead of thrown. The result is cached by
++ * mtime, and a config that disappears keeps serving the last good read.
++ */
++export async function loadKimiModelContextWindows(
++  kimiHome: string,
++): Promise<Record<string, number>> {
++  const configPath = path.join(kimiHome, KIMI_CONFIG_FILENAME);
++  const cached = configWindowCache.get(configPath);
++  let mtimeMs: number;
++  try {
++    mtimeMs = (await stat(configPath)).mtimeMs;
++  } catch {
++    return cached?.windows ?? {};
++  }
++  if (cached !== undefined && cached.mtimeMs === mtimeMs) {
++    return cached.windows;
++  }
++  let text: string;
++  try {
++    text = await readFile(configPath, "utf8");
++  } catch {
++    return cached?.windows ?? {};
++  }
++  const windows = parseModelContextWindows(text);
++  configWindowCache.set(configPath, { mtimeMs, windows });
++  return windows;
++}
++
++function parseModelContextWindows(text: string): Record<string, number> {
++  const windows: Record<string, number> = {};
++  let currentModel: string | null = null;
++  for (const rawLine of text.split("\n")) {
++    const line = rawLine.trim();
++    if (line.length === 0 || line.startsWith("#")) {
++      continue;
++    }
++    const section = /^\[models\s*\.\s*"([^"]+)"\s*\]$/.exec(line);
++    if (section) {
++      currentModel = section[1];
++      continue;
++    }
++    if (line.startsWith("[")) {
++      currentModel = null;
++      continue;
++    }
++    if (currentModel === null) {
++      continue;
++    }
++    const value = /^max_context_size\s*=\s*(\d+)\s*$/.exec(line);
++    if (value) {
++      const size = Number.parseInt(value[1], 10);
++      if (Number.isFinite(size) && size > 0) {
++        windows[currentModel] = size;
++      }
++    }
++  }
++  return windows;
 +}
 +
 +function delay(ms: number): Promise<void> {

@@ -176,7 +176,7 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 | ACP compaction | accept the `_paseo.dev/session/compaction` extension notification and turn it into a compaction timeline marker |
 | ACP goal state | accept the `_paseo.dev/session/goal`, make a provider-reported goal first-class agent state, and carry it in the agent snapshot so any client sees it |
 | ACP provider hooks | `ACPAgentSession` gains `providerHooks` — a prompt rewriter, an out-of-band hook for commands ACP does not model, and a turn gate that holds a turn open while the provider works (released by Stop, not only by its own timeout) |
-| Kimi session log | the daemon tails the session's own `~/.kimi-code/sessions/*/<sid>/agents/main/wire.jsonl` for `goal.create` / `goal.update` / `goal.clear` and for real token counts |
+| Kimi session log | the daemon tails the session's own `~/.kimi-code/sessions/*/<sid>/agents/main/wire.jsonl` for `goal.create` / `goal.update` / `goal.clear` and for the context the turn is using, taken per step from `usage.record` and `context.append_loop_event` `step.end`. The window size is not on the ACP wire at all (Kimi sends no `usage_update`), so it is read from `[models."<alias>"] max_context_size` in `~/.kimi-code/config.toml` and reported alongside the used count — the app draws no meter unless it has both |
 | Kimi native bridge | per-session wrapper over that tailer, plus the settle wait the ACP turn hold awaits |
 | Kimi `/goal` | `/goal <objective>` is rewritten into a prompt that makes the agent create and pursue the goal itself; bare `/goal` and `/goal status` are answered out-of-band from the tailed log |
 | Kimi goal pill | a native composer pill showing the live goal, its status and its usage |

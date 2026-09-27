@@ -202,6 +202,17 @@ const MARKERS = [
     needle: "export function parseKimiSessionLogLines(",
   },
   {
+    label: "Kimi context window read from the model config",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "export async function loadKimiModelContextWindows(",
+  },
+  {
+    label: "Kimi usage reported with used and max together",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle:
+      "this.onUsage?.({ contextWindowUsedTokens: used, contextWindowMaxTokens: max });",
+  },
+  {
     label: "Kimi native goal bridge",
     path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
     needle: "export class KimiNativeBridge",
