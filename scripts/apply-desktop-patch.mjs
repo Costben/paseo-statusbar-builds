@@ -29,6 +29,12 @@
 //                           of silently dropping session/staged events, and
 //                           flags Kimi turns that complete with no assistant
 //                           timeline items.
+//   acp-goal-state          makes a provider-reported goal a first-class piece
+//                           of agent state: the ACP layer accepts the
+//                           "_paseo.dev/session/goal" extension notification and
+//                           the snapshot carries the goal, so every client sees
+//                           it instead of the plugin deducing it from the
+//                           agent's own session log.
 //
 // - Idempotent: re-running on an already-patched tree is a no-op.
 // - Fails loudly: if upstream moved the code these patches touch, exits non-zero
@@ -110,6 +116,15 @@ const PATCHES = [
       needle: 'code: "kimi_timeline_missing"',
     },
   },
+  {
+    name: "acp-goal-state",
+    file: "paseo-acp-goal-state.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: 'const GOAL_EXTENSION_METHOD = "_paseo.dev/session/goal";',
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -164,6 +179,26 @@ const MARKERS = [
     label: "Kimi ACP capability descriptor",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: "export const KIMI_ACP_CAPABILITIES",
+  },
+  {
+    label: "ACP goal extension method",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: 'const GOAL_EXTENSION_METHOD = "_paseo.dev/session/goal";',
+  },
+  {
+    label: "Agent snapshot carries the goal",
+    path: "packages/protocol/src/messages.ts",
+    needle: "goal: AgentGoalPayloadSchema.nullable().optional(),",
+  },
+  {
+    label: "AgentManager goal state event",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: 'case "goal_updated":',
+  },
+  {
+    label: "Goal state projected into the snapshot",
+    path: "packages/server/src/server/agent/agent-projections.ts",
+    needle: "payload.goal = agent.goal;",
   },
 ];
 
