@@ -213,6 +213,11 @@ const MARKERS = [
       "this.onUsage?.({ contextWindowUsedTokens: used, contextWindowMaxTokens: max });",
   },
   {
+    label: "Harness reminder envelopes stay out of the timeline",
+    path: "packages/server/src/server/agent/agent-prompt.ts",
+    needle: "<system-reminder>[\\s\\S]*<\\/system-reminder>",
+  },
+  {
     label: "Kimi native goal bridge",
     path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
     needle: "export class KimiNativeBridge",

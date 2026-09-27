@@ -181,6 +181,7 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 | Kimi `/goal` | `/goal <objective>` is rewritten into a prompt that makes the agent create and pursue the goal itself; bare `/goal` and `/goal status` are answered out-of-band from the tailed log |
 | Kimi goal pill | a native composer pill showing the live goal, its status and its usage |
 | Kimi reliability | Kimi ACP capability descriptors, log instead of silently dropping session/staged events, and flag Kimi turns that complete with no assistant output |
+| Harness reminders | a user message that is nothing but a `<system-reminder>` envelope is dropped before it reaches the timeline. Kimi Code and Claude Code inject their own reminders this way (date changes, todo nudges, "the previous turn was interrupted"); Paseo already filtered its own `<paseo-system>` envelope but not this one, so every reminder rendered as a bubble the user appeared to have typed |
 | Composer badges | strip the redundant "Thinking " prefix from option badges, and make composer pills shrinkable so long labels do not evict adjacent buttons |
 | Windows console | route the daemon's `fork()` call sites through `forkProcess()` with `windowsHide`, so a forked worker cannot allocate a visible console window |
 

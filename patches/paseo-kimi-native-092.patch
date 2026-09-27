@@ -683,6 +683,54 @@ index 05f932a..bc5171d 100644
    if (agent.lastError !== undefined) {
      payload.lastError = agent.lastError;
    }
+diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
+index 08bd66a..ff5f1b8 100644
+--- a/packages/server/src/server/agent/agent-prompt.test.ts
++++ b/packages/server/src/server/agent/agent-prompt.test.ts
+@@ -264,6 +264,22 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
+   expect(isSystemInjectedEnvelope("hello world")).toBe(false);
+ });
+ 
++test("isSystemInjectedEnvelope matches a harness reminder that is the whole message", () => {
++  expect(
++    isSystemInjectedEnvelope(
++      "<system-reminder>\nToday's date is 2026-09-27. Rely on it.\n</system-reminder>",
++    ),
++  ).toBe(true);
++  expect(
++    isSystemInjectedEnvelope("<system-reminder>All background tasks are complete.</system-reminder>"),
++  ).toBe(true);
++  // Only a message that is nothing but the envelope is injected context; a
++  // reminder quoted inside something a person typed stays theirs.
++  expect(isSystemInjectedEnvelope("see this: <system-reminder>x</system-reminder>")).toBe(false);
++  expect(isSystemInjectedEnvelope("<system-reminder>x</system-reminder> and then more")).toBe(false);
++  expect(isSystemInjectedEnvelope("<paseo-system>\nnot closed")).toBe(false);
++});
++
+ test("finish notifications tell the parent the child's last assistant message", async () => {
+   const scenario = createFinishNotificationScenario({
+     childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
+diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
+index 8e22230..32c586e 100644
+--- a/packages/server/src/server/agent/agent-prompt.ts
++++ b/packages/server/src/server/agent/agent-prompt.ts
+@@ -215,7 +215,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+   return `<paseo-system>\n${reason}\n</paseo-system>`;
+ }
+ 
+-const SYSTEM_ENVELOPE_PATTERN = /^<paseo-system>\n[\s\S]*\n<\/paseo-system>$/;
++/**
++ * A message that is nothing but a harness envelope is context the agent's own
++ * runtime injected, never something a person typed. Paseo's notifications use
++ * `<paseo-system>`; Kimi Code and Claude Code wrap their reminders in
++ * `<system-reminder>`, which reaches the timeline as an ordinary user message
++ * and would otherwise render as one.
++ */
++const SYSTEM_ENVELOPE_PATTERN =
++  /^(?:<paseo-system>\n[\s\S]*\n<\/paseo-system>|<system-reminder>[\s\S]*<\/system-reminder>)$/;
+ 
+ export function isSystemInjectedEnvelope(text: string): boolean {
+   return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
 index 13a8b7d..10367f2 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
