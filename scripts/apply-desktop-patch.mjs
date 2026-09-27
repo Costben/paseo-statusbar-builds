@@ -81,7 +81,7 @@ if (platform !== "mac" && platform !== "win") {
 const PATCHES = [
   {
     name: "kimi-native",
-    file: "paseo-kimi-native-092.patch",
+    file: "paseo-kimi-native-0100.patch",
     platforms: ["mac", "win"],
     marker: {
       path: "packages/server/src/server/agent/providers/acp-agent.ts",
@@ -95,15 +95,6 @@ const PATCHES = [
     marker: {
       path: "packages/server/src/server/agent/agent-loading.ts",
       needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
-    },
-  },
-  {
-    name: "acp-spawn-error-guard",
-    file: "paseo-acp-spawn-error-guard.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: 'child.once("error", (error: Error) => {',
     },
   },
 ];
@@ -266,11 +257,6 @@ const MARKERS = [
     label: "Agent resume refuses a missing workspace directory",
     path: "packages/server/src/server/agent/agent-loading.ts",
     needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
-  },
-  {
-    label: "ACP spawn failure fails the agent, not the daemon",
-    path: "packages/server/src/server/agent/providers/acp-agent.ts",
-    needle: 'child.once("error", (error: Error) => {',
   },
 ];
 

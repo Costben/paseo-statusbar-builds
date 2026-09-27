@@ -1,0 +1,4078 @@
+diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
+index 4f1302f..4a15f6b 100644
+--- a/packages/app/src/agent-controls/labels.test.ts
++++ b/packages/app/src/agent-controls/labels.test.ts
+@@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
+     expect(formatThinkingOptionLabel({ id: "think-hard", label: "think-hard" })).toBe("Think hard");
+     expect(formatThinkingOptionLabel({ id: "xhigh", label: "XHigh" })).toBe("Extra high");
+   });
++
++  it("drops the prefix agents already caption the option with", () => {
++    expect(formatThinkingOptionLabel({ id: "off", label: "Thinking Off" })).toBe("Off");
++    expect(formatThinkingOptionLabel({ id: "medium", label: "Thinking Medium" })).toBe("Medium");
++    expect(formatThinkingOptionLabel({ id: "high", label: "Thinking High" })).toBe("High");
++    expect(formatThinkingOptionLabel({ id: "xhigh", label: "Thinking Xhigh" })).toBe("Extra high");
++  });
++
++  it("leaves an unprefixed label alone", () => {
++    expect(formatThinkingOptionLabel({ id: "high", label: "High" })).toBe("High");
++    expect(formatThinkingOptionLabel({ id: "thinking" })).toBe("Thinking");
++  });
+ });
+diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
+index ff32aaf..d329cdd 100644
+--- a/packages/app/src/agent-controls/labels.ts
++++ b/packages/app/src/agent-controls/labels.ts
+@@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
+   return formatControlLabel(mode, mode.label == null);
+ }
+ 
++/** Agents such as Kimi caption the entry themselves ("Thinking High"); the badge already sits under that caption. */
++const REDUNDANT_THINKING_PREFIX = /^thinking[\s:_-]+/i;
++
++function stripThinkingPrefix(label: string): string {
++  const stripped = label.replace(REDUNDANT_THINKING_PREFIX, "").trim();
++  return stripped || label;
++}
++
+ export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+   const rawLabel = (option.label ?? option.id).trim();
+   const compactId = option.id.replace(/[\s_-]+/g, "").toLowerCase();
+@@ -41,5 +49,5 @@ export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+     return i18n.t("agentControls.thinking.extraHigh");
+   }
+ 
+-  return formatControlLabel(option, true);
++  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
+ }
+diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
+index 1bebc8a..82bfd27 100644
+--- a/packages/app/src/composer/agent-controls/model-sheet.tsx
++++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
+@@ -412,7 +412,8 @@ const styles = StyleSheet.create((theme) => ({
+     gap: theme.spacing[1],
+   },
+   triggerThinking: {
+-    flexShrink: 0,
++    minWidth: 0,
++    flexShrink: 1,
+     color: theme.colors.foregroundExtraMuted,
+     fontSize: theme.fontSize.base,
+     fontWeight: theme.fontWeight.normal,
+diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
+new file mode 100644
+index 0000000..1e8901c
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.test.ts
+@@ -0,0 +1,49 @@
++import { describe, expect, it } from "vitest";
++import {
++  formatCompactTokens,
++  formatGoalUsageSuffix,
++  resolveGoalStatusLabel,
++} from "./goal-pill";
++
++describe("resolveGoalStatusLabel", () => {
++  it.each([
++    ["active", "目标进行中"],
++    ["paused", "目标已暂停"],
++    ["blocked", "目标受阻"],
++    ["complete", "目标已完成"],
++  ] as const)("labels %s", (status, label) => {
++    expect(resolveGoalStatusLabel(status)).toBe(label);
++  });
++
++  it("renders nothing for a cleared goal", () => {
++    expect(resolveGoalStatusLabel("cleared")).toBeNull();
++  });
++});
++
++describe("formatCompactTokens", () => {
++  it.each([
++    [0, "0"],
++    [-1, "0"],
++    [999, "999"],
++    [12_300, "12.3K"],
++    [100_000, "100K"],
++    [1_234_567, "1.2M"],
++  ] as const)("formats %i as %s", (tokens, expected) => {
++    expect(formatCompactTokens(tokens)).toBe(expected);
++  });
++});
++
++describe("formatGoalUsageSuffix", () => {
++  it("joins turns and tokens", () => {
++    expect(formatGoalUsageSuffix(3, 12_300)).toBe("· 3 回合 · 12.3K");
++  });
++
++  it("drops the side that is zero", () => {
++    expect(formatGoalUsageSuffix(2, 0)).toBe("· 2 回合");
++    expect(formatGoalUsageSuffix(0, 500)).toBe("· 500");
++  });
++
++  it("returns null when the goal has no usage yet", () => {
++    expect(formatGoalUsageSuffix(0, 0)).toBeNull();
++  });
++});
+diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
+new file mode 100644
+index 0000000..db8fd08
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.tsx
+@@ -0,0 +1,147 @@
++import { useCallback, useMemo, useState, type ReactElement } from "react";
++import { Pressable, Text } from "react-native";
++import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import { composerPillStyles } from "@/composer/pill-styles";
++import { ICON_SIZE, type Theme } from "@/styles/theme";
++import { assertUnreachable } from "@/utils/exhaustive";
++
++export type AgentGoalStatus = AgentGoalPayload["status"];
++
++const GOAL_STATUS_LABELS: Record<AgentGoalStatus, string | null> = {
++  active: "目标进行中",
++  paused: "目标已暂停",
++  blocked: "目标受阻",
++  complete: "目标已完成",
++  cleared: null,
++};
++
++const ThemedActiveGlyph = withUnistyles(CircleDot);
++const ThemedPausedGlyph = withUnistyles(CircleSlash);
++const ThemedBlockedGlyph = withUnistyles(CircleAlert);
++const ThemedCompleteGlyph = withUnistyles(CircleCheck);
++
++const GOAL_STATUS_GLYPHS = {
++  active: ThemedActiveGlyph,
++  paused: ThemedPausedGlyph,
++  blocked: ThemedBlockedGlyph,
++  complete: ThemedCompleteGlyph,
++  cleared: ThemedPausedGlyph,
++} as const;
++
++const accentMapping = (theme: Theme) => ({ color: theme.colors.accent });
++const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
++const warningMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
++const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
++
++/** Built once: a mapping rebuilt inline would hand `withUnistyles` a new function every render. */
++const GOAL_STATUS_COLOR_MAPPINGS: Record<AgentGoalStatus, (theme: Theme) => { color: string }> = {
++  active: accentMapping,
++  paused: mutedMapping,
++  blocked: warningMapping,
++  complete: successMapping,
++  cleared: mutedMapping,
++};
++
++const goalPillStyles = StyleSheet.create((theme) => ({
++  labelActive: {
++    color: theme.colors.accent,
++  },
++  labelPaused: {
++    color: theme.colors.foregroundMuted,
++  },
++  labelBlocked: {
++    color: theme.colors.statusWarning,
++  },
++  labelComplete: {
++    color: theme.colors.statusSuccess,
++  },
++  usage: {
++    color: theme.colors.foregroundExtraMuted,
++  },
++}));
++
++const COMPACT_TOKEN_UNITS = [
++  { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: "B" },
++  { threshold: 1_000_000, divisor: 1_000_000, suffix: "M" },
++  { threshold: 1_000, divisor: 1_000, suffix: "K" },
++] as const;
++
++export function resolveGoalStatusLabel(status: AgentGoalStatus): string | null {
++  return GOAL_STATUS_LABELS[status];
++}
++
++/** One decimal below 100 of the unit, whole numbers above it. */
++export function formatCompactTokens(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
++  for (const { threshold, divisor, suffix } of COMPACT_TOKEN_UNITS) {
++    if (tokens < threshold) continue;
++    const rounded = Math.round((tokens / divisor) * 10) / 10;
++    return `${rounded < 100 ? rounded.toFixed(1) : Math.round(rounded)}${suffix}`;
++  }
++  return String(Math.round(tokens));
++}
++
++export function formatGoalUsageSuffix(turnsUsed: number, tokensUsed: number): string | null {
++  const parts: string[] = [];
++  if (turnsUsed > 0) parts.push(`${Math.round(turnsUsed)} 回合`);
++  if (tokensUsed > 0) parts.push(formatCompactTokens(tokensUsed));
++  return parts.length > 0 ? `· ${parts.join(" · ")}` : null;
++}
++
++function goalLabelStyle(status: AgentGoalStatus) {
++  switch (status) {
++    case "active":
++      return goalPillStyles.labelActive;
++    case "paused":
++    case "cleared":
++      return goalPillStyles.labelPaused;
++    case "blocked":
++      return goalPillStyles.labelBlocked;
++    case "complete":
++      return goalPillStyles.labelComplete;
++    default:
++      return assertUnreachable(status);
++  }
++}
++
++interface GoalPillProps {
++  goal: AgentGoalPayload | null | undefined;
++}
++
++export function GoalPill({ goal }: GoalPillProps): ReactElement | null {
++  const [isHovered, setIsHovered] = useState(false);
++  const handleHoverIn = useCallback(() => setIsHovered(true), []);
++  const handleHoverOut = useCallback(() => setIsHovered(false), []);
++  const bodyStyle = useMemo(
++    () => [composerPillStyles.body, isHovered && composerPillStyles.bodyActive],
++    [isHovered],
++  );
++
++  if (!goal) return null;
++  const label = resolveGoalStatusLabel(goal.status);
++  if (!label) return null;
++
++  const Glyph = GOAL_STATUS_GLYPHS[goal.status];
++  const usageSuffix = formatGoalUsageSuffix(goal.turnsUsed, goal.tokensUsed);
++
++  return (
++    <Pressable
++      testID="composer-goal-pill"
++      onHoverIn={handleHoverIn}
++      onHoverOut={handleHoverOut}
++      style={bodyStyle}
++    >
++      <Glyph size={ICON_SIZE.sm} uniProps={GOAL_STATUS_COLOR_MAPPINGS[goal.status]} />
++      <Text style={[composerPillStyles.label, goalLabelStyle(goal.status)]} numberOfLines={1}>
++        {label}
++      </Text>
++      {usageSuffix ? (
++        <Text style={[composerPillStyles.label, goalPillStyles.usage]} numberOfLines={1}>
++          {usageSuffix}
++        </Text>
++      ) : null}
++    </Pressable>
++  );
++}
+diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
+index a8bdec9..b93f0b5 100644
+--- a/packages/app/src/composer/index.tsx
++++ b/packages/app/src/composer/index.tsx
+@@ -48,6 +48,7 @@ import {
+   type DraftAgentControlsProps,
+ } from "@/composer/agent-controls";
+ import { ContextWindowMeter } from "@/components/context-window-meter";
++import { GoalPill } from "@/composer/goal-pill";
+ import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+ import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
+ import { useFilePicker } from "@/hooks/use-file-picker";
+@@ -275,6 +276,7 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
+       totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+       model: agent?.model ?? null,
+       provider: agent?.provider ?? null,
++      goal: agent?.goal ?? null,
+     };
+   };
+ }
+@@ -308,10 +310,17 @@ function renderContextWindowMeter(
+ }
+ 
+ function resolveContextWindowPlacement(
++  goalPill: ReactElement | null,
+   meter: ReactElement | null,
+   reserveSlot: boolean,
+ ): ReactNode {
+-  return reserveSlot ? <View style={styles.contextWindowMeterSlot}>{meter}</View> : null;
++  if (!reserveSlot) return null;
++  return (
++    <View style={styles.composerToolbarSlot}>
++      {goalPill}
++      <View style={styles.contextWindowMeterSlot}>{meter}</View>
++    </View>
++  );
+ }
+ 
+ interface RenderLeftContentArgs {
+@@ -2100,9 +2109,10 @@ function ComposerContentImpl({
+       contextWindowMeterGlyphSize,
+     ],
+   );
++  const goalPill = useMemo(() => <GoalPill goal={agentState.goal} />, [agentState.goal]);
+   const beforeVoiceContent = useMemo(
+-    () => resolveContextWindowPlacement(contextWindowMeter, hasAgent),
+-    [contextWindowMeter, hasAgent],
++    () => resolveContextWindowPlacement(goalPill, contextWindowMeter, hasAgent),
++    [goalPill, contextWindowMeter, hasAgent],
+   );
+ 
+   const hasGithubAttachment = useMemo(
+@@ -2568,6 +2578,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+     alignItems: "center",
+     gap: theme.spacing[1],
+   },
++  composerToolbarSlot: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[1],
++    flexShrink: 0,
++  },
+   contextWindowMeterSlot: {
+     width: 28,
+     height: 28,
+diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
+index 3ab03c8..69a9923 100644
+--- a/packages/app/src/composer/pill-styles.ts
++++ b/packages/app/src/composer/pill-styles.ts
+@@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
+     flexDirection: "row",
+     alignItems: "center",
+     gap: theme.spacing[2],
++    // The track is a single non-scrolling row, so a pill that refuses to yield evicts its
++    // neighbours. Every pill ellipsizes instead.
++    minWidth: 0,
++    flexShrink: 1,
+     minHeight: COMPOSER_PILL_MIN_HEIGHT,
+     paddingHorizontal: theme.spacing[3],
+     paddingVertical: theme.spacing[1],
+diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
+index dd5469d..d3bee6e 100644
+--- a/packages/app/src/stores/session-store.ts
++++ b/packages/app/src/stores/session-store.ts
+@@ -34,6 +34,7 @@ import type {
+   AgentPersistenceHandle,
+ } from "@getpaseo/protocol/agent-types";
+ import type {
++  AgentGoalPayload,
+   ServerInfoStatusPayload,
+   ProjectPlacementPayload,
+   ServerCapabilities,
+@@ -86,6 +87,7 @@ export interface Agent {
+   persistence: AgentPersistenceHandle | null;
+   runtimeInfo?: AgentRuntimeInfo;
+   lastUsage?: AgentUsage;
++  goal?: AgentGoalPayload | null;
+   lastError?: string | null;
+   title: string | null;
+   cwd: string;
+diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
+index 4d14f10..39dd7b6 100644
+--- a/packages/app/src/utils/agent-directory-update-policy.ts
++++ b/packages/app/src/utils/agent-directory-update-policy.ts
+@@ -1,9 +1,11 @@
+ import equal from "fast-deep-equal";
+ import type { AgentUsage } from "@getpaseo/protocol/agent-types";
++import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
+ 
+ interface AgentUpdateValue {
+   updatedAt: Date | string;
+   lastUsage?: AgentUsage;
++  goal?: AgentGoalPayload | null;
+ }
+ 
+ function timestamp(value: Date | string): number {
+@@ -15,7 +17,15 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
+   incoming: T,
+ ): T {
+   if (!current || timestamp(incoming.updatedAt) >= timestamp(current.updatedAt)) return incoming;
+-  if (incoming.lastUsage === undefined) return current;
+-  if (equal(incoming.lastUsage, current.lastUsage)) return current;
+-  return { ...current, lastUsage: incoming.lastUsage };
++
++  // The daemon's emitState() does not bump updatedAt, so usage and goal changes arrive on
++  // deltas that look stale. Those two fields merge anyway; the rest of the delta is dropped.
++  let merged = current;
++  if (incoming.lastUsage !== undefined && !equal(incoming.lastUsage, merged.lastUsage)) {
++    merged = { ...merged, lastUsage: incoming.lastUsage };
++  }
++  if (incoming.goal !== undefined && !equal(incoming.goal, merged.goal)) {
++    merged = { ...merged, goal: incoming.goal };
++  }
++  return merged;
+ }
+diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
+index c1c70c6..7a4c643 100644
+--- a/packages/app/src/utils/agent-snapshots.ts
++++ b/packages/app/src/utils/agent-snapshots.ts
+@@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
+     persistence: agent.persistence,
+     ...(agent.runtimeInfo ? { runtimeInfo: agent.runtimeInfo } : {}),
+     ...(agent.lastUsage ? { lastUsage: agent.lastUsage } : {}),
++    ...(agent.goal ? { goal: agent.goal } : {}),
+     ...(agent.lastError ? { lastError: agent.lastError } : {}),
+     title: agent.title,
+     labels: agent.labels,
+@@ -121,6 +122,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
+     persistence: snapshot.persistence ?? null,
+     runtimeInfo: snapshot.runtimeInfo,
+     lastUsage: snapshot.lastUsage,
++    goal: snapshot.goal ?? null,
+     lastError: snapshot.lastError ?? null,
+     title: snapshot.title ?? null,
+     cwd: snapshot.cwd,
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index db72cd3..2afa556 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -806,6 +806,29 @@ const AgentActiveTurnPayloadSchema = z.object({
+   startedAt: z.string().nullable(),
+ });
+ 
++export const AgentGoalStatusSchema = z.enum([
++  "active",
++  "paused",
++  "complete",
++  "blocked",
++  "cleared",
++]);
++
++export const AgentGoalPayloadSchema = z.object({
++  goalId: z.string(),
++  objective: z.string(),
++  completionCriterion: z.string().optional(),
++  status: AgentGoalStatusSchema,
++  turnsUsed: z.number(),
++  tokensUsed: z.number(),
++  startedAt: z.number().optional(),
++  endedAt: z.number().nullable().optional(),
++  updatedAt: z.number(),
++  terminalReason: z.string().optional(),
++});
++
++export type AgentGoalPayload = z.infer<typeof AgentGoalPayloadSchema>;
++
+ export const AgentSnapshotPayloadSchema = z.object({
+   id: z.string(),
+   provider: AgentProviderSchema,
+@@ -827,6 +850,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+   persistence: AgentPersistenceHandleSchema.nullable(),
+   runtimeInfo: AgentRuntimeInfoSchema.optional(),
+   lastUsage: AgentUsageSchema.optional(),
++  goal: AgentGoalPayloadSchema.nullable().optional(),
+   lastError: z.string().optional(),
+   title: z.string().nullable(),
+   labels: z.record(z.string(), z.string()).default({}),
+diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
+index 1f8c137..e89365a 100644
+--- a/packages/server/scripts/supervisor.ts
++++ b/packages/server/scripts/supervisor.ts
+@@ -1,9 +1,10 @@
+-import { fork, spawn, type ChildProcess } from "child_process";
++import { spawn, type ChildProcess } from "child_process";
+ import path from "node:path";
+ import {
+   createStream as createRotatingFileStream,
+   type RotatingFileStream,
+ } from "rotating-file-stream";
++import { forkProcess } from "../src/utils/spawn.js";
+ import { signalProcessTree } from "../src/utils/tree-kill.js";
+ 
+ const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
+@@ -276,12 +277,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
+     const spawnSpec = resolveWorkerSpawnSpec?.(workerEntry) ?? null;
+     writeLifecycleLog("Spawning worker", { workerEntry });
+     if (spawnSpec) {
++      // The supervisor runs detached without a console, so an unhidden console
++      // child would allocate a brand-new visible terminal window for the worker
++      // on Windows — closing that window then takes the whole daemon down with
++      // STATUS_CONTROL_C_EXIT.
+       child = spawn(spawnSpec.command, spawnSpec.args, {
+         stdio: ["inherit", "pipe", "pipe", "ipc"],
+         env: spawnSpec.env ?? workerEnv,
++        windowsHide: true,
+       });
+     } else {
+-      child = fork(workerEntry, workerArgs, {
++      child = forkProcess(workerEntry, workerArgs, {
+         stdio: ["inherit", "pipe", "pipe", "ipc"],
+         env: workerEnv,
+         execArgv: workerExecArgv,
+diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
+index 061c00e..2a19f73 100644
+--- a/packages/server/src/server/agent/agent-manager.ts
++++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -30,6 +30,7 @@ import {
+   type AgentResumePurpose,
+   type AgentResumeSessionOptions,
+   type AgentFeature,
++  type AgentGoal,
+   type AgentLaunchContext,
+   type AgentSlashCommand,
+   type AgentMode,
+@@ -428,6 +429,7 @@ interface ManagedAgentBase {
+   activeTurnId: string | null;
+   activeTurnStartedAt: Date | null;
+   lastUsage?: AgentUsage;
++  goal?: AgentGoal | null;
+   lastError?: string;
+   attention: AttentionState;
+   foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
+@@ -2447,7 +2449,7 @@ export class AgentManager {
+         pendingRun.start = { status: "failed", error: error.message };
+         agent.pendingReplacement = false;
+         if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
+-        this.runs.settleForegroundRun(agentId, pendingRun.token);
++        this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "start_failed");
+         throw error;
+       }
+       agent.pendingReplacement = false;
+@@ -2459,7 +2461,7 @@ export class AgentManager {
+         error: errorMsg,
+       });
+       this.finalizeForegroundTurn(agent);
+-      this.runs.settleForegroundRun(agentId, pendingRun.token);
++      this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "start_failed");
+       throw error;
+     }
+   }
+@@ -2589,7 +2591,7 @@ export class AgentManager {
+         if (turnStream) {
+           this.runs.deleteWaiter(agent, turnStream.waiter);
+         }
+-        this.runs.settleForegroundRun(agentId, pendingRun.token);
++        this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "stream_finished");
+         if (!agent.activeForegroundTurnId) {
+           await this.refreshRuntimeInfo(agent);
+         }
+@@ -2648,6 +2650,24 @@ export class AgentManager {
+     agent.activeTurnStartedAt = startedAt;
+   }
+ 
++  private settleForegroundRunWithDiagnostics(agentId: string, token: string, reason: string): void {
++    const pending = this.runs.getPendingRun(agentId);
++    if (pending?.token === token && pending.stagedEvents.length > 0) {
++      this.logger.warn(
++        {
++          agentId,
++          reason: "staged_events_discarded",
++          settlementReason: reason,
++          stagedEventCount: pending.stagedEvents.length,
++          eventTypes: pending.stagedEvents.map((event) => event.type),
++        },
++        "agent.manager.event_dropped",
++      );
++      pending.stagedEvents.length = 0;
++    }
++    this.runs.settleForegroundRun(agentId, token);
++  }
++
+   private applyActiveTurnTerminal(
+     agent: ActiveManagedAgent,
+     turnId?: string,
+@@ -3050,7 +3070,7 @@ export class AgentManager {
+         { agentId, kind: run.kind },
+         "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
+       );
+-      this.runs.settleForegroundRun(agentId, run.token);
++      this.settleForegroundRunWithDiagnostics(agentId, run.token, "interrupt_timeout");
+       if (!agent.pendingReplacement) {
+         agent.lifecycle = "idle";
+         this.touchUpdatedAt(agent);
+@@ -3188,7 +3208,7 @@ export class AgentManager {
+       );
+       throw error;
+     } finally {
+-      this.runs.settleForegroundRun(agentId, lock.token);
++      this.settleForegroundRunWithDiagnostics(agentId, lock.token, "rewind_finally");
+     }
+   }
+ 
+@@ -3773,9 +3793,28 @@ export class AgentManager {
+       .then(async () => {
+         const current = this.agents.get(agentId);
+         if (!current) {
++          this.logger.warn(
++            {
++              agentId,
++              provider: event.provider,
++              eventType: event.type,
++              reason: "no_current_agent",
++            },
++            "agent.manager.event_dropped",
++          );
+           return;
+         }
+         if (current.session == null) {
++          this.logger.warn(
++            {
++              agentId,
++              provider: event.provider,
++              sessionId: current.persistence?.sessionId ?? undefined,
++              eventType: event.type,
++              reason: "no_current_session",
++            },
++            "agent.manager.event_dropped",
++          );
+           return;
+         }
+         this.logger.trace(
+@@ -4299,6 +4338,13 @@ export class AgentManager {
+         agent.lastUsage = event.usage;
+         this.emitState(agent);
+         return undefined;
++      case "goal_updated":
++        agent.goal = event.goal;
++        // The goal travels only in the agent snapshot; `goal_updated` is not a
++        // member of the wire stream union, so it must not be forwarded.
++        flags.shouldDispatchEvent = false;
++        this.emitState(agent);
++        return undefined;
+       case "mode_changed":
+         agent.currentModeId = event.currentModeId;
+         agent.availableModes = event.availableModes;
+diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
+index f72bd84..9a5dda9 100644
+--- a/packages/server/src/server/agent/agent-projections.test.ts
++++ b/packages/server/src/server/agent/agent-projections.test.ts
+@@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
+     });
+   });
+ 
++  it("carries the provider-reported goal into the snapshot payload", () => {
++    const agent = createManagedAgent({
++      goal: {
++        goalId: "goal-1",
++        objective: "Ship the daemon goal state",
++        completionCriterion: "typecheck and unit tests pass",
++        status: "active",
++        turnsUsed: 3,
++        tokensUsed: 1200,
++        startedAt: 1700000000000,
++        endedAt: null,
++        updatedAt: 1700000100000,
++      },
++    });
++
++    const payload = toAgentPayload(agent);
++
++    expect(payload.goal).toEqual(agent.goal);
++  });
++
++  it("omits goal when the provider never reported one", () => {
++    const agent = createManagedAgent({ goal: undefined });
++
++    expect(toAgentPayload(agent)).not.toHaveProperty("goal");
++  });
++
+   it("includes features in the snapshot payload", () => {
+     const features = [createFeature()];
+     const agent = createManagedAgent({ features });
+diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
+index 05f932a..bc5171d 100644
+--- a/packages/server/src/server/agent/agent-projections.ts
++++ b/packages/server/src/server/agent/agent-projections.ts
+@@ -146,6 +146,10 @@ export function toAgentPayload(
+     payload.lastUsage = usage;
+   }
+ 
++  if (agent.goal !== undefined) {
++    payload.goal = agent.goal;
++  }
++
+   if (agent.lastError !== undefined) {
+     payload.lastError = agent.lastError;
+   }
+diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
+index 08bd66a..ff5f1b8 100644
+--- a/packages/server/src/server/agent/agent-prompt.test.ts
++++ b/packages/server/src/server/agent/agent-prompt.test.ts
+@@ -264,6 +264,22 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
+   expect(isSystemInjectedEnvelope("hello world")).toBe(false);
+ });
+ 
++test("isSystemInjectedEnvelope matches a harness reminder that is the whole message", () => {
++  expect(
++    isSystemInjectedEnvelope(
++      "<system-reminder>\nToday's date is 2026-09-27. Rely on it.\n</system-reminder>",
++    ),
++  ).toBe(true);
++  expect(
++    isSystemInjectedEnvelope("<system-reminder>All background tasks are complete.</system-reminder>"),
++  ).toBe(true);
++  // Only a message that is nothing but the envelope is injected context; a
++  // reminder quoted inside something a person typed stays theirs.
++  expect(isSystemInjectedEnvelope("see this: <system-reminder>x</system-reminder>")).toBe(false);
++  expect(isSystemInjectedEnvelope("<system-reminder>x</system-reminder> and then more")).toBe(false);
++  expect(isSystemInjectedEnvelope("<paseo-system>\nnot closed")).toBe(false);
++});
++
+ test("finish notifications tell the parent the child's last assistant message", async () => {
+   const scenario = createFinishNotificationScenario({
+     childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
+diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
+index 41e2d52..96d2683 100644
+--- a/packages/server/src/server/agent/agent-prompt.ts
++++ b/packages/server/src/server/agent/agent-prompt.ts
+@@ -215,7 +215,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+   return `<paseo-system>\n${reason}\n</paseo-system>`;
+ }
+ 
+-const SYSTEM_ENVELOPE_PATTERN = /^<paseo-system>\n[\s\S]*\n<\/paseo-system>$/;
++/**
++ * A message that is nothing but a harness envelope is context the agent's own
++ * runtime injected, never something a person typed. Paseo's notifications use
++ * `<paseo-system>`; Kimi Code and Claude Code wrap their reminders in
++ * `<system-reminder>`, which reaches the timeline as an ordinary user message
++ * and would otherwise render as one.
++ */
++const SYSTEM_ENVELOPE_PATTERN =
++  /^(?:<paseo-system>\n[\s\S]*\n<\/paseo-system>|<system-reminder>[\s\S]*<\/system-reminder>)$/;
+ 
+ export function isSystemInjectedEnvelope(text: string): boolean {
+   return SYSTEM_ENVELOPE_PATTERN.test(text);
+diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
+index e2fb977..a16e57a 100644
+--- a/packages/server/src/server/agent/agent-sdk-types.ts
++++ b/packages/server/src/server/agent/agent-sdk-types.ts
+@@ -236,6 +236,27 @@ export interface AgentUsage {
+   contextWindowUsedTokens?: number;
+ }
+ 
++export type AgentGoalStatus = "active" | "paused" | "complete" | "blocked" | "cleared";
++
++export interface AgentGoal {
++  goalId: string;
++  objective: string;
++  completionCriterion?: string;
++  status: AgentGoalStatus;
++  turnsUsed: number;
++  tokensUsed: number;
++  startedAt?: number;
++  endedAt?: number | null;
++  updatedAt: number;
++  /** Provider-supplied reason the goal reached a terminal or paused state. */
++  terminalReason?: string;
++}
++
++/** A goal is live while the provider still works toward it. */
++export function isAgentGoalLive(goal: AgentGoal | null | undefined): boolean {
++  return goal !== null && goal !== undefined && goal.status === "active";
++}
++
+ export const TOOL_CALL_ICON_NAMES = [
+   "wrench",
+   "square_terminal",
+@@ -421,6 +442,8 @@ export type AgentStreamEvent =
+   | { type: "turn_started"; provider: AgentProvider; turnId?: string }
+   | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
+   | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
++  // Provider-reported goal state. A null goal means the agent holds no goal.
++  | { type: "goal_updated"; provider: AgentProvider; goal: AgentGoal | null }
+   | {
+       type: "mode_changed";
+       provider: AgentProvider;
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 9d106a2..bbf7dc8 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -22,6 +22,7 @@ import {
+ import {
+   ACPAgentClient,
+   ACPAgentSession,
++  type ACPProviderHooks,
+   type SpawnedACPProcess,
+   type SessionStateResponse,
+   buildACPClientCapabilities,
+@@ -46,12 +47,14 @@ import {
+   writeCopilotProviderMode,
+ } from "./copilot-acp-agent.js";
+ import { GenericACPAgentClient } from "./generic-acp-agent.js";
++import { createKimiProviderHooks, parseKimiGoalCommand } from "./kimi-acp-agent.js";
+ import { parseKiroExtensionCommands } from "./kiro-acp-agent.js";
+ import { transformPiModels } from "./pi/agent.js";
+ import type { AgentStreamEvent } from "../agent-sdk-types.js";
+ import type {
+   AgentCapabilityFlags,
+   AgentPersistenceHandle,
++  AgentPromptInput,
+   ProviderRefreshContext,
+ } from "../agent-sdk-types.js";
+ import { createTestLogger } from "../../../test-utils/test-logger.js";
+@@ -94,7 +97,10 @@ describe("buildACPClientCapabilities", () => {
+ 
+ interface ACPSessionInternals {
+   sessionId: string | null;
+-  connection: { prompt: (...args: unknown[]) => Promise<PromptResponse> };
++  connection: {
++    prompt: (...args: unknown[]) => Promise<PromptResponse>;
++    cancel?: (input: { sessionId: string }) => Promise<void>;
++  };
+   activeForegroundTurnId: string | null;
+   configOptions: SessionConfigOption[];
+   translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[];
+@@ -196,6 +202,8 @@ function createSessionWithConfig(
+     featureValues?: Record<string, unknown>;
+   } = {},
+   logger: ReturnType<typeof createTestLogger> = createTestLogger(),
++  capabilityOverrides: Partial<AgentCapabilityFlags> = {},
++  providerHooks?: ACPProviderHooks,
+ ): ACPAgentSession {
+   return new ACPAgentSession(
+     {
+@@ -217,7 +225,9 @@ function createSessionWithConfig(
+         supportsMcpServers: true,
+         supportsReasoningStream: true,
+         supportsToolInvocations: true,
++        ...capabilityOverrides,
+       },
++      ...(providerHooks ? { providerHooks } : {}),
+     },
+   );
+ }
+@@ -1069,6 +1079,39 @@ describe("ACPAgentSession Zed parity", () => {
+     );
+   });
+ 
++  test("emits usage_updated from an ACP usage_update notification", () => {
++    const session = createSession();
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    const events = internals.translateSessionUpdate({
++      sessionUpdate: "usage_update",
++      used: 27144,
++      size: 300000,
++    });
++
++    expect(events).toEqual([
++      {
++        type: "usage_updated",
++        provider: "claude-acp",
++        usage: {
++          contextWindowUsedTokens: 27144,
++          contextWindowMaxTokens: 300000,
++        },
++      },
++    ]);
++  });
++
++  test("ignores a usage_update without usable numbers", () => {
++    const session = createSession();
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    const events = internals.translateSessionUpdate({
++      sessionUpdate: "usage_update",
++    } as unknown as SessionUpdate);
++
++    expect(events).toEqual([]);
++  });
++
+   test("routes config_option_update and refreshes derived mode, model, and thinking state", async () => {
+     const session = createSession();
+     const internals = asInternals<ACPSessionInternals>(session);
+@@ -1357,6 +1400,64 @@ describe("ACPAgentSession Zed parity", () => {
+     });
+   });
+ 
++  test("maps an ExitPlanMode hand-off to the plan card", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const planText = "Plan saved to: /tmp/plan.md\n\n# Plan\n\n1. Read the code.";
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: {
++        toolCallId: "2:ExitPlanMode-1790130392773383053-591",
++        title: "ExitPlanMode",
++        content: [{ type: "content", content: { type: "text", text: planText } }],
++      },
++      options: [
++        { optionId: "plan_opt_0", name: "Do all of it", kind: "allow_once" },
++        { optionId: "plan_revise", name: "Revise", kind: "reject_once" },
++      ],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++    expect(requested.request.kind).toBe("plan");
++    expect(requested.request.metadata?.planText).toBe(planText);
++    expect(requested.request.actions).toEqual([
++      { id: "plan_opt_0", label: "Do all of it", behavior: "allow" },
++      { id: "plan_revise", label: "Revise", behavior: "deny" },
++    ]);
++  });
++
++  test("keeps an ExitPlanMode request without plan content on the tool card", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "2:ExitPlanMode-1", title: "ExitPlanMode" },
++      options: [{ optionId: "plan_approve", name: "Approve", kind: "allow_once" }],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++    expect(requested.request.kind).toBe("tool");
++    expect(requested.request.metadata?.planText).toBeUndefined();
++  });
++
+   test("preserves ACP permission requests after invalid selected actions", async () => {
+     const session = createSessionWithConfig({ provider: "generic-acp" });
+     const events: AgentStreamEvent[] = [];
+@@ -2608,6 +2709,112 @@ describe("ACPAgentSession", () => {
+     );
+   });
+ 
++  test("maps the compaction extension notification into a timeline marker", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/compaction", {
++      sessionId: "session-1",
++      status: "in_progress",
++      trigger: "auto",
++    });
++    await session.extNotification("_paseo.dev/session/compaction", {
++      sessionId: "session-1",
++      status: "completed",
++      trigger: "auto",
++      preTokens: 253457,
++    });
++
++    expect(events.filter((event) => event.type === "timeline")).toEqual([
++      {
++        type: "timeline",
++        provider: "kimi",
++        item: { type: "compaction", status: "loading", trigger: "auto" },
++        turnId: undefined,
++      },
++      {
++        type: "timeline",
++        provider: "kimi",
++        item: { type: "compaction", status: "completed", trigger: "auto", preTokens: 253457 },
++        turnId: undefined,
++      },
++    ]);
++  });
++
++  test("ignores a compaction notification for another session or without a status", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/compaction", {
++      sessionId: "session-2",
++      status: "completed",
++    });
++    await session.extNotification("_paseo.dev/session/compaction", { sessionId: "session-1" });
++
++    expect(events.filter((event) => event.type === "timeline")).toEqual([]);
++  });
++
++  test("maps the goal extension notification into a goal state event", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/goal", {
++      sessionId: "session-1",
++      goalId: "goal-1",
++      objective: "Ship the daemon goal state",
++      completionCriterion: "typecheck and unit tests pass",
++      status: "active",
++      turnsUsed: 3,
++      tokensUsed: 1200,
++      startedAt: 1700000000000,
++      updatedAt: 1700000100000,
++    });
++
++    expect(events.filter((event) => event.type === "goal_updated")).toEqual([
++      {
++        type: "goal_updated",
++        provider: "kimi",
++        goal: {
++          goalId: "goal-1",
++          objective: "Ship the daemon goal state",
++          completionCriterion: "typecheck and unit tests pass",
++          status: "active",
++          turnsUsed: 3,
++          tokensUsed: 1200,
++          startedAt: 1700000000000,
++          endedAt: null,
++          updatedAt: 1700000100000,
++        },
++      },
++    ]);
++  });
++
++  test("degrades a goal notification without a known status to no goal", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/goal", {
++      sessionId: "session-1",
++      objective: "no status to read",
++    });
++    await session.extNotification("_paseo.dev/session/goal", {
++      sessionId: "session-2",
++      status: "cleared",
++    });
++
++    expect(events.filter((event) => event.type === "goal_updated")).toEqual([
++      { type: "goal_updated", provider: "kimi", goal: null },
++    ]);
++  });
++
+   test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
+     const session = createKiroSession({
+       waitForInitialCommands: true,
+@@ -2918,6 +3125,61 @@ describe("ACPAgentSession", () => {
+     expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
+   });
+ 
++  test("Kimi reliable mode fails explicitly when completion has no assistant timeline event", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: async () => ({ stopReason: "end_turn" }),
++    };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        type: "turn_failed",
++        code: "kimi_timeline_missing",
++        turnId,
++      }),
++    );
++  });
++
++  test("Kimi reliable mode buffers mismatched-session assistant updates for history replay", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++
++    await session.sessionUpdate({
++      sessionId: "session-2",
++      update: {
++        sessionUpdate: "agent_message_chunk",
++        messageId: "assistant-recovered",
++        content: { type: "text", text: "recovered" },
++      } as SessionUpdate,
++    });
++
++    const history = [];
++    for await (const event of session.streamHistory()) {
++      history.push(event);
++    }
++    expect(history).toContainEqual(
++      expect.objectContaining({
++        type: "timeline",
++        item: expect.objectContaining({
++          type: "assistant_message",
++          text: "recovered",
++          messageId: "assistant-recovered",
++        }),
++      }),
++    );
++  });
++
+   test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
+     const session = createSession();
+     const events: AgentStreamEvent[] = [];
+@@ -4180,3 +4442,312 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+     });
+   });
+ });
++
++describe("ACP provider hook out-of-band commands", () => {
++  function createKimiHookedSession(): ACPAgentSession {
++    const session = createSessionWithConfig(
++      { provider: "kimi-acp" },
++      createTestLogger(),
++      {},
++      createKimiProviderHooks(),
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session_goal-test";
++    return session;
++  }
++
++  test("parses the /goal grammar into distinct commands", () => {
++    expect(parseKimiGoalCommand("/goal write the runbook")).toEqual({
++      kind: "create",
++      objective: "write the runbook",
++    });
++    expect(parseKimiGoalCommand("/goal pause")).toEqual({
++      kind: "control",
++      action: "pause",
++    });
++    expect(parseKimiGoalCommand("/goal resume")).toEqual({
++      kind: "control",
++      action: "resume",
++    });
++    expect(parseKimiGoalCommand("/goal cancel")).toEqual({
++      kind: "control",
++      action: "cancel",
++    });
++    expect(parseKimiGoalCommand("/goal status")).toEqual({ kind: "status" });
++    expect(parseKimiGoalCommand("/goal")).toEqual({ kind: "status" });
++  });
++
++  test("claims only the read-only /goal report without allocating a turn", () => {
++    const session = createKimiHookedSession();
++
++    expect(session.tryHandleOutOfBand("/goal status")).not.toBeNull();
++    expect(session.tryHandleOutOfBand("/goal")).not.toBeNull();
++  });
++
++  test("leaves unsupported and ordinary prompts to the normal turn path", () => {
++    const session = createKimiHookedSession();
++
++    expect(session.tryHandleOutOfBand("/goal write the runbook")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal pause")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal resume")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal cancel")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal done")).toBeNull();
++    expect(session.tryHandleOutOfBand("refactor the goal parser")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goalkeeper stats")).toBeNull();
++    expect(parseKimiGoalCommand("/goal done")).toBeNull();
++  });
++
++  test("emits the status report as a timeline item", async () => {
++    const session = createKimiHookedSession();
++    const handler = session.tryHandleOutOfBand("/goal status");
++    if (!handler) {
++      throw new Error("Expected an out-of-band handler for /goal status");
++    }
++    const events: AgentStreamEvent[] = [];
++
++    await handler.run({ emit: (event) => events.push(event) });
++
++    expect(events).toEqual([
++      {
++        type: "timeline",
++        provider: "kimi-acp",
++        item: {
++          type: "assistant_message",
++          text: "No goal is set.",
++        },
++      },
++    ]);
++  });
++
++  test("ignores out-of-band commands before the ACP session id is known", () => {
++    const session = createSessionWithConfig(
++      { provider: "kimi-acp" },
++      createTestLogger(),
++      {},
++      createKimiProviderHooks(),
++    );
++
++    expect(session.tryHandleOutOfBand("/goal pause")).toBeNull();
++  });
++
++  test("ignores out-of-band commands when the provider supplies no hooks", () => {
++    const session = createSessionWithConfig({ provider: "claude-acp" });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++
++    expect(session.tryHandleOutOfBand("/goal pause")).toBeNull();
++  });
++});
++
++describe("ACP provider hook prompt transform", () => {
++  function createHookTestSession(providerHooks: ACPProviderHooks) {
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
++    let settleTurn!: () => void;
++    const settled = new Promise<void>((resolve) => {
++      settleTurn = resolve;
++    });
++
++    const session = createSessionWithConfig({}, createTestLogger(), {}, providerHooks);
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    session.subscribe((event) => {
++      events.push(event);
++      if (
++        event.type === "turn_completed" ||
++        event.type === "turn_failed" ||
++        event.type === "turn_canceled"
++      ) {
++        settleTurn();
++      }
++    });
++
++    return { session, events, prompt, settled };
++  }
++
++  function submittedUserMessages(events: AgentStreamEvent[]): AgentStreamEvent[] {
++    return events.filter(
++      (event) => event.type === "timeline" && event.item.type === "user_message",
++    );
++  }
++
++  test("rewrites the prompt sent to the agent and the submitted user message", async () => {
++    const seen: AgentPromptInput[] = [];
++    const { session, events, prompt, settled } = createHookTestSession({
++      transformPrompt: (outgoing) => {
++        seen.push(outgoing);
++        return "Write the runbook.";
++      },
++    });
++
++    const { turnId } = await session.startTurn("/goal write the runbook", {
++      clientMessageId: "msg-client-1",
++    });
++
++    expect(seen).toEqual(["/goal write the runbook"]);
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "Write the runbook." }],
++    });
++    expect(submittedUserMessages(events)).toEqual([
++      {
++        type: "timeline",
++        provider: "claude-acp",
++        turnId,
++        item: {
++          type: "user_message",
++          text: "Write the runbook.",
++          messageId: "msg-client-1",
++          clientMessageId: "msg-client-1",
++        },
++      },
++    ]);
++
++    await settled;
++  });
++
++  test("a Kimi /goal command reaches the agent as a rewritten prompt", async () => {
++    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
++    const session = createSessionWithConfig(
++      { provider: "kimi-acp" },
++      createTestLogger(),
++      {},
++      createKimiProviderHooks(),
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session_goal-test";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
++
++    await session.startTurn("/goal write the runbook");
++
++    const sent = prompt.mock.calls[0]?.[0] as { prompt: Array<{ text: string }> };
++    expect(sent.prompt[0]?.text).not.toBe("/goal write the runbook");
++    expect(sent.prompt[0]?.text).toContain("write the runbook");
++  });
++
++  test("returning null leaves the prompt untouched", async () => {
++    const { session, events, prompt, settled } = createHookTestSession({
++      transformPrompt: () => null,
++    });
++
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "hello" }],
++    });
++    expect(submittedUserMessages(events)).toEqual([
++      expect.objectContaining({
++        item: expect.objectContaining({ type: "user_message", text: "hello" }),
++      }),
++    ]);
++
++    await settled;
++  });
++
++  test("throwing falls back to the original prompt and does not fail the turn", async () => {
++    const { session, events, prompt, settled } = createHookTestSession({
++      transformPrompt: () => {
++        throw new Error("transformPrompt exploded");
++      },
++    });
++
++    const { turnId } = await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "hello" }],
++    });
++
++    await settled;
++
++    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
++    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
++  });
++});
++
++describe("ACP provider hook turn hold", () => {
++  test("interrupt() releases a turn that holdTurnWhile keeps open", async () => {
++    const signals: AbortSignal[] = [];
++    let markHeld!: () => void;
++    const held = new Promise<void>((resolve) => {
++      markHeld = resolve;
++    });
++    const neverSettles = new Promise<void>(() => {});
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
++    const cancel = vi.fn(async () => {});
++    let settleTurn!: () => void;
++    const settled = new Promise<void>((resolve) => {
++      settleTurn = resolve;
++    });
++
++    const session = createSessionWithConfig({}, createTestLogger(), {}, {
++      holdTurnWhile: ({ signal }) => {
++        signals.push(signal);
++        markHeld();
++        return neverSettles;
++      },
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt, cancel };
++    session.subscribe((event) => {
++      events.push(event);
++      if (
++        event.type === "turn_completed" ||
++        event.type === "turn_failed" ||
++        event.type === "turn_canceled"
++      ) {
++        settleTurn();
++      }
++    });
++
++    const { turnId } = await session.startTurn("hello");
++    await held;
++
++    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBe(turnId);
++    expect(events.some((event) => event.type === "turn_completed")).toBe(false);
++
++    await session.interrupt();
++    await settled;
++
++    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
++    expect(cancel).toHaveBeenCalledWith({ sessionId: "session-1" });
++  });
++
++  test("holdTurnWhile receives a signal that interrupt() aborts", async () => {
++    const signals: AbortSignal[] = [];
++    let markHeld!: () => void;
++    const held = new Promise<void>((resolve) => {
++      markHeld = resolve;
++    });
++    let releaseHold!: () => void;
++    const hold = new Promise<void>((resolve) => {
++      releaseHold = resolve;
++    });
++
++    const session = createSessionWithConfig({}, createTestLogger(), {}, {
++      holdTurnWhile: ({ signal }) => {
++        signals.push(signal);
++        markHeld();
++        return hold;
++      },
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" })),
++      cancel: vi.fn(async () => {}),
++    };
++
++    await session.startTurn("hello");
++    await held;
++
++    expect(signals.length).toBe(1);
++    expect(signals[0]?.aborted).toBe(false);
++
++    await session.interrupt();
++
++    expect(signals[0]?.aborted).toBe(true);
++    releaseHold();
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index d2e0a1b..3e2958e 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -75,6 +75,7 @@ import {
+   type AgentPersistenceHandle,
+   type AgentPromptContentBlock,
+   type AgentPromptInput,
++  type AgentProvider,
+   type AgentRunOptions,
+   type AgentRunResult,
+   type AgentRuntimeInfo,
+@@ -84,6 +85,7 @@ import {
+   type AgentStreamEvent,
+   type AgentTimelineItem,
+   type AgentUsage,
++  type CompactionTimelineItem,
+   type FetchCatalogOptions,
+   type ProviderRefreshContext,
+   type ImportableProviderSession,
+@@ -128,6 +130,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+ 
+ const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
+ 
++// ACP 0.17 has no compaction update, so Paseo's Kimi proxy watches the agent's
++// own session log and reports compaction over an extension method instead. See
++// `mapCompactionExtension`.
++const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";
++
++// The goal engine rides inside the Kimi process, so its state reaches Paseo the
++// same way the compaction marker does instead of as an ACP session update. See
++// `mapGoalExtension`.
++const GOAL_EXTENSION_METHOD = "_paseo.dev/session/goal";
++
+ function assertChildWithPipes(
+   child: ChildProcess,
+ ): asserts child is ChildProcessWithoutNullStreams {
+@@ -427,6 +439,50 @@ export type ACPCatalogModelResolver = (
+   context: ACPCatalogModelResolverContext,
+ ) => Promise<AgentModelDefinition[]>;
+ 
++/** Session facts a provider hook needs to reach its own provider sidecar. */
++export interface ACPProviderHookContext {
++  acpSessionId: string;
++  provider: AgentProvider;
++  logger: Logger;
++  emit: (event: AgentStreamEvent) => void;
++}
++
++/**
++ * Optional provider-side behaviour for one ACP session. Hooks are threaded from
++ * the provider client down to `ACPAgentSession`, so a provider can attach
++ * native facilities (sidecar polling, `/goal` commands) without forking the
++ * ACP session implementation.
++ */
++export interface ACPProviderHooks {
++  /** Called once the ACP session id is known and the session is usable. */
++  onSessionReady?(ctx: ACPProviderHookContext): { onClose?: () => void } | void;
++  /**
++   * Return a handler when the prompt is a provider side-effect command that must
++   * run WITHOUT consuming a conversation turn. Mirrors AgentSession.tryHandleOutOfBand.
++   */
++  tryHandleOutOfBand?(
++    prompt: AgentPromptInput,
++    ctx: ACPProviderHookContext,
++  ): { run(ctx: { emit: (event: AgentStreamEvent) => void }): Promise<void> } | null;
++  /**
++   * Rewrite a prompt before it is sent to the agent. Return null to send it
++   * unchanged. Runs for every foreground turn.
++   */
++  transformPrompt?(prompt: AgentPromptInput, ctx: ACPProviderHookContext): AgentPromptInput | null;
++  /**
++   * Called after the ACP prompt response has been received. If it resolves to a
++   * promise, the ACP turn is held open until that promise settles — this keeps
++   * Paseo showing the agent as running while the provider keeps working on a goal.
++   * The signal aborts when the turn is interrupted or the session closes, so a
++   * provider can drop its hold early instead of waiting out its own timeout.
++   */
++  holdTurnWhile?(ctx: {
++    acpSessionId: string;
++    logger: Logger;
++    signal: AbortSignal;
++  }): Promise<void> | null;
++}
++
+ interface ACPAgentClientOptions {
+   provider: string;
+   logger: Logger;
+@@ -456,6 +512,7 @@ interface ACPAgentClientOptions {
+   waitForInitialCommands?: boolean;
+   initialCommandsWaitTimeoutMs?: number;
+   terminateProcess?: ProcessTerminator;
++  providerHooks?: ACPProviderHooks;
+   now?: () => number;
+ }
+ 
+@@ -490,6 +547,7 @@ interface ACPAgentSessionOptions {
+   waitForInitialCommands?: boolean;
+   initialCommandsWaitTimeoutMs?: number;
+   terminateProcess?: ProcessTerminator;
++  providerHooks?: ACPProviderHooks;
+ }
+ 
+ export interface SpawnedACPProcess {
+@@ -916,6 +974,7 @@ export class ACPAgentClient implements AgentClient {
+   private readonly waitForInitialCommands: boolean;
+   private readonly initialCommandsWaitTimeoutMs: number;
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
++  private readonly providerHooks?: ACPProviderHooks;
+   private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
+   private readonly now: () => number;
+   protected readonly terminateProcess: ProcessTerminator;
+@@ -946,6 +1005,7 @@ export class ACPAgentClient implements AgentClient {
+     this.waitForInitialCommands = options.waitForInitialCommands ?? false;
+     this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
+     this.extensionCommandsParser = options.extensionCommandsParser;
++    this.providerHooks = options.providerHooks;
+     this.now = options.now ?? Date.now;
+   }
+ 
+@@ -979,6 +1039,7 @@ export class ACPAgentClient implements AgentClient {
+         extensionCommandsParser: this.extensionCommandsParser,
+         waitForInitialCommands: this.waitForInitialCommands,
+         initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
++        providerHooks: this.providerHooks,
+       },
+     );
+     await session.initializeNewSession();
+@@ -1030,6 +1091,7 @@ export class ACPAgentClient implements AgentClient {
+       extensionCommandsParser: this.extensionCommandsParser,
+       waitForInitialCommands: this.waitForInitialCommands,
+       initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
++      providerHooks: this.providerHooks,
+     });
+     await session.initializeResumedSession();
+     return session;
+@@ -1629,6 +1691,19 @@ export class ACPAgentClient implements AgentClient {
+   }
+ }
+ 
++/**
++ * Resolve as soon as the signal aborts, so a pending provider hold can be
++ * abandoned without waiting for the provider's own timeout.
++ */
++function waitForAbortSignal(signal: AbortSignal): Promise<void> {
++  if (signal.aborted) {
++    return Promise.resolve();
++  }
++  return new Promise<void>((resolve) => {
++    signal.addEventListener("abort", () => resolve(), { once: true });
++  });
++}
++
+ export class ACPAgentSession implements AgentSession, ACPClient {
+   readonly provider: string;
+   readonly capabilities: AgentCapabilityFlags;
+@@ -1689,9 +1764,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private commandsReadySettled = false;
+   private waitForInitialCommands: boolean;
+   private initialCommandsWaitTimeoutMs: number;
++  private readonly requiresAssistantTimeline: boolean;
++  private currentTurnSawAssistant = false;
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
++  private readonly providerHooks?: ACPProviderHooks;
++  private providerSessionCleanup: (() => void) | null = null;
+   private currentTurnUsage: AgentUsage | undefined;
+   private activeForegroundTurnId: string | null = null;
++  private turnAbort: AbortController | null = null;
+   private fallbackAssistantMessageId: string | null = null;
+   private closed = false;
+   private historyPending = false;
+@@ -1729,7 +1809,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.currentTitle = config.title ?? null;
+     this.waitForInitialCommands = options.waitForInitialCommands ?? false;
+     this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
++    this.requiresAssistantTimeline = options.capabilities.kimiReliableQueue === true;
+     this.extensionCommandsParser = options.extensionCommandsParser;
++    this.providerHooks = options.providerHooks;
+   }
+ 
+   get id(): string | null {
+@@ -1753,6 +1835,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       this.bootstrapThreadEventPending = true;
+       this.applySessionState(response);
+       await this.applyConfiguredOverrides();
++      this.notifyProviderSessionReady();
+     } catch (error) {
+       await this.closeAfterInitializationFailure(error);
+     }
+@@ -1807,6 +1890,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       }
+ 
+       await this.applyConfiguredOverrides();
++      this.notifyProviderSessionReady();
+     } catch (error) {
+       await this.closeAfterInitializationFailure(error);
+     }
+@@ -1824,6 +1908,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     throw error;
+   }
+ 
++  private providerHookContext(): ACPProviderHookContext | null {
++    const sessionId = this.sessionId;
++    if (!sessionId) {
++      return null;
++    }
++    return {
++      acpSessionId: sessionId,
++      provider: this.provider,
++      logger: this.logger,
++      emit: (event) => this.pushEvent(event),
++    };
++  }
++
++  private notifyProviderSessionReady(): void {
++    const hooks = this.providerHooks;
++    if (!hooks?.onSessionReady) {
++      return;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return;
++    }
++    try {
++      this.providerSessionCleanup = hooks.onSessionReady(ctx)?.onClose ?? null;
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook onSessionReady failed");
++    }
++  }
++
++  private runProviderSessionCleanup(): void {
++    const cleanup = this.providerSessionCleanup;
++    this.providerSessionCleanup = null;
++    if (!cleanup) {
++      return;
++    }
++    try {
++      cleanup();
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider session cleanup failed");
++    }
++  }
++
++  /**
++   * Let the provider rewrite the prompt before it reaches the agent. A throwing
++   * hook must never break a turn, so failures are logged and the original prompt
++   * is used.
++   */
++  private applyProviderPromptTransform(prompt: AgentPromptInput): AgentPromptInput {
++    const hooks = this.providerHooks;
++    if (!hooks?.transformPrompt) {
++      return prompt;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return prompt;
++    }
++    try {
++      return hooks.transformPrompt(prompt, ctx) ?? prompt;
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook transformPrompt failed");
++      return prompt;
++    }
++  }
++
++  /**
++   * Keep the turn open while the provider is still working on a goal after its
++   * ACP prompt response arrived. A rejected hold must never break the turn, so
++   * failures are logged and the turn finishes normally.
++   *
++   * The hold is also abandoned as soon as the turn is aborted. Previously an
++   * interrupt could not release a turn whose prompt response had already arrived
++   * and whose provider had already entered the hold: the turn stayed open (and
++   * the daemon rejected every new prompt with "A foreground turn is already
++   * active") until the provider's own timeout expired.
++   */
++  private async holdTurnWhileProviderWorks(): Promise<void> {
++    const hooks = this.providerHooks;
++    const sessionId = this.sessionId;
++    if (!hooks?.holdTurnWhile || !sessionId) {
++      return;
++    }
++    const signal = this.turnAbort?.signal ?? new AbortController().signal;
++    if (signal.aborted) {
++      return;
++    }
++    let hold: Promise<void> | null;
++    try {
++      hold = hooks.holdTurnWhile({ acpSessionId: sessionId, logger: this.logger, signal });
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook holdTurnWhile failed");
++      return;
++    }
++    if (!hold) {
++      return;
++    }
++    const settledHold = hold.then(
++      () => undefined,
++      (error: unknown) => {
++        this.logger.warn({ err: error }, "ACP provider turn hold rejected");
++      },
++    );
++    await Promise.race([settledHold, waitForAbortSignal(signal)]);
++  }
++
++  tryHandleOutOfBand(prompt: AgentPromptInput): {
++    run(ctx: { emit: (event: AgentStreamEvent) => void }): Promise<void>;
++  } | null {
++    const hooks = this.providerHooks;
++    if (!hooks?.tryHandleOutOfBand) {
++      return null;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return null;
++    }
++    return hooks.tryHandleOutOfBand(prompt, ctx);
++  }
++
+   async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
+     const result = await runProviderTurn({
+       prompt,
+@@ -1858,20 +2060,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     const turnId = randomUUID();
+     const messageId = options?.clientMessageId ?? randomUUID();
++    const outgoing = this.applyProviderPromptTransform(prompt);
+     this.activeForegroundTurnId = turnId;
++    this.turnAbort = new AbortController();
++    this.currentTurnSawAssistant = false;
+     this.fallbackAssistantMessageId = null;
+     this.submittedUserMessageTurnId = null;
+     this.emitBootstrapThreadEvent();
+     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+-    this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
++    this.emitSubmittedUserMessage(outgoing, messageId, turnId, options?.clientMessageId);
+ 
+     void this.connection
+       .prompt({
+         sessionId: this.sessionId,
+         messageId,
+-        prompt: toACPContentBlocks(prompt),
++        prompt: toACPContentBlocks(outgoing),
+       })
+-      .then((response) => {
++      .then(async (response) => {
++        await this.holdTurnWhileProviderWorks();
+         this.handlePromptResponse(response, turnId);
+         return;
+       })
+@@ -2413,6 +2619,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.pendingPermissions.clear();
+ 
+     if (this.activeForegroundTurnId) {
++      this.turnAbort?.abort();
+       await this.connection.cancel({ sessionId: this.sessionId });
+     }
+   }
+@@ -2422,9 +2629,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return;
+     }
+     this.closed = true;
++    this.turnAbort?.abort();
+ 
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     this.settleCommandsReady();
++    this.runProviderSessionCleanup();
+ 
+     for (const pending of this.pendingPermissions.values()) {
+       pending.resolve({ outcome: { outcome: "cancelled" } });
+@@ -2464,6 +2673,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.connection = null;
+     this.child = null;
+     this.activeForegroundTurnId = null;
++    this.turnAbort = null;
+   }
+ 
+   async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+@@ -2522,6 +2732,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       "provider.acp.raw_event",
+     );
+     if (params.sessionId !== this.sessionId) {
++      if (this.requiresAssistantTimeline) {
++        const sawAssistant = this.currentTurnSawAssistant;
++        const events = this.translateSessionUpdate(params.update);
++        this.currentTurnSawAssistant = sawAssistant;
++        for (const event of events) {
++          if (event.type === "timeline") {
++            this.persistedHistory.push(event.item);
++          }
++        }
++        this.historyPending = this.persistedHistory.length > 0;
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            expectedSessionId: this.sessionId ?? undefined,
++            receivedSessionId: params.sessionId,
++            reason: "session_mismatch_buffered",
++            eventCount: events.length,
++          },
++          "provider.acp.event_buffered",
++        );
++        return;
++      }
++      this.logger.warn(
++        {
++          agentId: this.agentId,
++          provider: this.provider,
++          expectedSessionId: this.sessionId ?? undefined,
++          receivedSessionId: params.sessionId,
++          reason: "session_mismatch",
++        },
++        "provider.acp.event_dropped",
++      );
+       return;
+     }
+ 
+@@ -2542,6 +2785,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+ 
+   private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
+     if (this.replayingHistory) {
++      if (events.length > 0) {
++        this.logger.trace(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            sessionId: this.sessionId ?? undefined,
++            reason: "history_replay",
++            eventCount: events.length,
++          },
++          "provider.acp.event_buffered",
++        );
++      }
+       for (const event of events) {
+         if (event.type === "timeline") {
+           this.persistedHistory.push(event.item);
+@@ -2567,6 +2822,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       "provider.acp.extension_notification",
+     );
+ 
++    if (method === COMPACTION_EXTENSION_METHOD) {
++      const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
++      if (sessionId !== null && sessionId !== this.sessionId) {
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            expectedSessionId: this.sessionId ?? undefined,
++            receivedSessionId: sessionId,
++            reason: "session_mismatch",
++          },
++          "provider.acp.extension_dropped",
++        );
++        return;
++      }
++      const item = mapCompactionExtension(params);
++      if (item !== null) {
++        this.deliverTranslatedEvents([this.wrapTimeline(item)]);
++      }
++      return;
++    }
++
++    if (method === GOAL_EXTENSION_METHOD) {
++      const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
++      if (sessionId !== null && sessionId !== this.sessionId) {
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            expectedSessionId: this.sessionId ?? undefined,
++            receivedSessionId: sessionId,
++            reason: "session_mismatch",
++          },
++          "provider.acp.extension_dropped",
++        );
++        return;
++      }
++      this.deliverTranslatedEvents(this.mapGoalExtension(params));
++      return;
++    }
++
+     const parsedCommands = this.extensionCommandsParser?.(method, params);
+     if (parsedCommands) {
+       this.applyResolvedCommands(parsedCommands, {
+@@ -2922,6 +3218,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     const pendingUserEvents = this.flushPendingUserMessage();
+     switch (update.sessionUpdate) {
+       case "agent_message_chunk": {
++        this.currentTurnSawAssistant = true;
+         const item = this.createMessageTimelineItem("assistant_message", update);
+         return item ? [...pendingUserEvents, this.wrapTimeline(item)] : pendingUserEvents;
+       }
+@@ -2965,8 +3262,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+         this.handleSessionInfoUpdate(update);
+         return pendingUserEvents;
+       case "usage_update":
+-        this.handleUsageUpdate(update);
+-        return pendingUserEvents;
++        return [...pendingUserEvents, ...this.handleUsageUpdate(update)];
+       case "available_commands_update":
+         this.cachedCommands = update.availableCommands.map((command) => ({
+           name: command.name,
+@@ -3126,13 +3422,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
+-  private handleUsageUpdate(update: UsageUpdate): void {
+-    void update;
++  private handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[] {
++    const usage: AgentUsage = {};
++    if (typeof update.used === "number") {
++      usage.contextWindowUsedTokens = update.used;
++    }
++    if (typeof update.size === "number") {
++      usage.contextWindowMaxTokens = update.size;
++    }
++    if (usage.contextWindowUsedTokens === undefined && usage.contextWindowMaxTokens === undefined) {
++      return [];
++    }
++    return [{ type: "usage_updated", provider: this.provider, usage }];
++  }
++
++  /**
++   * Read Paseo's goal extension notification into a goal state event.
++   *
++   * The payload is provider-supplied and flat, like the compaction marker. Only
++   * `status` is load-bearing: without a known one there is no goal to describe,
++   * so the report degrades to a null goal and the agent drops what it held.
++   * Text and counters degrade to empty and zero rather than rejecting the
++   * report.
++   */
++  private mapGoalExtension(params: Record<string, unknown>): AgentStreamEvent[] {
++    const status = params.status;
++    if (
++      status !== "active" &&
++      status !== "complete" &&
++      status !== "blocked" &&
++      status !== "cleared"
++    ) {
++      return [{ type: "goal_updated", provider: this.provider, goal: null }];
++    }
++    return [
++      {
++        type: "goal_updated",
++        provider: this.provider,
++        goal: {
++          goalId: readString(params, ["goalId"]) ?? "",
++          objective: readString(params, ["objective"]) ?? "",
++          completionCriterion: readString(params, ["completionCriterion"]) ?? "",
++          status,
++          turnsUsed: readNumber(params, ["turnsUsed"]) ?? 0,
++          tokensUsed: readNumber(params, ["tokensUsed"]) ?? 0,
++          startedAt: readNumber(params, ["startedAt"]) ?? 0,
++          endedAt: readNumber(params, ["endedAt"]) ?? null,
++          updatedAt: readNumber(params, ["updatedAt"]) ?? 0,
++        },
++      },
++    ];
+   }
+ 
+   private handlePromptResponse(response: PromptResponse, turnId: string): void {
+     this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
+ 
++    if (
++      this.requiresAssistantTimeline &&
++      response.stopReason !== "cancelled" &&
++      !this.currentTurnSawAssistant
++    ) {
++      this.finishTurn({
++        type: "turn_failed",
++        provider: this.provider,
++        error: "Kimi ACP completed without an assistant timeline event",
++        code: "kimi_timeline_missing",
++        diagnostic: this.collectDiagnostic(
++          "Prompt completed without assistant_message; proxy journal reconciliation is required",
++        ),
++        turnId,
++      });
++      return;
++    }
++
+     switch (response.stopReason) {
+       case "cancelled":
+         this.synthesizeCanceledToolCalls();
+@@ -3226,6 +3588,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   ): void {
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     this.activeForegroundTurnId = null;
++    this.turnAbort = null;
+     this.fallbackAssistantMessageId = null;
+     if (this.submittedUserMessageTurnId === event.turnId) {
+       this.submittedUserMessageTurnId = null;
+@@ -3479,7 +3842,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+   return contentBlocks;
+ }
+ 
+-function extractPromptText(prompt: AgentPromptInput): string {
++/**
++ * Build a provider timeline event without a turn id. Out-of-band hook handlers
++ * have no active turn, so they emit through this; live session events go
++ * through `ACPAgentSession.wrapTimeline`, which stamps the active turn id.
++ */
++export function wrapTimelineItem(
++  provider: AgentProvider,
++  item: AgentTimelineItem,
++): AgentStreamEvent {
++  return { type: "timeline", provider, item };
++}
++
++export function extractPromptText(prompt: AgentPromptInput): string {
+   if (typeof prompt === "string") {
+     return prompt;
+   }
+@@ -3554,6 +3929,27 @@ function mergeToolSnapshot(
+   };
+ }
+ 
++/**
++ * Read Paseo's compaction extension notification into a timeline marker.
++ *
++ * `status` decides whether the marker is still open or settled, matching the
++ * `loading` / `completed` pair the app merges into one row. `trigger` and
++ * `preTokens` are optional and only shape the label.
++ */
++function mapCompactionExtension(params: Record<string, unknown>): CompactionTimelineItem | null {
++  const status = params.status;
++  if (status !== "in_progress" && status !== "completed") {
++    return null;
++  }
++  const preTokens = params.preTokens;
++  return {
++    type: "compaction",
++    status: status === "in_progress" ? "loading" : "completed",
++    trigger: params.trigger === "manual" ? "manual" : "auto",
++    ...(typeof preTokens === "number" && preTokens > 0 ? { preTokens } : {}),
++  };
++}
++
+ function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
+   return {
+     type: "todo",
+@@ -3815,7 +4211,17 @@ function mapPermissionRequest(
+   params: RequestPermissionRequest,
+   snapshot: ACPToolSnapshot,
+ ): AgentPermissionRequest {
+-  const kind: AgentPermissionRequestKind = snapshot.kind === "switch_mode" ? "mode" : "tool";
++  const toolName = params.toolCall.title ?? snapshot.title;
++  // ExitPlanMode asks the user to review a plan, and the agent puts the plan
++  // file's contents in the request's content. The `plan` kind is what makes the
++  // approval card render that text at full height; the `tool` kind renders it
++  // inside a 200px scroll box.
++  const planText =
++    toolName === "ExitPlanMode" ? extractToolText(params.toolCall.content) : undefined;
++  let kind: AgentPermissionRequestKind = snapshot.kind === "switch_mode" ? "mode" : "tool";
++  if (planText !== undefined) {
++    kind = "plan";
++  }
+   const chooserText = isACPChooserRequest(params.options)
+     ? extractToolText(params.toolCall.content)
+     : undefined;
+@@ -3824,11 +4230,11 @@ function mapPermissionRequest(
+     provider,
+     name: snapshot.kind ?? snapshot.title,
+     kind,
+-    title: params.toolCall.title ?? snapshot.title,
++    title: toolName,
+     detail: chooserText
+       ? {
+           type: "plain_text",
+-          label: params.toolCall.title ?? snapshot.title,
++          label: toolName,
+           text: chooserText,
+           icon: "wrench",
+         }
+@@ -3842,6 +4248,7 @@ function mapPermissionRequest(
+       toolCallId: params.toolCall.toolCallId,
+       rawRequest: params,
+       options: params.options,
++      ...(planText === undefined ? {} : { planText }),
+     },
+   };
+ }
+diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
+index c8f8960..4c9f1d5 100644
+--- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
+@@ -10,6 +10,7 @@ import {
+   type ACPConfigFeatureOption,
+   DEFAULT_ACP_CAPABILITIES,
+   type ACPExtensionCommandsParser,
++  type ACPProviderHooks,
+ } from "./acp-agent.js";
+ import {
+   buildBinaryDiagnosticRows,
+@@ -52,6 +53,8 @@ interface GenericACPAgentClientOptions {
+   extensionCommandsParser?: ACPExtensionCommandsParser;
+   catalogModelResolver?: ACPCatalogModelResolver;
+   now?: () => number;
++  capabilityOverrides?: Partial<AgentCapabilityFlags>;
++  providerHooks?: ACPProviderHooks;
+ }
+ 
+ export class GenericACPAgentClient extends ACPAgentClient {
+@@ -69,7 +72,10 @@ export class GenericACPAgentClient extends ACPAgentClient {
+         env: options.env,
+       },
+       defaultCommand: options.command,
+-      capabilities: buildGenericACPCapabilities(providerParams),
++      capabilities: {
++        ...buildGenericACPCapabilities(providerParams),
++        ...options.capabilityOverrides,
++      },
+       // ACP agents advertise slash commands with available_commands_update after
+       // session/new, so the first listCommands() waits for that batch.
+       waitForInitialCommands: options.waitForInitialCommands ?? true,
+@@ -80,6 +86,7 @@ export class GenericACPAgentClient extends ACPAgentClient {
+       extensionCommandsParser: options.extensionCommandsParser,
+       catalogModelResolver: options.catalogModelResolver,
+       now: options.now,
++      providerHooks: options.providerHooks,
+     });
+ 
+     this.command = options.command;
+diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
+index b388fdb..950dfa6 100644
+--- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
+@@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
+ import { describe, expect, test, vi } from "vitest";
+ 
+ import { createTestLogger } from "../../../test-utils/test-logger.js";
++import type { AgentPromptInput } from "../agent-sdk-types.js";
+ import { type SpawnedACPProcess } from "./acp-agent.js";
+-import { KimiACPAgentClient } from "./kimi-acp-agent.js";
++import {
++  createKimiProviderHooks,
++  KimiACPAgentClient,
++  transformKimiGoalPrompt,
++} from "./kimi-acp-agent.js";
+ 
+ function modelConfigOption(currentValue: string): SessionConfigOption {
+   return {
+@@ -239,3 +244,64 @@ describe("KimiACPAgentClient per-model thinking options", () => {
+     expect(kimiK3?.defaultThinkingOptionId).toBeUndefined();
+   });
+ });
++
++describe("transformKimiGoalPrompt", () => {
++  test("rewrites a create command into a CreateGoal instruction", () => {
++    const rewritten = transformKimiGoalPrompt("/goal write the runbook");
++
++    expect(rewritten).toBe(
++      "用 CreateGoal 工具建立这个目标，然后立即开始执行，不要停下来问我。\n\n目标：write the runbook",
++    );
++  });
++
++  test("rewrites pause, resume, and cancel into UpdateGoal instructions", () => {
++    expect(transformKimiGoalPrompt("/goal pause")).toContain("UpdateGoal");
++    expect(transformKimiGoalPrompt("/goal pause")).toContain("paused");
++    expect(transformKimiGoalPrompt("/goal resume")).toContain("active");
++    expect(transformKimiGoalPrompt("/goal cancel")).toContain("cleared");
++  });
++
++  test("reads the command out of a block-array prompt", () => {
++    const rewritten = transformKimiGoalPrompt([{ type: "text", text: "/goal ship it" }]);
++
++    expect(rewritten).toContain("CreateGoal");
++    expect(rewritten).toContain("ship it");
++  });
++
++  test("leaves status, bare, done, and ordinary prompts alone", () => {
++    expect(transformKimiGoalPrompt("/goal status")).toBeNull();
++    expect(transformKimiGoalPrompt("/goal")).toBeNull();
++    expect(transformKimiGoalPrompt("/goal done")).toBeNull();
++    expect(transformKimiGoalPrompt("refactor the goal parser")).toBeNull();
++    expect(transformKimiGoalPrompt("/goalkeeper stats")).toBeNull();
++  });
++
++  test("exposes the transformer through the provider hooks", () => {
++    const hooks = createKimiProviderHooks();
++    const transform = (
++      hooks as { transformPrompt?: (prompt: AgentPromptInput) => AgentPromptInput | null }
++    ).transformPrompt;
++
++    expect(typeof transform).toBe("function");
++    expect(transform?.("/goal ship it")).toContain("CreateGoal");
++    expect(transform?.("hello")).toBeNull();
++  });
++
++  test("keeps create and control out of the out-of-band path", () => {
++    const hooks = createKimiProviderHooks();
++    const ctx = {
++      acpSessionId: "session_goal-test",
++      provider: "kimi-acp",
++      logger: createTestLogger(),
++      emit: () => {},
++    };
++
++    expect(hooks.tryHandleOutOfBand?.("/goal write the runbook", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal pause", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal resume", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal cancel", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal status", ctx)).not.toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal", ctx)).not.toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("hello", ctx)).toBeNull();
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
+index 50effdf..244d4a3 100644
+--- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
+@@ -1,13 +1,24 @@
+ import type { Logger } from "pino";
+ 
+-import type { AgentModelDefinition } from "../agent-sdk-types.js";
++import type {
++  AgentGoal,
++  AgentGoalStatus,
++  AgentModelDefinition,
++  AgentPromptInput,
++} from "../agent-sdk-types.js";
++import type { AgentCapabilityFlags } from "../agent-sdk-types.js";
+ import {
+   type ACPCatalogModelResolverContext,
++  type ACPProviderHookContext,
++  type ACPProviderHooks,
+   deriveSelectorOptions,
++  extractPromptText,
+   findSelectConfigOption,
++  wrapTimelineItem,
+ } from "./acp-agent.js";
+ import { toDiagnosticErrorMessage } from "./diagnostic-utils.js";
+ import { GenericACPAgentClient } from "./generic-acp-agent.js";
++import { KimiNativeBridge } from "./kimi/native-bridge.js";
+ 
+ interface KimiACPAgentClientOptions {
+   logger: Logger;
+@@ -90,6 +101,160 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+       label: options.label,
+       providerParams: options.providerParams,
+       catalogModelResolver: resolveKimiCatalogModels,
++      capabilityOverrides: KIMI_ACP_CAPABILITIES,
++      providerHooks: createKimiProviderHooks(),
+     });
+   }
+ }
++
++/**
++ * Kimi's agent runtime, not the ACP client, decides when a goal-driven turn
++ * ends, so the timeline can legitimately lag the prompt response.
++ * `kimiReliableQueue` makes the ACP session validate that a non-cancelled
++ * prompt actually produced an assistant timeline item instead of reporting
++ * success for an empty turn.
++ */
++export const KIMI_ACP_CAPABILITIES: Partial<AgentCapabilityFlags> = {
++  kimiReliableQueue: true,
++};
++
++const KIMI_GOAL_COMMAND = "/goal";
++/** How long an ACP turn is held open while Kimi keeps working on a live goal. */
++const KIMI_GOAL_HOLD_TIMEOUT_MS = 15 * 60 * 1000;
++
++type KimiGoalControlAction = "pause" | "resume" | "cancel";
++
++/** Goal status the agent should apply through its own goal tool. */
++const KIMI_GOAL_CONTROL_STATUS: Record<KimiGoalControlAction, AgentGoalStatus> = {
++  pause: "paused",
++  resume: "active",
++  cancel: "cleared",
++};
++
++export type KimiGoalCommand =
++  | { kind: "create"; objective: string }
++  | { kind: "control"; action: KimiGoalControlAction }
++  | { kind: "status" };
++
++/**
++ * Single source of truth for the `/goal` grammar.
++ *
++ * `done` is deliberately unsupported: Kimi's native goal engine has no
++ * completion command, so the prompt must fall through to a normal turn instead
++ * of being answered with a claim the daemon cannot honour.
++ */
++export function parseKimiGoalCommand(text: string): KimiGoalCommand | null {
++  const trimmed = text.trim();
++  if (trimmed !== KIMI_GOAL_COMMAND && !trimmed.startsWith(`${KIMI_GOAL_COMMAND} `)) {
++    return null;
++  }
++  const remainder = trimmed.slice(KIMI_GOAL_COMMAND.length).trim();
++  if (remainder.length === 0 || remainder.toLowerCase() === "status") {
++    return { kind: "status" };
++  }
++  const lowered = remainder.toLowerCase();
++  if (lowered === "done") {
++    return null;
++  }
++  if (lowered === "pause" || lowered === "resume" || lowered === "cancel") {
++    return { kind: "control", action: lowered };
++  }
++  return { kind: "create", objective: remainder };
++}
++
++/**
++ * Rewrite a `/goal` side-effect command into an ordinary prompt.
++ *
++ * The daemon cannot reach the runtime that owns the goal, so create and control
++ * commands are handed to the agent, which applies them with its own CreateGoal /
++ * UpdateGoal tools. `status` returns null: it is answered out-of-band from the
++ * log the daemon already tails.
++ */
++export function transformKimiGoalPrompt(prompt: AgentPromptInput): string | null {
++  const command = parseKimiGoalCommand(extractPromptText(prompt));
++  if (!command) {
++    return null;
++  }
++  switch (command.kind) {
++    case "create":
++      return `用 CreateGoal 工具建立这个目标，然后立即开始执行，不要停下来问我。\n\n目标：${command.objective}`;
++    case "control":
++      return `用 UpdateGoal 工具把当前目标状态改为 ${KIMI_GOAL_CONTROL_STATUS[command.action]}，不要创建新目标。`;
++    case "status":
++      return null;
++  }
++}
++
++export interface KimiProviderHooksOptions {
++  kimiHome?: string;
++}
++
++/**
++ * Provider hooks for Kimi ACP: one native bridge per live session, `/goal`
++ * status handled out-of-band, create/control commands rewritten into prompts,
++ * and the ACP turn held open while Kimi runs a goal.
++ */
++export function createKimiProviderHooks(options: KimiProviderHooksOptions = {}): ACPProviderHooks {
++  const bridges = new Map<string, KimiNativeBridge>();
++
++  const findBridge = (ctx: ACPProviderHookContext): KimiNativeBridge | null =>
++    bridges.get(ctx.acpSessionId) ?? null;
++
++  return {
++    onSessionReady(ctx) {
++      const bridge = new KimiNativeBridge({
++        kimiSessionId: ctx.acpSessionId,
++        kimiHome: options.kimiHome,
++        logger: ctx.logger,
++        provider: ctx.provider,
++        emit: ctx.emit,
++      });
++      bridges.set(ctx.acpSessionId, bridge);
++      bridge.start();
++      return {
++        onClose: () => {
++          bridges.delete(ctx.acpSessionId);
++          bridge.stop();
++        },
++      };
++    },
++    tryHandleOutOfBand(prompt, ctx) {
++      const command = parseKimiGoalCommand(extractPromptText(prompt));
++      // Only reporting is a read-only side effect. Anything that would mutate
++      // the goal falls through to a normal turn and is rewritten into a prompt.
++      if (!command || command.kind !== "status") {
++        return null;
++      }
++      return {
++        run: async ({ emit }) => {
++          const goal = findBridge(ctx)?.getGoal() ?? null;
++          emit(
++            wrapTimelineItem(ctx.provider, {
++              type: "assistant_message",
++              text: describeKimiGoal(goal),
++            }),
++          );
++        },
++      };
++    },
++    transformPrompt(prompt) {
++      return transformKimiGoalPrompt(prompt);
++    },
++    holdTurnWhile(ctx) {
++      const bridge = bridges.get(ctx.acpSessionId);
++      if (!bridge || !bridge.isGoalLive()) {
++        return null;
++      }
++      return bridge.waitForGoalSettled(KIMI_GOAL_HOLD_TIMEOUT_MS, ctx.signal);
++    },
++  };
++}
++
++function describeKimiGoal(goal: AgentGoal | null): string {
++  if (!goal) {
++    return "No goal is set.";
++  }
++  const counters = `${goal.turnsUsed} turns, ${goal.tokensUsed} tokens`;
++  const reason = goal.terminalReason ? ` (${goal.terminalReason})` : "";
++  return `Goal "${goal.objective}" is ${goal.status} (${counters})${reason}.`;
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
+new file mode 100644
+index 0000000..5790de1
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
+@@ -0,0 +1,96 @@
++import type { Logger } from "pino";
++
++import {
++  isAgentGoalLive,
++  type AgentGoal,
++  type AgentProvider,
++  type AgentStreamEvent,
++} from "../../agent-sdk-types.js";
++import { KimiSessionLog } from "./session-log.js";
++
++/**
++ * Native goal/usage bridge for one live Kimi ACP session.
++ *
++ * Kimi keeps driving a goal after the ACP prompt returns, and the ACP stream
++ * carries no goal state. The daemon used to read a `kimi web` HTTP sidecar, but
++ * that server materializes a *separate, empty runtime* for a session another
++ * process owns: goals written there are invisible to the talking agent, and the
++ * agent's own goals never appear there.
++ *
++ * The session's append-only log file is the only cross-process truth, so the
++ * bridge tails `agents/main/wire.jsonl` and derives the goal from it. There is
++ * deliberately no control API: the daemon cannot mutate a goal it does not own,
++ * so control commands are rewritten into prompts instead.
++ */
++export interface KimiNativeBridgeOptions {
++  kimiSessionId: string;
++  kimiHome?: string;
++  logger: Logger;
++  /** Overrides both poll cadences; see `KimiSessionLog`. */
++  pollIntervalMs?: number;
++  /** Push a provider stream event into the owning ACP session. */
++  emit: (event: AgentStreamEvent) => void;
++  /** Provider id, for the events' `provider` field. */
++  provider: AgentProvider;
++}
++
++export class KimiNativeBridge {
++  private readonly log: KimiSessionLog;
++  private readonly emit: (event: AgentStreamEvent) => void;
++  private readonly provider: AgentProvider;
++  private started = false;
++  private stopped = false;
++
++  constructor(options: KimiNativeBridgeOptions) {
++    this.emit = options.emit;
++    this.provider = options.provider;
++    this.log = new KimiSessionLog({
++      kimiSessionId: options.kimiSessionId,
++      kimiHome: options.kimiHome,
++      logger: options.logger,
++      pollIntervalMs: options.pollIntervalMs,
++      onGoal: (goal) => {
++        this.emit({ type: "goal_updated", provider: this.provider, goal });
++      },
++      onUsage: (usage) => {
++        this.emit({ type: "usage_updated", provider: this.provider, usage });
++      },
++    });
++  }
++
++  /** Idempotent. Starts tailing the session log. */
++  start(): void {
++    if (this.started || this.stopped) {
++      return;
++    }
++    this.started = true;
++    this.log.start();
++  }
++
++  /** Idempotent. Stops tailing the session log. */
++  stop(): void {
++    if (this.stopped) {
++      return;
++    }
++    this.stopped = true;
++    this.log.stop();
++  }
++
++  /** Latest known goal, or null. */
++  getGoal(): AgentGoal | null {
++    return this.log.getGoal();
++  }
++
++  /** True while the provider is still working toward the goal. */
++  isGoalLive(): boolean {
++    return isAgentGoalLive(this.log.getGoal());
++  }
++
++  /** Resolves when the goal stops being live, after `timeoutMs`, or on abort. */
++  async waitForGoalSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    if (this.stopped) {
++      return;
++    }
++    await this.log.waitForSettled(timeoutMs, signal);
++  }
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
+new file mode 100644
+index 0000000..99fc996
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
+@@ -0,0 +1,681 @@
++import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { afterEach, describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import { isAgentGoalLive, type AgentGoal, type AgentUsage } from "../../agent-sdk-types.js";
++import {
++  EMPTY_KIMI_SESSION_LOG_STATE,
++  KimiSessionLog,
++  loadKimiModelContextWindows,
++  parseKimiSessionLogLines,
++  resolveKimiWireLogPath,
++} from "./session-log.js";
++
++const SESSION_ID = "session_82309639-50ca-4052-953b-d59fb53668cb";
++const GOAL_ID = "69196b30-598e-43a2-a908-249cfd28c200";
++const MODEL_ALIAS = "erlapi/gemini-3.8-flash";
++const OTHER_MODEL_ALIAS = "erlapi/deepseek-flash";
++/** Fixed so the config mtime cache is exercised without relying on clock granularity. */
++const CONFIG_MTIME = new Date(1_790_000_000_000);
++const OBJECTIVE = "在当前目录创建 goal-ok.txt 并写入 hello";
++const CRITERION =
++  "当前工作目录 D:\\Erl-Project\\AntiVIP\\.tmp\\goal-ws-test 下存在 goal-ok.txt，且其内容为 hello";
++
++interface GoalCreateOverrides {
++  goalId?: string;
++  objective?: string;
++  completionCriterion?: string;
++}
++
++function goalCreateLine(overrides: GoalCreateOverrides = {}): string {
++  return JSON.stringify({
++    type: "goal.create",
++    agentId: "main",
++    goalId: overrides.goalId ?? GOAL_ID,
++    objective: overrides.objective ?? OBJECTIVE,
++    completionCriterion: overrides.completionCriterion ?? CRITERION,
++    wallClockResumedAt: 1790486852717,
++    time: 1790486852717,
++  });
++}
++
++function tokensUpdateLine(tokensUsed: number, time = 1790486855291): string {
++  return JSON.stringify({ type: "goal.update", agentId: "main", tokensUsed, time });
++}
++
++function statusUpdateLine(status: string, time = 1790486861722): string {
++  return JSON.stringify({
++    type: "goal.update",
++    agentId: "main",
++    status,
++    wallClockMs: 9004,
++    actor: "model",
++    time,
++  });
++}
++
++function clearLine(time = 1790486861722): string {
++  return JSON.stringify({ type: "goal.clear", agentId: "main", time });
++}
++
++function turnRecordedLine(tokens: number, turnId = 1): string {
++  return JSON.stringify({
++    type: "token_counting.turn_recorded",
++    agentId: "main",
++    turnId,
++    length: 19,
++    tokens,
++    time: 1790486843052,
++  });
++}
++
++interface UsageParts {
++  inputOther?: number;
++  inputCacheRead?: number;
++  inputCacheCreation?: number;
++  output?: number;
++}
++
++function usageRecordLine(usage: UsageParts, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "usage.record",
++    agentId: "main",
++    model: MODEL_ALIAS,
++    usage,
++    usageScope: "turn",
++    time,
++  });
++}
++
++function loopEventLine(eventType: string, usage: UsageParts, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "context.append_loop_event",
++    agentId: "main",
++    event: { type: eventType, turnId: "0", step: 1, usage },
++    time,
++  });
++}
++
++function profileBindLine(modelAlias: string, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "profile.bind",
++    agentId: "main",
++    modelAlias,
++    profileName: "agent",
++    time,
++  });
++}
++
++function llmRequestLine(modelAlias: string, time = 1790486843052): string {
++  return JSON.stringify({
++    type: "llm.request",
++    agentId: "main",
++    kind: "loop",
++    provider: "openai",
++    model: modelAlias,
++    modelAlias,
++    time,
++  });
++}
++
++function configFor(modelAlias: string, maxContextSize: number): string {
++  return `[models."${modelAlias}"]\nmax_context_size = ${maxContextSize}\n`;
++}
++
++function writeKimiConfig(home: string, text: string): string {
++  const configPath = path.join(home, "config.toml");
++  writeFileSync(configPath, text);
++  return configPath;
++}
++
++function setConfigMtime(configPath: string, mtime: Date): void {
++  utimesSync(configPath, mtime, mtime);
++}
++
++describe("parseKimiSessionLogLines", () => {
++  test("creates an active goal with zeroed counters", () => {
++    const state = parseKimiSessionLogLines([goalCreateLine()], EMPTY_KIMI_SESSION_LOG_STATE);
++
++    expect(state.goal).toEqual({
++      goalId: GOAL_ID,
++      objective: OBJECTIVE,
++      completionCriterion: CRITERION,
++      status: "active",
++      turnsUsed: 0,
++      tokensUsed: 0,
++      updatedAt: 1790486852717,
++    });
++    expect(state.contextWindowUsedTokens).toBeNull();
++  });
++
++  test("counts one turn per tokensUsed update and keeps the last token count", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        tokensUpdateLine(74, 1790486855291),
++        tokensUpdateLine(189, 1790486858288),
++        tokensUpdateLine(369, 1790486861720),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.turnsUsed).toBe(3);
++    expect(state.goal?.tokensUsed).toBe(369);
++    expect(state.goal?.status).toBe("active");
++  });
++
++  test("continues counters when replayed incrementally", () => {
++    const first = parseKimiSessionLogLines(
++      [goalCreateLine(), tokensUpdateLine(74)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines(
++      [tokensUpdateLine(189, 1790486858288), tokensUpdateLine(369, 1790486861720)],
++      first,
++    );
++
++    expect(second.goal?.turnsUsed).toBe(3);
++    expect(second.goal?.tokensUsed).toBe(369);
++  });
++
++  test("a terminal status ends the goal", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), statusUpdateLine("complete")],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.status).toBe("complete");
++    expect(isAgentGoalLive(state.goal)).toBe(false);
++  });
++
++  test("an unknown status is reported as cleared rather than left live", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), statusUpdateLine("exploded")],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.status).toBe("cleared");
++    expect(isAgentGoalLive(state.goal)).toBe(false);
++  });
++
++  test("goal.clear drops the goal", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), clearLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal).toBeNull();
++  });
++
++  test("a second goal.create starts a fresh turn count", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        tokensUpdateLine(74),
++        tokensUpdateLine(189),
++        tokensUpdateLine(369),
++        goalCreateLine({ goalId: "second-goal", objective: "second objective" }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.goalId).toBe("second-goal");
++    expect(state.goal?.objective).toBe("second objective");
++    expect(state.goal?.turnsUsed).toBe(0);
++    expect(state.goal?.tokensUsed).toBe(0);
++  });
++
++  test("sums the context usage parts of a usage.record", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        usageRecordLine({
++          inputOther: 22063,
++          inputCacheRead: 28456,
++          inputCacheCreation: 512,
++          output: 310,
++        }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(22063 + 28456 + 512 + 310);
++  });
++
++  test("counts missing usage parts as zero", () => {
++    const state = parseKimiSessionLogLines(
++      [usageRecordLine({ inputOther: 120 })],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(120);
++  });
++
++  test("reads the context usage of a step.end loop event and ignores other loop events", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        loopEventLine("step.end", { inputOther: 100, output: 20 }),
++        loopEventLine("step.begin", { inputOther: 9999 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(120);
++  });
++
++  test("keeps the previous usage when a record carries no positive tokens", () => {
++    const state = parseKimiSessionLogLines(
++      [usageRecordLine({ inputOther: 5000, output: 25 }), usageRecordLine({})],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(5025);
++  });
++
++  test("ignores token_counting.turn_recorded, which measures another quantity", () => {
++    const state = parseKimiSessionLogLines(
++      [turnRecordedLine(89159), turnRecordedLine(89160, 2)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBeNull();
++  });
++
++  test("tracks the model alias, letting the later record win", () => {
++    const state = parseKimiSessionLogLines(
++      [profileBindLine(MODEL_ALIAS), llmRequestLine(OTHER_MODEL_ALIAS)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.modelAlias).toBe(OTHER_MODEL_ALIAS);
++  });
++
++  test("carries the model alias across incremental replays", () => {
++    const first = parseKimiSessionLogLines(
++      [profileBindLine(MODEL_ALIAS)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines([llmRequestLine(OTHER_MODEL_ALIAS)], first);
++
++    expect(second.modelAlias).toBe(OTHER_MODEL_ALIAS);
++  });
++
++  test("ignores malformed, partial, and non-object lines", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        '{"type":"goal.upd',
++        "not json at all",
++        "",
++        "null",
++        "42",
++        "[1,2,3]",
++        tokensUpdateLine(12, 1790486855291),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.turnsUsed).toBe(1);
++    expect(state.goal?.tokensUsed).toBe(12);
++  });
++
++  test("ignores a goal.update that arrives before any goal.create", () => {
++    const state = parseKimiSessionLogLines([tokensUpdateLine(74)], EMPTY_KIMI_SESSION_LOG_STATE);
++
++    expect(state.goal).toBeNull();
++  });
++});
++
++describe("resolveKimiWireLogPath", () => {
++  test("finds the wire log for the session under the Kimi home", () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++
++    expect(resolveKimiWireLogPath(SESSION_ID, { kimiHome: home })).toBe(file);
++  });
++
++  test("returns null when the session has no log yet", () => {
++    const { home } = createSessionHome(SESSION_ID);
++
++    expect(resolveKimiWireLogPath("session_that_never_ran", { kimiHome: home })).toBeNull();
++  });
++
++  test("returns null for a missing Kimi home instead of throwing", () => {
++    expect(
++      resolveKimiWireLogPath(SESSION_ID, { kimiHome: path.join(tmpdir(), "kimi-home-absent") }),
++    ).toBeNull();
++    expect(resolveKimiWireLogPath("", { kimiHome: tmpdir() })).toBeNull();
++  });
++});
++
++describe("loadKimiModelContextWindows", () => {
++  test("reads max_context_size for every model alias", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-config-"));
++    writeKimiConfig(
++      home,
++      [
++        "# Kimi Code config",
++        `[models."${MODEL_ALIAS}"]`,
++        "max_context_size = 300000",
++        "",
++        `[models."${OTHER_MODEL_ALIAS}"]`,
++        "max_context_size = 128000",
++        "",
++        "[general]",
++        "max_context_size = 999",
++      ].join("\n"),
++    );
++
++    expect(await loadKimiModelContextWindows(home)).toEqual({
++      [MODEL_ALIAS]: 300_000,
++      [OTHER_MODEL_ALIAS]: 128_000,
++    });
++  });
++
++  test("skips malformed values and returns nothing for a missing config", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-config-"));
++    writeKimiConfig(
++      home,
++      [
++        "# max_context_size = 1",
++        `[models."${MODEL_ALIAS}"]`,
++        'max_context_size = "300000"',
++        "max_context_size = 0",
++      ].join("\n"),
++    );
++
++    expect(await loadKimiModelContextWindows(home)).toEqual({});
++    expect(await loadKimiModelContextWindows(path.join(home, "absent"))).toEqual({});
++  });
++});
++
++describe("KimiSessionLog", () => {
++  const logs: KimiSessionLog[] = [];
++
++  function createLog(
++    home: string,
++    overrides: Partial<ConstructorParameters<typeof KimiSessionLog>[0]> = {},
++  ): KimiSessionLog {
++    const log = new KimiSessionLog({
++      kimiSessionId: SESSION_ID,
++      kimiHome: home,
++      logger: createTestLogger(),
++      pollIntervalMs: 10,
++      ...overrides,
++    });
++    logs.push(log);
++    return log;
++  }
++
++  afterEach(() => {
++    for (const log of logs.splice(0)) {
++      log.stop();
++    }
++  });
++
++  test("picks up a goal that was created before the log started", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n${tokensUpdateLine(74)}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getGoal() !== null);
++
++    expect(log.getGoal()?.goalId).toBe(GOAL_ID);
++    expect(log.getGoal()?.turnsUsed).toBe(1);
++    expect(log.getGoal()?.tokensUsed).toBe(74);
++    expect(log.isLive()).toBe(true);
++  });
++
++  test("picks up records appended after it started", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getGoal()?.turnsUsed === 0);
++
++    appendFileSync(file, `${tokensUpdateLine(74)}\n${tokensUpdateLine(189)}\n`);
++    await waitFor(() => log.getGoal()?.turnsUsed === 2);
++
++    expect(log.getGoal()?.tokensUsed).toBe(189);
++  });
++
++  test("completes a record split across two reads", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    const line = goalCreateLine();
++    appendFileSync(file, line.slice(0, 20));
++
++    const log = createLog(home);
++    log.start();
++    await delay(80);
++
++    expect(log.getGoal()).toBeNull();
++
++    appendFileSync(file, `${line.slice(20)}\n`);
++    await waitFor(() => log.getGoal() !== null);
++
++    expect(log.getGoal()?.objective).toBe(OBJECTIVE);
++  });
++
++  test("emits usage with the model's context window once both are known", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    writeKimiConfig(home, configFor(MODEL_ALIAS, 300_000));
++    appendFileSync(
++      file,
++      `${profileBindLine(MODEL_ALIAS)}\n${usageRecordLine({ inputOther: 22063, inputCacheRead: 28456, inputCacheCreation: 0, output: 310 })}\n`,
++    );
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => usage.length > 0);
++
++    expect(usage.at(-1)).toEqual({
++      contextWindowUsedTokens: 50829,
++      contextWindowMaxTokens: 300_000,
++    });
++  });
++
++  test("reports no usage while the context window is unknown", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${goalCreateLine()}\n${profileBindLine(MODEL_ALIAS)}\n${usageRecordLine({ inputOther: 50829 })}\n`,
++    );
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => log.getGoal() !== null);
++    await delay(150);
++
++    expect(usage).toEqual([]);
++  });
++
++  test("does not repeat an unchanged usage", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    writeKimiConfig(home, configFor(MODEL_ALIAS, 300_000));
++    const record = usageRecordLine({ inputOther: 50829 });
++    appendFileSync(file, `${profileBindLine(MODEL_ALIAS)}\n${record}\n`);
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => usage.length === 1);
++
++    appendFileSync(file, `${record}\n`);
++    await delay(150);
++
++    expect(usage).toHaveLength(1);
++  });
++
++  test("re-reads config.toml only after its mtime changes", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    const configPath = writeKimiConfig(home, configFor(MODEL_ALIAS, 300_000));
++    setConfigMtime(configPath, CONFIG_MTIME);
++    appendFileSync(
++      file,
++      `${profileBindLine(MODEL_ALIAS)}\n${usageRecordLine({ inputOther: 50829 })}\n`,
++    );
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => usage.length === 1);
++    expect(usage.at(-1)?.contextWindowMaxTokens).toBe(300_000);
++
++    // Same mtime: the cached parse is served even though the file now says otherwise.
++    writeFileSync(configPath, configFor(MODEL_ALIAS, 400_000));
++    setConfigMtime(configPath, CONFIG_MTIME);
++    appendFileSync(file, `${usageRecordLine({ inputOther: 60000 })}\n`);
++    await waitFor(() => usage.length === 2);
++    expect(usage.at(-1)).toEqual({
++      contextWindowUsedTokens: 60000,
++      contextWindowMaxTokens: 300_000,
++    });
++
++    // New mtime: the parse is redone.
++    setConfigMtime(configPath, new Date(CONFIG_MTIME.getTime() + 60_000));
++    appendFileSync(file, `${usageRecordLine({ inputOther: 70000 })}\n`);
++    await waitFor(() => usage.length === 3);
++    expect(usage.at(-1)).toEqual({
++      contextWindowUsedTokens: 70000,
++      contextWindowMaxTokens: 400_000,
++    });
++  });
++
++  test("emits a null goal once the goal is cleared", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const emitted: Array<AgentGoal | null> = [];
++    const log = createLog(home, { onGoal: (goal) => emitted.push(goal) });
++    log.start();
++    await waitFor(() => emitted.length > 0);
++    expect(emitted.at(-1)?.goalId).toBe(GOAL_ID);
++
++    appendFileSync(file, `${clearLine()}\n`);
++    await waitFor(() => emitted.at(-1) === null);
++
++    expect(log.getGoal()).toBeNull();
++  });
++
++  test("rebuilds after the log file is replaced with a shorter one", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getGoal()?.goalId === GOAL_ID);
++
++    writeFileSync(file, `${goalCreateLine({ goalId: "replacement", objective: "small" })}\n`);
++    await waitFor(() => log.getGoal()?.goalId === "replacement");
++  });
++
++  test("waitForSettled resolves when the goal goes terminal", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isLive());
++
++    const settled = log.waitForSettled(5_000);
++    appendFileSync(file, `${statusUpdateLine("complete")}\n`);
++    await settled;
++
++    expect(log.isLive()).toBe(false);
++    expect(log.getGoal()?.status).toBe("complete");
++  });
++
++  test("waitForSettled resolves as soon as the signal aborts", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isLive());
++
++    const controller = new AbortController();
++    const startedAt = Date.now();
++    const settled = log.waitForSettled(30_000, controller.signal);
++    setTimeout(() => controller.abort(), 25);
++    await settled;
++
++    expect(Date.now() - startedAt).toBeLessThan(2_000);
++    expect(log.isLive()).toBe(true);
++  });
++
++  test("waitForSettled resolves immediately when the signal is already aborted", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isLive());
++
++    const controller = new AbortController();
++    controller.abort();
++    const startedAt = Date.now();
++    await log.waitForSettled(30_000, controller.signal);
++
++    expect(Date.now() - startedAt).toBeLessThan(500);
++  });
++
++  test("waitForSettled resolves immediately when no goal is live", async () => {
++    const { home } = createSessionHome(SESSION_ID);
++    const log = createLog(home);
++
++    const startedAt = Date.now();
++    await log.waitForSettled(30_000);
++
++    expect(Date.now() - startedAt).toBeLessThan(500);
++  });
++
++  test("start and stop are idempotent and never throw without a log file", async () => {
++    const { home } = createSessionHome(SESSION_ID);
++    const log = createLog(home);
++
++    log.start();
++    log.start();
++    await delay(50);
++    log.stop();
++    log.stop();
++
++    expect(log.getGoal()).toBeNull();
++  });
++});
++
++function createSessionHome(sessionId: string): { home: string; file: string } {
++  const home = mkdtempSync(path.join(tmpdir(), "kimi-session-log-"));
++  const file = path.join(
++    home,
++    "sessions",
++    "D--tmp-kimi-workspace",
++    sessionId,
++    "agents",
++    "main",
++    "wire.jsonl",
++  );
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, "");
++  return { home, file };
++}
++
++async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
++  const deadline = Date.now() + timeoutMs;
++  while (Date.now() < deadline) {
++    if (condition()) {
++      return;
++    }
++    await delay(10);
++  }
++  throw new Error("Timed out waiting for condition");
++}
++
++function delay(ms: number): Promise<void> {
++  return new Promise((resolve) => {
++    setTimeout(resolve, ms);
++  });
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
+new file mode 100644
+index 0000000..3c66762
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
+@@ -0,0 +1,756 @@
++import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
++import { readFile, stat } from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
++import { createInterface } from "node:readline";
++
++import type { Logger } from "pino";
++
++import {
++  isAgentGoalLive,
++  type AgentGoal,
++  type AgentGoalStatus,
++  type AgentUsage,
++} from "../../agent-sdk-types.js";
++
++/**
++ * Kimi Code writes one JSON object per line to
++ * `<kimiHome>/sessions/<wd-slug>/<sessionId>/agents/main/wire.jsonl`.
++ *
++ * That file is the only cross-process source of truth for a session's goal and
++ * context usage: the `kimi web` HTTP server materializes a *separate, empty*
++ * runtime for a session another process owns, so it reports zeros and accepts
++ * goals the talking agent never sees. The owning process appends to this log,
++ * and both processes share it on disk.
++ *
++ * The ACP session id is the `<sessionId>` directory name, so the log path is
++ * derivable from the id the daemon already holds.
++ */
++
++const ACTIVE_POLL_INTERVAL_MS = 500;
++const LIVE_POLL_INTERVAL_MS = 2_000;
++const IDLE_POLL_INTERVAL_MS = 10_000;
++const SETTLE_POLL_INTERVAL_MS = 250;
++/** Unchanged goals are re-announced once per bucket so a late subscriber still sees them. */
++const GOAL_REANNOUNCE_BUCKET_MS = 30_000;
++const DEFAULT_KIMI_HOME = "~/.kimi-code";
++const KIMI_CONFIG_FILENAME = "config.toml";
++
++/**
++ * Locate the wire log for a Kimi session. Returns null when the file does not
++ * exist yet (the session may not have produced output) or the home directory is
++ * unreadable; callers retry on their next poll.
++ */
++export function resolveKimiWireLogPath(
++  kimiSessionId: string,
++  options: { kimiHome?: string } = {},
++): string | null {
++  if (kimiSessionId.length === 0) {
++    return null;
++  }
++  const sessionsDir = path.join(resolveKimiHome(options.kimiHome), "sessions");
++  let entries: string[];
++  try {
++    entries = readdirSync(sessionsDir);
++  } catch {
++    return null;
++  }
++  for (const entry of entries) {
++    const candidate = path.join(sessionsDir, entry, kimiSessionId, "agents", "main", "wire.jsonl");
++    try {
++      if (existsSync(candidate)) {
++        return candidate;
++      }
++    } catch {
++      // Keep scanning; one unreadable slug must not hide the real one.
++    }
++  }
++  return null;
++}
++
++/** Derived state of a session log after replaying a batch of lines. */
++export interface KimiSessionLogState {
++  goal: AgentGoal | null;
++  contextWindowUsedTokens: number | null;
++  /** Model alias bound by the last `profile.bind` or `llm.request`; keys the config lookup. */
++  modelAlias: string | null;
++}
++
++export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
++  goal: null,
++  contextWindowUsedTokens: null,
++  modelAlias: null,
++});
++
++/**
++ * Replay raw log lines onto a previous state. Pure and side-effect free so the
++ * derivation rules are testable without a filesystem.
++ *
++ * Records the daemon relies on:
++ * - `goal.create` sets the goal to `active` with zeroed counters.
++ * - `goal.update` carries either `tokensUsed` (one per goal turn) or `status`.
++ * - `goal.clear` drops the goal.
++ * - `profile.bind` and `llm.request` carry the bound model alias; the later
++ *   record wins, because the alias changes when the user switches model.
++ * - `usage.record` and `context.append_loop_event` of type `step.end` carry the
++ *   context size of one step. `token_counting.turn_recorded` is deliberately not
++ *   read: its `tokens` measures something else and lands well below the real
++ *   context size.
++ *
++ * Anything unparseable is skipped; a half-written line must not abort a replay.
++ */
++export function parseKimiSessionLogLines(
++  lines: Iterable<string>,
++  previous: KimiSessionLogState,
++): KimiSessionLogState {
++  let goal = previous.goal;
++  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
++  let modelAlias = previous.modelAlias;
++
++  for (const raw of lines) {
++    const line = raw.trim();
++    if (line.length === 0) {
++      continue;
++    }
++    let record: unknown;
++    try {
++      record = JSON.parse(line);
++    } catch {
++      continue;
++    }
++    if (typeof record !== "object" || record === null) {
++      continue;
++    }
++    const entry = record as Record<string, unknown>;
++    switch (entry.type) {
++      case "goal.create":
++        goal = createGoalFromRecord(entry);
++        break;
++      case "goal.update":
++        goal = applyGoalUpdate(goal, entry);
++        break;
++      case "goal.clear":
++        goal = null;
++        break;
++      case "profile.bind":
++      case "llm.request": {
++        const alias = readString(entry.modelAlias);
++        if (alias !== undefined && alias.length > 0) {
++          modelAlias = alias;
++        }
++        break;
++      }
++      default: {
++        const used = stepContextUsage(entry);
++        if (used !== null) {
++          contextWindowUsedTokens = used;
++        }
++        break;
++      }
++    }
++  }
++
++  return { goal, contextWindowUsedTokens, modelAlias };
++}
++
++export interface KimiSessionLogOptions {
++  kimiSessionId: string;
++  kimiHome?: string;
++  logger: Logger;
++  /**
++   * Overrides all three cadences. Defaults to 500ms right after the log grew,
++   * 2000ms while a goal is live, and 10000ms otherwise.
++   */
++  pollIntervalMs?: number;
++  /** Cadence used right after the log grew. Defaults to 500ms. */
++  activeIntervalMs?: number;
++  onGoal?: (goal: AgentGoal | null) => void;
++  onUsage?: (usage: AgentUsage) => void;
++}
++
++/**
++ * Tails one session's wire log and reports the goal/usage it describes.
++ *
++ * Reads incrementally by byte offset, so a long session is never re-read. A
++ * goal created before the tailer attached is still picked up because the first
++ * read starts at byte 0.
++ *
++ * Usage needs both numbers: the used side comes from the log, the max side from
++ * the model alias plus `<kimiHome>/config.toml`. While either is unknown nothing
++ * is reported, because the client renders a context ring only for a full pair.
++ */
++export class KimiSessionLog {
++  private readonly kimiSessionId: string;
++  private readonly kimiHome: string | undefined;
++  private readonly logger: Logger;
++  private readonly activeIntervalMs: number;
++  private readonly liveIntervalMs: number;
++  private readonly idleIntervalMs: number;
++  private readonly onGoal: ((goal: AgentGoal | null) => void) | undefined;
++  private readonly onUsage: ((usage: AgentUsage) => void) | undefined;
++
++  private resolvedPath: string | null = null;
++  private offset = 0;
++  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
++  private pending = "";
++  private goal: AgentGoal | null = null;
++  private contextWindowUsedTokens: number | null = null;
++  private modelAlias: string | null = null;
++  /** Value signature of the last goal considered; null means "nothing considered yet". */
++  private goalSignature: string | null = null;
++  private goalBucket = -1;
++  private emittedGoal = false;
++  private usageSignature: string | null = null;
++
++  private timer: ReturnType<typeof setTimeout> | null = null;
++  private started = false;
++  private stopped = false;
++
++  constructor(options: KimiSessionLogOptions) {
++    this.kimiSessionId = options.kimiSessionId;
++    this.kimiHome = options.kimiHome;
++    this.logger = options.logger;
++    this.activeIntervalMs =
++      options.pollIntervalMs ?? options.activeIntervalMs ?? ACTIVE_POLL_INTERVAL_MS;
++    this.liveIntervalMs = options.pollIntervalMs ?? LIVE_POLL_INTERVAL_MS;
++    this.idleIntervalMs = options.pollIntervalMs ?? IDLE_POLL_INTERVAL_MS;
++    this.onGoal = options.onGoal;
++    this.onUsage = options.onUsage;
++  }
++
++  /** Idempotent. Starts tailing. */
++  start(): void {
++    if (this.started || this.stopped) {
++      return;
++    }
++    this.started = true;
++    this.scheduleTick(0);
++  }
++
++  /** Idempotent. Stops tailing. */
++  stop(): void {
++    if (this.stopped) {
++      return;
++    }
++    this.stopped = true;
++    this.clearTimer();
++    this.pending = "";
++  }
++
++  /** Latest derived goal, or null. */
++  getGoal(): AgentGoal | null {
++    return this.goal;
++  }
++
++  /** True while the goal is still being pursued. */
++  isLive(): boolean {
++    return isAgentGoalLive(this.goal);
++  }
++
++  /**
++   * Resolves once the goal stops being live, on timeout, or as soon as `signal`
++   * aborts. The abort path is what keeps a held ACP turn from outliving the
++   * turn it belongs to.
++   */
++  async waitForSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    if (signal?.aborted === true) {
++      return;
++    }
++    if (!this.isLive()) {
++      return;
++    }
++    const deadline = Date.now() + Math.max(0, timeoutMs);
++    if (!signal) {
++      await this.pollUntilSettled(deadline);
++      return;
++    }
++    // Race the polling loop against the signal so an aborted turn is released
++    // immediately instead of at the next 250ms check.
++    const abortPromise = new Promise<void>((resolve) => {
++      signal.addEventListener("abort", () => resolve(), { once: true });
++    });
++    await Promise.race([abortPromise, this.pollUntilSettled(deadline, signal)]);
++  }
++
++  /** Re-check the goal every 250ms until it settles, the deadline passes, or the signal aborts. */
++  private async pollUntilSettled(deadline: number, signal?: AbortSignal): Promise<void> {
++    while (!this.stopped && this.isLive() && Date.now() < deadline) {
++      if (signal?.aborted === true) {
++        return;
++      }
++      const remaining = deadline - Date.now();
++      await delay(Math.min(SETTLE_POLL_INTERVAL_MS, remaining));
++    }
++  }
++
++  private scheduleTick(delayMs: number): void {
++    this.clearTimer();
++    if (this.stopped) {
++      return;
++    }
++    this.timer = setTimeout(() => {
++      this.timer = null;
++      void this.tick();
++    }, delayMs);
++    // Never hold the daemon open for a poll.
++    this.timer.unref();
++  }
++
++  private clearTimer(): void {
++    if (this.timer) {
++      clearTimeout(this.timer);
++      this.timer = null;
++    }
++  }
++
++  private async tick(): Promise<void> {
++    let readNewBytes = false;
++    try {
++      readNewBytes = await this.readAppended();
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log poll failed",
++      );
++    }
++    if (this.stopped) {
++      return;
++    }
++    this.publishGoal();
++    await this.publishUsage();
++    if (this.stopped) {
++      return;
++    }
++    this.scheduleTick(this.nextIntervalMs(readNewBytes));
++  }
++
++  /**
++   * A log that just grew is polled fast, so a step's number lands while the turn
++   * is still running; a live goal is polled slowly, an idle session slower still.
++   */
++  private nextIntervalMs(readNewBytes: boolean): number {
++    if (readNewBytes) {
++      return this.activeIntervalMs;
++    }
++    return this.isLive() ? this.liveIntervalMs : this.idleIntervalMs;
++  }
++
++  /** Returns whether the file yielded bytes this tick. */
++  private async readAppended(): Promise<boolean> {
++    const filePath = this.resolvePath();
++    if (!filePath) {
++      return false;
++    }
++    let size: number;
++    try {
++      size = (await stat(filePath)).size;
++    } catch {
++      // The file vanished; re-resolve on the next tick.
++      this.resolvedPath = null;
++      return false;
++    }
++    if (size < this.offset) {
++      // Truncated or replaced: rebuild from the beginning.
++      this.offset = 0;
++      this.pending = "";
++      this.resetDerivedState();
++    }
++    if (size === this.offset) {
++      return false;
++    }
++    const { lines, fragment } = await readLinesFromRange(filePath, this.offset, size);
++    this.offset = size;
++    const merged = mergePendingFragment(this.pending, lines);
++    this.pending = fragment;
++    this.applyLines(merged);
++    return true;
++  }
++
++  private resolvePath(): string | null {
++    const cached = this.resolvedPath;
++    if (cached !== null && existsSync(cached)) {
++      return cached;
++    }
++    const resolved = resolveKimiWireLogPath(this.kimiSessionId, { kimiHome: this.kimiHome });
++    this.resolvedPath = resolved;
++    return resolved;
++  }
++
++  private resetDerivedState(): void {
++    this.goal = null;
++    this.contextWindowUsedTokens = null;
++    this.modelAlias = null;
++  }
++
++  private applyLines(lines: string[]): void {
++    const next = parseKimiSessionLogLines(lines, {
++      goal: this.goal,
++      contextWindowUsedTokens: this.contextWindowUsedTokens,
++      modelAlias: this.modelAlias,
++    });
++    this.goal = next.goal;
++    this.contextWindowUsedTokens = next.contextWindowUsedTokens;
++    this.modelAlias = next.modelAlias;
++  }
++
++  private publishGoal(): void {
++    const goal = this.goal;
++    const signature = goalValueSignature(goal);
++    const bucket = Math.floor(Date.now() / GOAL_REANNOUNCE_BUCKET_MS);
++    if (signature === this.goalSignature && bucket === this.goalBucket) {
++      return;
++    }
++    const changed = signature !== this.goalSignature;
++    const wasEmitted = this.emittedGoal;
++    this.goalSignature = signature;
++    this.goalBucket = bucket;
++    // Suppress the first observation when it is null (nothing to report) and
++    // never re-announce a null goal just because the bucket rolled.
++    if (goal === null && (!wasEmitted || !changed)) {
++      return;
++    }
++    this.emittedGoal = true;
++    try {
++      this.onGoal?.(goal);
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log goal listener failed",
++      );
++    }
++  }
++
++  private async publishUsage(): Promise<void> {
++    const used = this.contextWindowUsedTokens;
++    if (used === null) {
++      return;
++    }
++    let max: number | null;
++    try {
++      max = await this.contextWindowMax();
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log context window lookup failed",
++      );
++      return;
++    }
++    // The client draws the context ring only when both numbers are present, so a
++    // half-known pair would be reported and then dropped.
++    if (max === null) {
++      return;
++    }
++    const signature = `${used}:${max}`;
++    if (signature === this.usageSignature) {
++      return;
++    }
++    this.usageSignature = signature;
++    try {
++      this.onUsage?.({ contextWindowUsedTokens: used, contextWindowMaxTokens: max });
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log usage listener failed",
++      );
++    }
++  }
++
++  /** Context window of the bound model, or null while the alias or the config is unknown. */
++  private async contextWindowMax(): Promise<number | null> {
++    const alias = this.modelAlias;
++    if (alias === null) {
++      return null;
++    }
++    const windows = await loadKimiModelContextWindows(resolveKimiHome(this.kimiHome));
++    const max = windows[alias];
++    return Number.isFinite(max) && max > 0 ? max : null;
++  }
++}
++
++interface RangeReadResult {
++  lines: string[];
++  fragment: string;
++}
++
++/**
++ * Stream lines out of `[start, end)` without buffering the range. A trailing
++ * line with no newline is returned separately so the caller can prepend it to
++ * the next read instead of losing a record split across ticks.
++ */
++async function readLinesFromRange(
++  filePath: string,
++  start: number,
++  end: number,
++): Promise<RangeReadResult> {
++  const lines: string[] = [];
++  const stream = createReadStream(filePath, { start, end: end - 1, encoding: "utf8" });
++  const reader = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
++  try {
++    for await (const line of reader) {
++      lines.push(line);
++    }
++  } finally {
++    reader.close();
++    stream.destroy();
++  }
++  if (lines.length === 0 || rangeEndsWithNewline(filePath, end)) {
++    return { lines, fragment: "" };
++  }
++  return { lines, fragment: lines.pop() ?? "" };
++}
++
++function rangeEndsWithNewline(filePath: string, end: number): boolean {
++  if (end <= 0) {
++    return true;
++  }
++  let fd: number | null = null;
++  try {
++    fd = openSync(filePath, "r");
++    const buffer = Buffer.alloc(1);
++    readSync(fd, buffer, 0, 1, end - 1);
++    return buffer[0] === 0x0a;
++  } catch {
++    // Treat an unreadable byte as terminated: dropping a fragment is safer than
++    // concatenating the same bytes twice.
++    return true;
++  } finally {
++    if (fd !== null) {
++      try {
++        closeSync(fd);
++      } catch {
++        // ignore
++      }
++    }
++  }
++}
++
++function mergePendingFragment(pending: string, lines: string[]): string[] {
++  const first = lines[0];
++  if (pending.length === 0 || first === undefined) {
++    return lines;
++  }
++  return [pending + first, ...lines.slice(1)];
++}
++
++function createGoalFromRecord(entry: Record<string, unknown>): AgentGoal {
++  const completionCriterion = readString(entry.completionCriterion);
++  return {
++    goalId: readString(entry.goalId) ?? "",
++    objective: readString(entry.objective) ?? "",
++    status: "active",
++    turnsUsed: 0,
++    tokensUsed: 0,
++    updatedAt: readNumber(entry.time) ?? 0,
++    ...(completionCriterion !== undefined ? { completionCriterion } : {}),
++  };
++}
++
++function applyGoalUpdate(goal: AgentGoal | null, entry: Record<string, unknown>): AgentGoal | null {
++  if (!goal) {
++    return null;
++  }
++  const time = readNumber(entry.time) ?? goal.updatedAt;
++  let next = goal;
++
++  const tokensUsed = readNumber(entry.tokensUsed);
++  if (tokensUsed !== undefined) {
++    // One `tokensUsed` update per goal turn; that count is `turnsUsed`.
++    next = { ...next, turnsUsed: next.turnsUsed + 1, tokensUsed, updatedAt: time };
++  }
++
++  const status = readString(entry.status);
++  if (status !== undefined) {
++    const reason = readString(entry.reason);
++    next = {
++      ...next,
++      status: mapGoalStatus(status),
++      updatedAt: time,
++      ...(reason !== undefined ? { terminalReason: reason } : {}),
++    };
++  }
++
++  return next;
++}
++
++function mapGoalStatus(value: string): AgentGoalStatus {
++  switch (value) {
++    case "active":
++    case "paused":
++    case "blocked":
++    case "complete":
++    case "cleared":
++      return value;
++    default:
++      // Any other reported status is terminal; the exact label is not part of
++      // the shared vocabulary, so the goal is reported as cleared.
++      return "cleared";
++  }
++}
++
++/**
++ * Change detector for goal emission. `updatedAt` is deliberately excluded: it
++ * advances with the log and would make every replay look like a change.
++ */
++function goalValueSignature(goal: AgentGoal | null): string {
++  if (!goal) {
++    return "null";
++  }
++  return JSON.stringify([
++    goal.goalId,
++    goal.objective,
++    goal.status,
++    goal.turnsUsed,
++    goal.tokensUsed,
++    goal.completionCriterion ?? "",
++    goal.terminalReason ?? "",
++  ]);
++}
++
++function resolveKimiHome(kimiHome?: string): string {
++  const raw =
++    firstNonEmpty(kimiHome, process.env.KIMI_HOME, process.env.KIMI_CODE_HOME) ?? DEFAULT_KIMI_HOME;
++  return expandHome(raw);
++}
++
++function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
++  for (const value of values) {
++    if (value !== undefined && value.length > 0) {
++      return value;
++    }
++  }
++  return undefined;
++}
++
++function expandHome(value: string): string {
++  if (value === "~") {
++    return os.homedir();
++  }
++  if (value.startsWith("~/") || value.startsWith("~\\")) {
++    return path.join(os.homedir(), value.slice(2));
++  }
++  return value;
++}
++
++function readString(value: unknown): string | undefined {
++  return typeof value === "string" ? value : undefined;
++}
++
++function readNumber(value: unknown): number | undefined {
++  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
++}
++
++function asRecord(value: unknown): Record<string, unknown> | null {
++  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
++}
++
++/** A usage part that is missing, non-numeric, or non-positive counts as zero. */
++function positiveNumber(value: unknown): number {
++  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
++}
++
++/**
++ * Context tokens of one logged step, matching the number Kimi itself reports.
++ *
++ * Only the per-step records are read: Kimi writes them while the turn runs,
++ * whereas `token_counting.turn_recorded` measures a different quantity and
++ * lands far below the real context size. `output` is part of the count because
++ * it is what the next step's context starts from.
++ */
++function stepContextUsage(entry: Record<string, unknown>): number | null {
++  let usage: Record<string, unknown> | null = null;
++  if (entry.type === "usage.record") {
++    usage = asRecord(entry.usage);
++  } else if (entry.type === "context.append_loop_event") {
++    const event = asRecord(entry.event);
++    if (event === null || event.type !== "step.end") {
++      return null;
++    }
++    usage = asRecord(event.usage);
++  }
++  if (usage === null) {
++    return null;
++  }
++  const used =
++    positiveNumber(usage.inputOther) +
++    positiveNumber(usage.inputCacheRead) +
++    positiveNumber(usage.inputCacheCreation) +
++    positiveNumber(usage.output);
++  return used > 0 ? used : null;
++}
++
++interface ConfigWindowCacheEntry {
++  mtimeMs: number;
++  windows: Record<string, number>;
++}
++
++/** Keyed by config path, so two Kimi homes in one process never share an entry. */
++const configWindowCache = new Map<string, ConfigWindowCacheEntry>();
++
++/**
++ * Reads `[models."<alias>"] max_context_size` pairs out of Kimi's `config.toml`.
++ *
++ * A line scan rather than a TOML parse: the file is user-edited, so a value the
++ * daemon cannot read is skipped instead of thrown. The result is cached by
++ * mtime, and a config that disappears keeps serving the last good read.
++ */
++export async function loadKimiModelContextWindows(
++  kimiHome: string,
++): Promise<Record<string, number>> {
++  const configPath = path.join(kimiHome, KIMI_CONFIG_FILENAME);
++  const cached = configWindowCache.get(configPath);
++  let mtimeMs: number;
++  try {
++    mtimeMs = (await stat(configPath)).mtimeMs;
++  } catch {
++    return cached?.windows ?? {};
++  }
++  if (cached !== undefined && cached.mtimeMs === mtimeMs) {
++    return cached.windows;
++  }
++  let text: string;
++  try {
++    text = await readFile(configPath, "utf8");
++  } catch {
++    return cached?.windows ?? {};
++  }
++  const windows = parseModelContextWindows(text);
++  configWindowCache.set(configPath, { mtimeMs, windows });
++  return windows;
++}
++
++function parseModelContextWindows(text: string): Record<string, number> {
++  const windows: Record<string, number> = {};
++  let currentModel: string | null = null;
++  for (const rawLine of text.split("\n")) {
++    const line = rawLine.trim();
++    if (line.length === 0 || line.startsWith("#")) {
++      continue;
++    }
++    const section = /^\[models\s*\.\s*"([^"]+)"\s*\]$/.exec(line);
++    if (section) {
++      currentModel = section[1];
++      continue;
++    }
++    if (line.startsWith("[")) {
++      currentModel = null;
++      continue;
++    }
++    if (currentModel === null) {
++      continue;
++    }
++    const value = /^max_context_size\s*=\s*(\d+)\s*$/.exec(line);
++    if (value) {
++      const size = Number.parseInt(value[1], 10);
++      if (Number.isFinite(size) && size > 0) {
++        windows[currentModel] = size;
++      }
++    }
++  }
++  return windows;
++}
++
++function delay(ms: number): Promise<void> {
++  return new Promise((resolve) => {
++    setTimeout(resolve, ms);
++  });
++}
+diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
+index 473cc6f..dfece89 100644
+--- a/packages/server/src/server/plugins/runtime.ts
++++ b/packages/server/src/server/plugins/runtime.ts
+@@ -1,6 +1,6 @@
+ import type { PluginBeforeRequests, PluginLifecycleEvents } from "@getpaseo/plugin/server";
+ import { validateBeforeRequest, validateBeforeResult } from "./lifecycle/index.js";
+-import { fork } from "node:child_process";
++import { forkProcess } from "../../utils/spawn.js";
+ import { stat } from "node:fs/promises";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+@@ -221,7 +221,7 @@ function resolveWorkerExecArgv(): string[] {
+ }
+ 
+ function spawnPluginChild(): PluginChild {
+-  return fork(fileURLToPath(resolveWorkerUrl()), [], {
++  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
+     execArgv: resolveWorkerExecArgv(),
+     serialization: "advanced",
+     stdio: ["ignore", "pipe", "pipe", "ipc"],
+diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
+index 1f0fa96..7136338 100644
+--- a/packages/server/src/server/speech/providers/local/worker-client.ts
++++ b/packages/server/src/server/speech/providers/local/worker-client.ts
+@@ -1,4 +1,4 @@
+-import { fork } from "node:child_process";
++import { forkProcess } from "../../../../utils/spawn.js";
+ import { randomUUID } from "node:crypto";
+ import { EventEmitter } from "node:events";
+ import { Readable } from "node:stream";
+@@ -94,7 +94,7 @@ function resolveWorkerExecArgv(): string[] {
+ function forkLocalSpeechWorker(): LocalSpeechWorkerProcess {
+   const env = { ...process.env };
+   applySherpaLoaderEnv(env);
+-  return fork(fileURLToPath(resolveWorkerUrl()), [], {
++  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
+     env,
+     execArgv: resolveWorkerExecArgv(),
+     serialization: "advanced",
+diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
+index 0f0243d..ad6243f 100644
+--- a/packages/server/src/terminal/worker-terminal-manager.ts
++++ b/packages/server/src/terminal/worker-terminal-manager.ts
+@@ -1,6 +1,6 @@
+ import { fileURLToPath } from "node:url";
+-import { fork } from "node:child_process";
+ import { randomBytes, randomUUID } from "node:crypto";
++import { forkProcess } from "../utils/spawn.js";
+ import { assertAbsolutePath, isSameOrDescendantPath } from "../server/path-utils.js";
+ import type { TerminalState } from "@getpaseo/protocol/messages";
+ import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
+@@ -140,7 +140,7 @@ function cloneTerminalInfo(info: RequiredWorkerTerminalInfo): RequiredWorkerTerm
+ }
+ 
+ function forkTerminalWorker(): TerminalWorkerProcess {
+-  return fork(fileURLToPath(resolveWorkerUrl()), [], {
++  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
+     execArgv: resolveWorkerExecArgv(),
+     serialization: "advanced",
+     stdio: ["ignore", "ignore", "inherit", "ipc"],
+diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
+index 8fac115..689b91c 100644
+--- a/packages/server/src/utils/spawn.ts
++++ b/packages/server/src/utils/spawn.ts
+@@ -1,4 +1,11 @@
+-import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
++import {
++  execFile,
++  fork,
++  spawn,
++  type ChildProcess,
++  type ForkOptions,
++  type SpawnOptions,
++} from "node:child_process";
+ import { extname } from "node:path";
+ import { promisify } from "node:util";
+ 
+@@ -83,6 +90,23 @@ export function spawnProcess(
+   });
+ }
+ 
++interface ForkProcessOptions extends ForkOptions {
++  /**
++   * `child_process.fork` forwards its options to `spawn`, so `windowsHide` takes
++   * effect at runtime; @types/node just omits the flag from `ForkOptions`.
++   */
++  windowsHide?: boolean;
++}
++
++export function forkProcess(
++  modulePath: string,
++  args: string[],
++  options?: ForkProcessOptions,
++): ChildProcess {
++  const forkOptions: ForkProcessOptions = { ...options, windowsHide: true };
++  return fork(modulePath, args, forkOptions);
++}
++
+ export async function execCommand(
+   command: string,
+   args: string[],

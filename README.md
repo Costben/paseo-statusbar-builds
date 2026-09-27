@@ -166,7 +166,7 @@ statusbar-build.yml          schedule */6h
 ## The desktop patch
 
 `scripts/apply-desktop-patch.mjs <sourceDir> <mac|win>` applies
-`patches/paseo-kimi-native-092.patch` — one series carrying everything the daemon
+`patches/paseo-kimi-native-0100.patch` — one series carrying everything the daemon
 needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 
 | Area | Change |
@@ -411,36 +411,36 @@ Two things this does not fix:
 
 ## Publishing a version of our own
 
-The Release is tagged with the version it contains, so publishing `0.9.2` puts it
-in a Release tagged `v0.9.2`. Normally both come from the upstream tag; the
-`version` input decouples them:
+The Release is tagged with the version it contains, so publishing `0.10.0-beta.1`
+puts it in a Release tagged `v0.10.0-beta.1`. Normally both come from the upstream
+tag; the `version` input decouples them:
 
 ```bash
 gh workflow run desktop-macos-build.yml --repo Costben/paseo-statusbar-builds \
-  -f tag=v0.9.1 -f version=0.9.2-beta.1
+  -f tag=v0.9.2 -f version=0.10.0-beta.1
 ```
 
-That builds upstream `v0.9.1` and publishes it as `0.9.2-beta.1`. It exists for two
+That builds upstream `v0.9.2` and publishes it as `0.10.0-beta.1`. It exists for two
 reasons: shipping a fix before upstream has a tag for it, and producing a version
 newer than the one installed so the update path can be exercised end to end.
 
 The version must be valid semver, and a prerelease component decides how the
 Release is treated:
 
-- **`0.9.2-beta.1` style.** Published as a prerelease Release under a tag of the
-  same shape (`v0.9.2-beta.1`), exactly how an upstream beta is treated — this
+- **`0.10.0-beta.1` style.** Published as a prerelease Release under a tag of the
+  same shape (`v0.10.0-beta.1`), exactly how an upstream beta is treated — this
   repo keeps mirroring upstream rather than inventing a version space of its own.
   Only an app on a non-default channel sees it: the default channel reads
   `GET /releases/latest`, which ignores prereleases, while a `beta` channel walks
   the release feed and finds them.
-- **A plain `0.9.2`.** Published as a normal Release, visible to every channel —
-  and it takes the tag a real upstream `v0.9.2` will later need, so that build
+- **A plain `0.10.0`.** Published as a normal Release, visible to every channel —
+  and it takes the tag a real upstream `v0.10.0` will later need, so that build
   finds the Release already populated and needs `force: true` once.
 - **The prerelease identifier has to be `beta`, not `beta1`.** electron-updater
   treats every other identifier as a *custom* channel: it skips that tag and then
-  looks for `<identifier>-mac.yml`. `0.9.2-beta.1` resolves; `0.9.2-beta1` is a
+  looks for `<identifier>-mac.yml`. `0.10.0-beta.1` resolves; `0.10.0-beta1` is a
   release nobody is ever offered.
-- **Never a fourth component.** `0.9.1.1` is not semver — electron-updater parses
+- **Never a fourth component.** `0.10.0.1` is not semver — electron-updater parses
   the manifest version and throws `ERR_UPDATER_INVALID_VERSION` on every check, so
   no update is ever offered and nothing says why.
 
