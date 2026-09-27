@@ -3,10 +3,10 @@
 // (getpaseo/paseo).
 //
 // One series, not a list of independent fixes: the pieces depend on each other.
-// The daemon hosts and supervises a `kimi web` local server, a per-session
-// bridge drives agent goals over it, and the goal is projected into agent state
-// so the composer pill can render it. Nothing in that chain is reachable from
-// outside the daemon, so it has to be compiled into the app.
+// The daemon tails the Kimi session's own log to learn what goal the agent is
+// working on, projects it into agent state, and holds the ACP turn open while
+// that goal runs; the composer pill renders it. Nothing in that chain is
+// reachable from outside the daemon, so it has to be compiled into the app.
 //
 //   usage / plan card / compaction / goal state
 //                           ACP-side wiring: map usage_update into a
@@ -21,11 +21,19 @@
 //                           out-of-band hook for notifications ACP does not
 //                           model, and a turn gate so a provider can hold a turn
 //                           while it works.
-//   kimi sidecar            packages/server/src/server/agent/providers/kimi/
-//                           web-server-manager.ts — bind, token, ring buffer,
-//                           ref-counted lifecycle, managed-process ledger.
-//   kimi native bridge      the same directory's native-bridge.ts — create,
-//                           poll, resume and cancel goals over the local server.
+//   kimi session log        packages/server/src/server/agent/providers/kimi/
+//                           session-log.ts — tails the session's own
+//                           `agents/main/wire.jsonl` for goal.create /
+//                           goal.update / goal.clear and for real token counts.
+//   kimi native bridge      the same directory's native-bridge.ts — per-session
+//                           wrapper over that tailer, with the settle wait the
+//                           turn hold awaits.
+//   kimi /goal              `/goal <objective>` is rewritten into a prompt that
+//                           makes the agent create and pursue the goal itself,
+//                           because Kimi's goal engine is driven by the model's
+//                           own goal tools, not by any API a second process can
+//                           reach. Bare `/goal` and `/goal status` stay
+//                           out-of-band and report from the tailed log.
 //   goal pill               packages/app/src/composer/goal-pill.tsx.
 //   reliability             Kimi ACP capability descriptors, log instead of
 //                           silently dropping session/staged events, and flag
@@ -166,9 +174,14 @@ const MARKERS = [
     needle: "export interface ACPProviderHooks",
   },
   {
-    label: "Kimi local server sidecar",
-    path: "packages/server/src/server/agent/providers/kimi/web-server-manager.ts",
-    needle: "export async function acquireKimiServer(",
+    label: "Kimi session log tailer",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "export class KimiSessionLog",
+  },
+  {
+    label: "Kimi session log goal parser",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "export function parseKimiSessionLogLines(",
   },
   {
     label: "Kimi native goal bridge",
@@ -181,9 +194,19 @@ const MARKERS = [
     needle: "export function createKimiProviderHooks(",
   },
   {
-    label: "Daemon shuts the Kimi sidecar down",
-    path: "packages/server/src/server/bootstrap.ts",
-    needle: "await shutdownKimiServer();",
+    label: "Kimi goal command rewritten into a prompt",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: "export function transformKimiGoalPrompt(",
+  },
+  {
+    label: "ACP provider prompt transform hook",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "transformPrompt?(prompt: AgentPromptInput",
+  },
+  {
+    label: "ACP turn hold is interruptible",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "this.turnAbort?.abort();",
   },
   {
     label: "Native goal pill",

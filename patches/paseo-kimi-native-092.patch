@@ -725,7 +725,7 @@ index 13a8b7d..10367f2 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 07d65a8..93c628e 100644
+index 07d65a8..5db78ca 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -19,6 +19,7 @@ import {
@@ -736,7 +736,7 @@ index 07d65a8..93c628e 100644
    type SpawnedACPProcess,
    type SessionStateResponse,
    buildACPClientCapabilities,
-@@ -43,6 +44,7 @@ import {
+@@ -43,12 +44,14 @@ import {
    writeCopilotProviderMode,
  } from "./copilot-acp-agent.js";
  import { GenericACPAgentClient } from "./generic-acp-agent.js";
@@ -744,7 +744,26 @@ index 07d65a8..93c628e 100644
  import { parseKiroExtensionCommands } from "./kiro-acp-agent.js";
  import { transformPiModels } from "./pi/agent.js";
  import type { AgentStreamEvent } from "../agent-sdk-types.js";
-@@ -193,6 +195,8 @@ function createSessionWithConfig(
+ import type {
+   AgentCapabilityFlags,
+   AgentPersistenceHandle,
++  AgentPromptInput,
+   ProviderRefreshContext,
+ } from "../agent-sdk-types.js";
+ import { createTestLogger } from "../../../test-utils/test-logger.js";
+@@ -91,7 +94,10 @@ describe("buildACPClientCapabilities", () => {
+ 
+ interface ACPSessionInternals {
+   sessionId: string | null;
+-  connection: { prompt: (...args: unknown[]) => Promise<PromptResponse> };
++  connection: {
++    prompt: (...args: unknown[]) => Promise<PromptResponse>;
++    cancel?: (input: { sessionId: string }) => Promise<void>;
++  };
+   activeForegroundTurnId: string | null;
+   configOptions: SessionConfigOption[];
+   translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[];
+@@ -193,6 +199,8 @@ function createSessionWithConfig(
      featureValues?: Record<string, unknown>;
    } = {},
    logger: ReturnType<typeof createTestLogger> = createTestLogger(),
@@ -753,7 +772,7 @@ index 07d65a8..93c628e 100644
  ): ACPAgentSession {
    return new ACPAgentSession(
      {
-@@ -214,7 +218,9 @@ function createSessionWithConfig(
+@@ -214,7 +222,9 @@ function createSessionWithConfig(
          supportsMcpServers: true,
          supportsReasoningStream: true,
          supportsToolInvocations: true,
@@ -763,7 +782,7 @@ index 07d65a8..93c628e 100644
      },
    );
  }
-@@ -1066,6 +1072,39 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1066,6 +1076,39 @@ describe("ACPAgentSession Zed parity", () => {
      );
    });
  
@@ -803,7 +822,7 @@ index 07d65a8..93c628e 100644
    test("routes config_option_update and refreshes derived mode, model, and thinking state", async () => {
      const session = createSession();
      const internals = asInternals<ACPSessionInternals>(session);
-@@ -1354,6 +1393,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1354,6 +1397,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -868,7 +887,7 @@ index 07d65a8..93c628e 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -2605,6 +2702,112 @@ describe("ACPAgentSession", () => {
+@@ -2605,6 +2706,112 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -981,7 +1000,7 @@ index 07d65a8..93c628e 100644
    test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
      const session = createKiroSession({
        waitForInitialCommands: true,
-@@ -2915,6 +3118,61 @@ describe("ACPAgentSession", () => {
+@@ -2915,6 +3122,61 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -1043,7 +1062,7 @@ index 07d65a8..93c628e 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4149,3 +4407,97 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4149,3 +4411,312 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -1081,13 +1100,9 @@ index 07d65a8..93c628e 100644
 +    expect(parseKimiGoalCommand("/goal")).toEqual({ kind: "status" });
 +  });
 +
-+  test("claims /goal side-effect commands without allocating a turn", () => {
++  test("claims only the read-only /goal report without allocating a turn", () => {
 +    const session = createKimiHookedSession();
 +
-+    expect(session.tryHandleOutOfBand("/goal write the runbook")).not.toBeNull();
-+    expect(session.tryHandleOutOfBand("/goal pause")).not.toBeNull();
-+    expect(session.tryHandleOutOfBand("/goal resume")).not.toBeNull();
-+    expect(session.tryHandleOutOfBand("/goal cancel")).not.toBeNull();
 +    expect(session.tryHandleOutOfBand("/goal status")).not.toBeNull();
 +    expect(session.tryHandleOutOfBand("/goal")).not.toBeNull();
 +  });
@@ -1095,6 +1110,10 @@ index 07d65a8..93c628e 100644
 +  test("leaves unsupported and ordinary prompts to the normal turn path", () => {
 +    const session = createKimiHookedSession();
 +
++    expect(session.tryHandleOutOfBand("/goal write the runbook")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal pause")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal resume")).toBeNull();
++    expect(session.tryHandleOutOfBand("/goal cancel")).toBeNull();
 +    expect(session.tryHandleOutOfBand("/goal done")).toBeNull();
 +    expect(session.tryHandleOutOfBand("refactor the goal parser")).toBeNull();
 +    expect(session.tryHandleOutOfBand("/goalkeeper stats")).toBeNull();
@@ -1117,7 +1136,7 @@ index 07d65a8..93c628e 100644
 +        provider: "kimi-acp",
 +        item: {
 +          type: "assistant_message",
-+          text: "Kimi goal control is unavailable for this session.",
++          text: "No goal is set.",
 +        },
 +      },
 +    ]);
@@ -1141,8 +1160,223 @@ index 07d65a8..93c628e 100644
 +    expect(session.tryHandleOutOfBand("/goal pause")).toBeNull();
 +  });
 +});
++
++describe("ACP provider hook prompt transform", () => {
++  function createHookTestSession(providerHooks: ACPProviderHooks) {
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
++    let settleTurn!: () => void;
++    const settled = new Promise<void>((resolve) => {
++      settleTurn = resolve;
++    });
++
++    const session = createSessionWithConfig({}, createTestLogger(), {}, providerHooks);
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    session.subscribe((event) => {
++      events.push(event);
++      if (
++        event.type === "turn_completed" ||
++        event.type === "turn_failed" ||
++        event.type === "turn_canceled"
++      ) {
++        settleTurn();
++      }
++    });
++
++    return { session, events, prompt, settled };
++  }
++
++  function submittedUserMessages(events: AgentStreamEvent[]): AgentStreamEvent[] {
++    return events.filter(
++      (event) => event.type === "timeline" && event.item.type === "user_message",
++    );
++  }
++
++  test("rewrites the prompt sent to the agent and the submitted user message", async () => {
++    const seen: AgentPromptInput[] = [];
++    const { session, events, prompt, settled } = createHookTestSession({
++      transformPrompt: (outgoing) => {
++        seen.push(outgoing);
++        return "Write the runbook.";
++      },
++    });
++
++    const { turnId } = await session.startTurn("/goal write the runbook", {
++      clientMessageId: "msg-client-1",
++    });
++
++    expect(seen).toEqual(["/goal write the runbook"]);
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "Write the runbook." }],
++    });
++    expect(submittedUserMessages(events)).toEqual([
++      {
++        type: "timeline",
++        provider: "claude-acp",
++        turnId,
++        item: {
++          type: "user_message",
++          text: "Write the runbook.",
++          messageId: "msg-client-1",
++          clientMessageId: "msg-client-1",
++        },
++      },
++    ]);
++
++    await settled;
++  });
++
++  test("a Kimi /goal command reaches the agent as a rewritten prompt", async () => {
++    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
++    const session = createSessionWithConfig(
++      { provider: "kimi-acp" },
++      createTestLogger(),
++      {},
++      createKimiProviderHooks(),
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session_goal-test";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
++
++    await session.startTurn("/goal write the runbook");
++
++    const sent = prompt.mock.calls[0]?.[0] as { prompt: Array<{ text: string }> };
++    expect(sent.prompt[0]?.text).not.toBe("/goal write the runbook");
++    expect(sent.prompt[0]?.text).toContain("write the runbook");
++  });
++
++  test("returning null leaves the prompt untouched", async () => {
++    const { session, events, prompt, settled } = createHookTestSession({
++      transformPrompt: () => null,
++    });
++
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "hello" }],
++    });
++    expect(submittedUserMessages(events)).toEqual([
++      expect.objectContaining({
++        item: expect.objectContaining({ type: "user_message", text: "hello" }),
++      }),
++    ]);
++
++    await settled;
++  });
++
++  test("throwing falls back to the original prompt and does not fail the turn", async () => {
++    const { session, events, prompt, settled } = createHookTestSession({
++      transformPrompt: () => {
++        throw new Error("transformPrompt exploded");
++      },
++    });
++
++    const { turnId } = await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "hello" }],
++    });
++
++    await settled;
++
++    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
++    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
++  });
++});
++
++describe("ACP provider hook turn hold", () => {
++  test("interrupt() releases a turn that holdTurnWhile keeps open", async () => {
++    const signals: AbortSignal[] = [];
++    let markHeld!: () => void;
++    const held = new Promise<void>((resolve) => {
++      markHeld = resolve;
++    });
++    const neverSettles = new Promise<void>(() => {});
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" }));
++    const cancel = vi.fn(async () => {});
++    let settleTurn!: () => void;
++    const settled = new Promise<void>((resolve) => {
++      settleTurn = resolve;
++    });
++
++    const session = createSessionWithConfig({}, createTestLogger(), {}, {
++      holdTurnWhile: ({ signal }) => {
++        signals.push(signal);
++        markHeld();
++        return neverSettles;
++      },
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt, cancel };
++    session.subscribe((event) => {
++      events.push(event);
++      if (
++        event.type === "turn_completed" ||
++        event.type === "turn_failed" ||
++        event.type === "turn_canceled"
++      ) {
++        settleTurn();
++      }
++    });
++
++    const { turnId } = await session.startTurn("hello");
++    await held;
++
++    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBe(turnId);
++    expect(events.some((event) => event.type === "turn_completed")).toBe(false);
++
++    await session.interrupt();
++    await settled;
++
++    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
++    expect(cancel).toHaveBeenCalledWith({ sessionId: "session-1" });
++  });
++
++  test("holdTurnWhile receives a signal that interrupt() aborts", async () => {
++    const signals: AbortSignal[] = [];
++    let markHeld!: () => void;
++    const held = new Promise<void>((resolve) => {
++      markHeld = resolve;
++    });
++    let releaseHold!: () => void;
++    const hold = new Promise<void>((resolve) => {
++      releaseHold = resolve;
++    });
++
++    const session = createSessionWithConfig({}, createTestLogger(), {}, {
++      holdTurnWhile: ({ signal }) => {
++        signals.push(signal);
++        markHeld();
++        return hold;
++      },
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" })),
++      cancel: vi.fn(async () => {}),
++    };
++
++    await session.startTurn("hello");
++    await held;
++
++    expect(signals.length).toBe(1);
++    expect(signals[0]?.aborted).toBe(false);
++
++    await session.interrupt();
++
++    expect(signals[0]?.aborted).toBe(true);
++    releaseHold();
++  });
++});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 902b0f7..738b53e 100644
+index 902b0f7..bef77b5 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -75,6 +75,7 @@ import {
@@ -1178,7 +1412,7 @@ index 902b0f7..738b53e 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -416,6 +428,39 @@ export type ACPCatalogModelResolver = (
+@@ -416,6 +428,50 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -1208,17 +1442,28 @@ index 902b0f7..738b53e 100644
 +    ctx: ACPProviderHookContext,
 +  ): { run(ctx: { emit: (event: AgentStreamEvent) => void }): Promise<void> } | null;
 +  /**
++   * Rewrite a prompt before it is sent to the agent. Return null to send it
++   * unchanged. Runs for every foreground turn.
++   */
++  transformPrompt?(prompt: AgentPromptInput, ctx: ACPProviderHookContext): AgentPromptInput | null;
++  /**
 +   * Called after the ACP prompt response has been received. If it resolves to a
 +   * promise, the ACP turn is held open until that promise settles — this keeps
 +   * Paseo showing the agent as running while the provider keeps working on a goal.
++   * The signal aborts when the turn is interrupted or the session closes, so a
++   * provider can drop its hold early instead of waiting out its own timeout.
 +   */
-+  holdTurnWhile?(ctx: { acpSessionId: string; logger: Logger }): Promise<void> | null;
++  holdTurnWhile?(ctx: {
++    acpSessionId: string;
++    logger: Logger;
++    signal: AbortSignal;
++  }): Promise<void> | null;
 +}
 +
  interface ACPAgentClientOptions {
    provider: string;
    logger: Logger;
-@@ -445,6 +490,7 @@ interface ACPAgentClientOptions {
+@@ -445,6 +501,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -1226,7 +1471,7 @@ index 902b0f7..738b53e 100644
    now?: () => number;
  }
  
-@@ -479,6 +525,7 @@ interface ACPAgentSessionOptions {
+@@ -479,6 +536,7 @@ interface ACPAgentSessionOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -1234,7 +1479,7 @@ index 902b0f7..738b53e 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -905,6 +952,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -905,6 +963,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -1242,7 +1487,7 @@ index 902b0f7..738b53e 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -935,6 +983,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -935,6 +994,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -1250,7 +1495,7 @@ index 902b0f7..738b53e 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -968,6 +1017,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -968,6 +1028,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -1258,7 +1503,7 @@ index 902b0f7..738b53e 100644
        },
      );
      await session.initializeNewSession();
-@@ -1019,6 +1069,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1019,6 +1080,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -1266,7 +1511,27 @@ index 902b0f7..738b53e 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1683,7 +1734,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1623,6 +1685,19 @@ export class ACPAgentClient implements AgentClient {
+   }
+ }
+ 
++/**
++ * Resolve as soon as the signal aborts, so a pending provider hold can be
++ * abandoned without waiting for the provider's own timeout.
++ */
++function waitForAbortSignal(signal: AbortSignal): Promise<void> {
++  if (signal.aborted) {
++    return Promise.resolve();
++  }
++  return new Promise<void>((resolve) => {
++    signal.addEventListener("abort", () => resolve(), { once: true });
++  });
++}
++
+ export class ACPAgentSession implements AgentSession, ACPClient {
+   readonly provider: string;
+   readonly capabilities: AgentCapabilityFlags;
+@@ -1683,9 +1758,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -1277,8 +1542,11 @@ index 902b0f7..738b53e 100644
 +  private providerSessionCleanup: (() => void) | null = null;
    private currentTurnUsage: AgentUsage | undefined;
    private activeForegroundTurnId: string | null = null;
++  private turnAbort: AbortController | null = null;
    private fallbackAssistantMessageId: string | null = null;
-@@ -1723,7 +1778,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private closed = false;
+   private historyPending = false;
+@@ -1723,7 +1803,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -1288,7 +1556,7 @@ index 902b0f7..738b53e 100644
    }
  
    get id(): string | null {
-@@ -1747,6 +1804,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1747,6 +1829,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.bootstrapThreadEventPending = true;
        this.applySessionState(response);
        await this.applyConfiguredOverrides();
@@ -1296,7 +1564,7 @@ index 902b0f7..738b53e 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1801,6 +1859,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1801,6 +1884,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -1304,7 +1572,7 @@ index 902b0f7..738b53e 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1818,6 +1877,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1818,6 +1902,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -1351,9 +1619,37 @@ index 902b0f7..738b53e 100644
 +  }
 +
 +  /**
++   * Let the provider rewrite the prompt before it reaches the agent. A throwing
++   * hook must never break a turn, so failures are logged and the original prompt
++   * is used.
++   */
++  private applyProviderPromptTransform(prompt: AgentPromptInput): AgentPromptInput {
++    const hooks = this.providerHooks;
++    if (!hooks?.transformPrompt) {
++      return prompt;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return prompt;
++    }
++    try {
++      return hooks.transformPrompt(prompt, ctx) ?? prompt;
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook transformPrompt failed");
++      return prompt;
++    }
++  }
++
++  /**
 +   * Keep the turn open while the provider is still working on a goal after its
 +   * ACP prompt response arrived. A rejected hold must never break the turn, so
 +   * failures are logged and the turn finishes normally.
++   *
++   * The hold is also abandoned as soon as the turn is aborted. Previously an
++   * interrupt could not release a turn whose prompt response had already arrived
++   * and whose provider had already entered the hold: the turn stayed open (and
++   * the daemon rejected every new prompt with "A foreground turn is already
++   * active") until the provider's own timeout expired.
 +   */
 +  private async holdTurnWhileProviderWorks(): Promise<void> {
 +    const hooks = this.providerHooks;
@@ -1361,9 +1657,13 @@ index 902b0f7..738b53e 100644
 +    if (!hooks?.holdTurnWhile || !sessionId) {
 +      return;
 +    }
++    const signal = this.turnAbort?.signal ?? new AbortController().signal;
++    if (signal.aborted) {
++      return;
++    }
 +    let hold: Promise<void> | null;
 +    try {
-+      hold = hooks.holdTurnWhile({ acpSessionId: sessionId, logger: this.logger });
++      hold = hooks.holdTurnWhile({ acpSessionId: sessionId, logger: this.logger, signal });
 +    } catch (error) {
 +      this.logger.warn({ err: error }, "ACP provider hook holdTurnWhile failed");
 +      return;
@@ -1371,11 +1671,13 @@ index 902b0f7..738b53e 100644
 +    if (!hold) {
 +      return;
 +    }
-+    try {
-+      await hold;
-+    } catch (error) {
-+      this.logger.warn({ err: error }, "ACP provider turn hold rejected");
-+    }
++    const settledHold = hold.then(
++      () => undefined,
++      (error: unknown) => {
++        this.logger.warn({ err: error }, "ACP provider turn hold rejected");
++      },
++    );
++    await Promise.race([settledHold, waitForAbortSignal(signal)]);
 +  }
 +
 +  tryHandleOutOfBand(prompt: AgentPromptInput): {
@@ -1395,17 +1697,27 @@ index 902b0f7..738b53e 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1853,6 +1996,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1852,20 +2054,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
++    const outgoing = this.applyProviderPromptTransform(prompt);
      this.activeForegroundTurnId = turnId;
++    this.turnAbort = new AbortController();
 +    this.currentTurnSawAssistant = false;
      this.fallbackAssistantMessageId = null;
      this.submittedUserMessageTurnId = null;
      this.emitBootstrapThreadEvent();
-@@ -1865,7 +2009,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+-    this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
++    this.emitSubmittedUserMessage(outgoing, messageId, turnId, options?.clientMessageId);
+ 
+     void this.connection
+       .prompt({
+         sessionId: this.sessionId,
          messageId,
-         prompt: toACPContentBlocks(prompt),
+-        prompt: toACPContentBlocks(prompt),
++        prompt: toACPContentBlocks(outgoing),
        })
 -      .then((response) => {
 +      .then(async (response) => {
@@ -1413,7 +1725,19 @@ index 902b0f7..738b53e 100644
          this.handlePromptResponse(response, turnId);
          return;
        })
-@@ -2419,6 +2564,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2407,6 +2613,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.pendingPermissions.clear();
+ 
+     if (this.activeForegroundTurnId) {
++      this.turnAbort?.abort();
+       await this.connection.cancel({ sessionId: this.sessionId });
+     }
+   }
+@@ -2416,9 +2623,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return;
+     }
+     this.closed = true;
++    this.turnAbort?.abort();
  
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      this.settleCommandsReady();
@@ -1421,7 +1745,15 @@ index 902b0f7..738b53e 100644
  
      for (const pending of this.pendingPermissions.values()) {
        pending.resolve({ outcome: { outcome: "cancelled" } });
-@@ -2516,6 +2662,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2458,6 +2667,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.connection = null;
+     this.child = null;
+     this.activeForegroundTurnId = null;
++    this.turnAbort = null;
+   }
+ 
+   async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+@@ -2516,6 +2726,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.raw_event",
      );
      if (params.sessionId !== this.sessionId) {
@@ -1461,7 +1793,7 @@ index 902b0f7..738b53e 100644
        return;
      }
  
-@@ -2536,6 +2715,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2536,6 +2779,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -1480,7 +1812,7 @@ index 902b0f7..738b53e 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2561,6 +2752,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2561,6 +2816,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -1528,7 +1860,7 @@ index 902b0f7..738b53e 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2912,6 +3144,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2912,6 +3208,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      const pendingUserEvents = this.flushPendingUserMessage();
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
@@ -1536,7 +1868,7 @@ index 902b0f7..738b53e 100644
          const item = this.createMessageTimelineItem("assistant_message", update);
          return item ? [...pendingUserEvents, this.wrapTimeline(item)] : pendingUserEvents;
        }
-@@ -2955,8 +3188,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2955,8 +3252,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          this.handleSessionInfoUpdate(update);
          return pendingUserEvents;
        case "usage_update":
@@ -1546,7 +1878,7 @@ index 902b0f7..738b53e 100644
        case "available_commands_update":
          this.cachedCommands = update.availableCommands.map((command) => ({
            name: command.name,
-@@ -3116,13 +3348,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3116,13 +3412,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -1628,7 +1960,15 @@ index 902b0f7..738b53e 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3469,7 +3767,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3216,6 +3578,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   ): void {
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     this.activeForegroundTurnId = null;
++    this.turnAbort = null;
+     this.fallbackAssistantMessageId = null;
+     if (this.submittedUserMessageTurnId === event.turnId) {
+       this.submittedUserMessageTurnId = null;
+@@ -3469,7 +3832,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -1649,7 +1989,7 @@ index 902b0f7..738b53e 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3544,6 +3854,27 @@ function mergeToolSnapshot(
+@@ -3544,6 +3919,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -1677,7 +2017,7 @@ index 902b0f7..738b53e 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3805,7 +4136,17 @@ function mapPermissionRequest(
+@@ -3805,7 +4201,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -1696,7 +2036,7 @@ index 902b0f7..738b53e 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3814,11 +4155,11 @@ function mapPermissionRequest(
+@@ -3814,11 +4220,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -1710,7 +2050,7 @@ index 902b0f7..738b53e 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3832,6 +4173,7 @@ function mapPermissionRequest(
+@@ -3832,6 +4238,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -1759,15 +2099,104 @@ index 3fcabb5..c88ee96 100644
      });
  
      this.command = options.command;
+diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
+index b388fdb..950dfa6 100644
+--- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
+@@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
+ import { describe, expect, test, vi } from "vitest";
+ 
+ import { createTestLogger } from "../../../test-utils/test-logger.js";
++import type { AgentPromptInput } from "../agent-sdk-types.js";
+ import { type SpawnedACPProcess } from "./acp-agent.js";
+-import { KimiACPAgentClient } from "./kimi-acp-agent.js";
++import {
++  createKimiProviderHooks,
++  KimiACPAgentClient,
++  transformKimiGoalPrompt,
++} from "./kimi-acp-agent.js";
+ 
+ function modelConfigOption(currentValue: string): SessionConfigOption {
+   return {
+@@ -239,3 +244,64 @@ describe("KimiACPAgentClient per-model thinking options", () => {
+     expect(kimiK3?.defaultThinkingOptionId).toBeUndefined();
+   });
+ });
++
++describe("transformKimiGoalPrompt", () => {
++  test("rewrites a create command into a CreateGoal instruction", () => {
++    const rewritten = transformKimiGoalPrompt("/goal write the runbook");
++
++    expect(rewritten).toBe(
++      "用 CreateGoal 工具建立这个目标，然后立即开始执行，不要停下来问我。\n\n目标：write the runbook",
++    );
++  });
++
++  test("rewrites pause, resume, and cancel into UpdateGoal instructions", () => {
++    expect(transformKimiGoalPrompt("/goal pause")).toContain("UpdateGoal");
++    expect(transformKimiGoalPrompt("/goal pause")).toContain("paused");
++    expect(transformKimiGoalPrompt("/goal resume")).toContain("active");
++    expect(transformKimiGoalPrompt("/goal cancel")).toContain("cleared");
++  });
++
++  test("reads the command out of a block-array prompt", () => {
++    const rewritten = transformKimiGoalPrompt([{ type: "text", text: "/goal ship it" }]);
++
++    expect(rewritten).toContain("CreateGoal");
++    expect(rewritten).toContain("ship it");
++  });
++
++  test("leaves status, bare, done, and ordinary prompts alone", () => {
++    expect(transformKimiGoalPrompt("/goal status")).toBeNull();
++    expect(transformKimiGoalPrompt("/goal")).toBeNull();
++    expect(transformKimiGoalPrompt("/goal done")).toBeNull();
++    expect(transformKimiGoalPrompt("refactor the goal parser")).toBeNull();
++    expect(transformKimiGoalPrompt("/goalkeeper stats")).toBeNull();
++  });
++
++  test("exposes the transformer through the provider hooks", () => {
++    const hooks = createKimiProviderHooks();
++    const transform = (
++      hooks as { transformPrompt?: (prompt: AgentPromptInput) => AgentPromptInput | null }
++    ).transformPrompt;
++
++    expect(typeof transform).toBe("function");
++    expect(transform?.("/goal ship it")).toContain("CreateGoal");
++    expect(transform?.("hello")).toBeNull();
++  });
++
++  test("keeps create and control out of the out-of-band path", () => {
++    const hooks = createKimiProviderHooks();
++    const ctx = {
++      acpSessionId: "session_goal-test",
++      provider: "kimi-acp",
++      logger: createTestLogger(),
++      emit: () => {},
++    };
++
++    expect(hooks.tryHandleOutOfBand?.("/goal write the runbook", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal pause", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal resume", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal cancel", ctx)).toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal status", ctx)).not.toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("/goal", ctx)).not.toBeNull();
++    expect(hooks.tryHandleOutOfBand?.("hello", ctx)).toBeNull();
++  });
++});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 50effdf..b311e8c 100644
+index 50effdf..244d4a3 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-@@ -1,13 +1,19 @@
+@@ -1,13 +1,24 @@
  import type { Logger } from "pino";
  
 -import type { AgentModelDefinition } from "../agent-sdk-types.js";
-+import type { AgentGoal, AgentModelDefinition } from "../agent-sdk-types.js";
++import type {
++  AgentGoal,
++  AgentGoalStatus,
++  AgentModelDefinition,
++  AgentPromptInput,
++} from "../agent-sdk-types.js";
 +import type { AgentCapabilityFlags } from "../agent-sdk-types.js";
  import {
    type ACPCatalogModelResolverContext,
@@ -1784,7 +2213,7 @@ index 50effdf..b311e8c 100644
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -90,6 +96,146 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -90,6 +101,160 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        label: options.label,
        providerParams: options.providerParams,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -1811,10 +2240,11 @@ index 50effdf..b311e8c 100644
 +
 +type KimiGoalControlAction = "pause" | "resume" | "cancel";
 +
-+const KIMI_GOAL_CONTROL_PAST_TENSE: Record<KimiGoalControlAction, string> = {
++/** Goal status the agent should apply through its own goal tool. */
++const KIMI_GOAL_CONTROL_STATUS: Record<KimiGoalControlAction, AgentGoalStatus> = {
 +  pause: "paused",
-+  resume: "resumed",
-+  cancel: "canceled",
++  resume: "active",
++  cancel: "cleared",
 +};
 +
 +export type KimiGoalCommand =
@@ -1848,13 +2278,37 @@ index 50effdf..b311e8c 100644
 +  return { kind: "create", objective: remainder };
 +}
 +
++/**
++ * Rewrite a `/goal` side-effect command into an ordinary prompt.
++ *
++ * The daemon cannot reach the runtime that owns the goal, so create and control
++ * commands are handed to the agent, which applies them with its own CreateGoal /
++ * UpdateGoal tools. `status` returns null: it is answered out-of-band from the
++ * log the daemon already tails.
++ */
++export function transformKimiGoalPrompt(prompt: AgentPromptInput): string | null {
++  const command = parseKimiGoalCommand(extractPromptText(prompt));
++  if (!command) {
++    return null;
++  }
++  switch (command.kind) {
++    case "create":
++      return `用 CreateGoal 工具建立这个目标，然后立即开始执行，不要停下来问我。\n\n目标：${command.objective}`;
++    case "control":
++      return `用 UpdateGoal 工具把当前目标状态改为 ${KIMI_GOAL_CONTROL_STATUS[command.action]}，不要创建新目标。`;
++    case "status":
++      return null;
++  }
++}
++
 +export interface KimiProviderHooksOptions {
-+  kimiExecutable?: string;
++  kimiHome?: string;
 +}
 +
 +/**
 + * Provider hooks for Kimi ACP: one native bridge per live session, `/goal`
-+ * handled out-of-band, and the ACP turn held open while Kimi runs a goal.
++ * status handled out-of-band, create/control commands rewritten into prompts,
++ * and the ACP turn held open while Kimi runs a goal.
 + */
 +export function createKimiProviderHooks(options: KimiProviderHooksOptions = {}): ACPProviderHooks {
 +  const bridges = new Map<string, KimiNativeBridge>();
@@ -1866,7 +2320,7 @@ index 50effdf..b311e8c 100644
 +    onSessionReady(ctx) {
 +      const bridge = new KimiNativeBridge({
 +        kimiSessionId: ctx.acpSessionId,
-+        kimiExecutable: options.kimiExecutable,
++        kimiHome: options.kimiHome,
 +        logger: ctx.logger,
 +        provider: ctx.provider,
 +        emit: ctx.emit,
@@ -1882,45 +2336,34 @@ index 50effdf..b311e8c 100644
 +    },
 +    tryHandleOutOfBand(prompt, ctx) {
 +      const command = parseKimiGoalCommand(extractPromptText(prompt));
-+      if (!command) {
++      // Only reporting is a read-only side effect. Anything that would mutate
++      // the goal falls through to a normal turn and is rewritten into a prompt.
++      if (!command || command.kind !== "status") {
 +        return null;
 +      }
 +      return {
 +        run: async ({ emit }) => {
-+          const text = await runKimiGoalCommand(findBridge(ctx), command);
-+          emit(wrapTimelineItem(ctx.provider, { type: "assistant_message", text }));
++          const goal = findBridge(ctx)?.getGoal() ?? null;
++          emit(
++            wrapTimelineItem(ctx.provider, {
++              type: "assistant_message",
++              text: describeKimiGoal(goal),
++            }),
++          );
 +        },
 +      };
++    },
++    transformPrompt(prompt) {
++      return transformKimiGoalPrompt(prompt);
 +    },
 +    holdTurnWhile(ctx) {
 +      const bridge = bridges.get(ctx.acpSessionId);
 +      if (!bridge || !bridge.isGoalLive()) {
 +        return null;
 +      }
-+      return bridge.waitForGoalSettled(KIMI_GOAL_HOLD_TIMEOUT_MS);
++      return bridge.waitForGoalSettled(KIMI_GOAL_HOLD_TIMEOUT_MS, ctx.signal);
 +    },
 +  };
-+}
-+
-+async function runKimiGoalCommand(
-+  bridge: KimiNativeBridge | null,
-+  command: KimiGoalCommand,
-+): Promise<string> {
-+  if (!bridge) {
-+    return "Kimi goal control is unavailable for this session.";
-+  }
-+  switch (command.kind) {
-+    case "create":
-+      return (await bridge.createGoal(command.objective))
-+        ? `Goal created: ${command.objective}`
-+        : "Failed to create the goal.";
-+    case "control":
-+      return (await bridge.control(command.action))
-+        ? `Goal ${KIMI_GOAL_CONTROL_PAST_TENSE[command.action]}.`
-+        : `Failed to ${command.action} the goal.`;
-+    case "status":
-+      return describeKimiGoal(bridge.getGoal());
-+  }
 +}
 +
 +function describeKimiGoal(goal: AgentGoal | null): string {
@@ -1933,184 +2376,802 @@ index 50effdf..b311e8c 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 0000000..4662b08
+index 0000000..5790de1
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-@@ -0,0 +1,344 @@
+@@ -0,0 +1,96 @@
 +import type { Logger } from "pino";
 +
 +import {
 +  isAgentGoalLive,
 +  type AgentGoal,
-+  type AgentGoalStatus,
 +  type AgentProvider,
 +  type AgentStreamEvent,
-+  type AgentUsage,
 +} from "../../agent-sdk-types.js";
-+import {
-+  acquireKimiServer,
-+  kimiServerGet,
-+  kimiServerPostChecked,
-+  releaseKimiServer,
-+  type KimiServerHandle,
-+} from "./web-server-manager.js";
++import { KimiSessionLog } from "./session-log.js";
 +
-+// Kimi keeps driving a goal after the ACP prompt returns, so the bridge watches
-+// the local HTTP server instead of the ACP stream. Polling is deliberately
-+// coarse: the old sidecar proxy was criticised for hammering the daemon.
-+const LIVE_POLL_INTERVAL_MS = 2_000;
-+const IDLE_POLL_INTERVAL_MS = 10_000;
-+const SETTLE_POLL_INTERVAL_MS = 250;
-+
-+type KimiServerPayload = Record<string, unknown>;
-+
++/**
++ * Native goal/usage bridge for one live Kimi ACP session.
++ *
++ * Kimi keeps driving a goal after the ACP prompt returns, and the ACP stream
++ * carries no goal state. The daemon used to read a `kimi web` HTTP sidecar, but
++ * that server materializes a *separate, empty runtime* for a session another
++ * process owns: goals written there are invisible to the talking agent, and the
++ * agent's own goals never appear there.
++ *
++ * The session's append-only log file is the only cross-process truth, so the
++ * bridge tails `agents/main/wire.jsonl` and derives the goal from it. There is
++ * deliberately no control API: the daemon cannot mutate a goal it does not own,
++ * so control commands are rewritten into prompts instead.
++ */
 +export interface KimiNativeBridgeOptions {
 +  kimiSessionId: string;
-+  kimiExecutable?: string;
++  kimiHome?: string;
 +  logger: Logger;
++  /** Overrides both poll cadences; see `KimiSessionLog`. */
++  pollIntervalMs?: number;
 +  /** Push a provider stream event into the owning ACP session. */
 +  emit: (event: AgentStreamEvent) => void;
 +  /** Provider id, for the events' `provider` field. */
 +  provider: AgentProvider;
 +}
 +
-+/**
-+ * Native goal/usage bridge for one live Kimi ACP session. Every ACP session id
-+ * is also a Kimi session id, so the same id addresses the local HTTP routes.
-+ *
-+ * The bridge is inert when the sidecar cannot be acquired: it never throws, so
-+ * a missing `kimi web` server degrades to "no goal tracking" instead of
-+ * breaking the agent.
-+ */
 +export class KimiNativeBridge {
-+  private readonly kimiSessionId: string;
-+  private readonly kimiExecutable?: string;
-+  private readonly logger: Logger;
++  private readonly log: KimiSessionLog;
 +  private readonly emit: (event: AgentStreamEvent) => void;
 +  private readonly provider: AgentProvider;
-+
-+  private handle: KimiServerHandle | null = null;
-+  private timer: ReturnType<typeof setTimeout> | null = null;
 +  private started = false;
 +  private stopped = false;
-+  private goal: AgentGoal | null = null;
-+  /** null means "nothing reported yet", so the first observation can be silent. */
-+  private goalSignature: string | null = null;
-+  private usageSignature: string | null = null;
 +
 +  constructor(options: KimiNativeBridgeOptions) {
-+    this.kimiSessionId = options.kimiSessionId;
-+    this.kimiExecutable = options.kimiExecutable;
-+    this.logger = options.logger;
 +    this.emit = options.emit;
 +    this.provider = options.provider;
++    this.log = new KimiSessionLog({
++      kimiSessionId: options.kimiSessionId,
++      kimiHome: options.kimiHome,
++      logger: options.logger,
++      pollIntervalMs: options.pollIntervalMs,
++      onGoal: (goal) => {
++        this.emit({ type: "goal_updated", provider: this.provider, goal });
++      },
++      onUsage: (usage) => {
++        this.emit({ type: "usage_updated", provider: this.provider, usage });
++      },
++    });
 +  }
 +
-+  /** Idempotent. Starts polling. */
++  /** Idempotent. Starts tailing the session log. */
 +  start(): void {
 +    if (this.started || this.stopped) {
 +      return;
 +    }
 +    this.started = true;
-+    void this.acquire();
++    this.log.start();
 +  }
 +
-+  /** Idempotent. Stops polling and releases the sidecar reference. */
++  /** Idempotent. Stops tailing the session log. */
++  stop(): void {
++    if (this.stopped) {
++      return;
++    }
++    this.stopped = true;
++    this.log.stop();
++  }
++
++  /** Latest known goal, or null. */
++  getGoal(): AgentGoal | null {
++    return this.log.getGoal();
++  }
++
++  /** True while the provider is still working toward the goal. */
++  isGoalLive(): boolean {
++    return isAgentGoalLive(this.log.getGoal());
++  }
++
++  /** Resolves when the goal stops being live, after `timeoutMs`, or on abort. */
++  async waitForGoalSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    if (this.stopped) {
++      return;
++    }
++    await this.log.waitForSettled(timeoutMs, signal);
++  }
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
+new file mode 100644
+index 0000000..681a5e9
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
+@@ -0,0 +1,432 @@
++import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { afterEach, describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import { isAgentGoalLive, type AgentGoal, type AgentUsage } from "../../agent-sdk-types.js";
++import {
++  EMPTY_KIMI_SESSION_LOG_STATE,
++  KimiSessionLog,
++  parseKimiSessionLogLines,
++  resolveKimiWireLogPath,
++} from "./session-log.js";
++
++const SESSION_ID = "session_82309639-50ca-4052-953b-d59fb53668cb";
++const GOAL_ID = "69196b30-598e-43a2-a908-249cfd28c200";
++const OBJECTIVE = "在当前目录创建 goal-ok.txt 并写入 hello";
++const CRITERION = "当前工作目录 D:\\Erl-Project\\AntiVIP\\.tmp\\goal-ws-test 下存在 goal-ok.txt，且其内容为 hello";
++
++interface GoalCreateOverrides {
++  goalId?: string;
++  objective?: string;
++  completionCriterion?: string;
++}
++
++function goalCreateLine(overrides: GoalCreateOverrides = {}): string {
++  return JSON.stringify({
++    type: "goal.create",
++    agentId: "main",
++    goalId: overrides.goalId ?? GOAL_ID,
++    objective: overrides.objective ?? OBJECTIVE,
++    completionCriterion: overrides.completionCriterion ?? CRITERION,
++    wallClockResumedAt: 1790486852717,
++    time: 1790486852717,
++  });
++}
++
++function tokensUpdateLine(tokensUsed: number, time = 1790486855291): string {
++  return JSON.stringify({ type: "goal.update", agentId: "main", tokensUsed, time });
++}
++
++function statusUpdateLine(status: string, time = 1790486861722): string {
++  return JSON.stringify({
++    type: "goal.update",
++    agentId: "main",
++    status,
++    wallClockMs: 9004,
++    actor: "model",
++    time,
++  });
++}
++
++function clearLine(time = 1790486861722): string {
++  return JSON.stringify({ type: "goal.clear", agentId: "main", time });
++}
++
++function turnRecordedLine(tokens: number, turnId = 1): string {
++  return JSON.stringify({
++    type: "token_counting.turn_recorded",
++    agentId: "main",
++    turnId,
++    length: 19,
++    tokens,
++    time: 1790486843052,
++  });
++}
++
++describe("parseKimiSessionLogLines", () => {
++  test("creates an active goal with zeroed counters", () => {
++    const state = parseKimiSessionLogLines([goalCreateLine()], EMPTY_KIMI_SESSION_LOG_STATE);
++
++    expect(state.goal).toEqual({
++      goalId: GOAL_ID,
++      objective: OBJECTIVE,
++      completionCriterion: CRITERION,
++      status: "active",
++      turnsUsed: 0,
++      tokensUsed: 0,
++      updatedAt: 1790486852717,
++    });
++    expect(state.contextWindowUsedTokens).toBeNull();
++  });
++
++  test("counts one turn per tokensUsed update and keeps the last token count", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        tokensUpdateLine(74, 1790486855291),
++        tokensUpdateLine(189, 1790486858288),
++        tokensUpdateLine(369, 1790486861720),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.turnsUsed).toBe(3);
++    expect(state.goal?.tokensUsed).toBe(369);
++    expect(state.goal?.status).toBe("active");
++  });
++
++  test("continues counters when replayed incrementally", () => {
++    const first = parseKimiSessionLogLines(
++      [goalCreateLine(), tokensUpdateLine(74)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines(
++      [tokensUpdateLine(189, 1790486858288), tokensUpdateLine(369, 1790486861720)],
++      first,
++    );
++
++    expect(second.goal?.turnsUsed).toBe(3);
++    expect(second.goal?.tokensUsed).toBe(369);
++  });
++
++  test("a terminal status ends the goal", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), statusUpdateLine("complete")],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.status).toBe("complete");
++    expect(isAgentGoalLive(state.goal)).toBe(false);
++  });
++
++  test("an unknown status is reported as cleared rather than left live", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), statusUpdateLine("exploded")],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.status).toBe("cleared");
++    expect(isAgentGoalLive(state.goal)).toBe(false);
++  });
++
++  test("goal.clear drops the goal", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), clearLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal).toBeNull();
++  });
++
++  test("a second goal.create starts a fresh turn count", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        tokensUpdateLine(74),
++        tokensUpdateLine(189),
++        tokensUpdateLine(369),
++        goalCreateLine({ goalId: "second-goal", objective: "second objective" }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.goalId).toBe("second-goal");
++    expect(state.goal?.objective).toBe("second objective");
++    expect(state.goal?.turnsUsed).toBe(0);
++    expect(state.goal?.tokensUsed).toBe(0);
++  });
++
++  test("reads the real context size from token_counting.turn_recorded", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), turnRecordedLine(48184), turnRecordedLine(48817, 2)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.contextWindowUsedTokens).toBe(48817);
++    expect(state.goal?.turnsUsed).toBe(0);
++  });
++
++  test("ignores malformed, partial, and non-object lines", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        '{"type":"goal.upd',
++        "not json at all",
++        "",
++        "null",
++        "42",
++        "[1,2,3]",
++        tokensUpdateLine(12, 1790486855291),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.turnsUsed).toBe(1);
++    expect(state.goal?.tokensUsed).toBe(12);
++  });
++
++  test("ignores a goal.update that arrives before any goal.create", () => {
++    const state = parseKimiSessionLogLines([tokensUpdateLine(74)], EMPTY_KIMI_SESSION_LOG_STATE);
++
++    expect(state.goal).toBeNull();
++  });
++});
++
++describe("resolveKimiWireLogPath", () => {
++  test("finds the wire log for the session under the Kimi home", () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++
++    expect(resolveKimiWireLogPath(SESSION_ID, { kimiHome: home })).toBe(file);
++  });
++
++  test("returns null when the session has no log yet", () => {
++    const { home } = createSessionHome(SESSION_ID);
++
++    expect(resolveKimiWireLogPath("session_that_never_ran", { kimiHome: home })).toBeNull();
++  });
++
++  test("returns null for a missing Kimi home instead of throwing", () => {
++    expect(
++      resolveKimiWireLogPath(SESSION_ID, { kimiHome: path.join(tmpdir(), "kimi-home-absent") }),
++    ).toBeNull();
++    expect(resolveKimiWireLogPath("", { kimiHome: tmpdir() })).toBeNull();
++  });
++});
++
++describe("KimiSessionLog", () => {
++  const logs: KimiSessionLog[] = [];
++
++  function createLog(
++    home: string,
++    overrides: Partial<ConstructorParameters<typeof KimiSessionLog>[0]> = {},
++  ): KimiSessionLog {
++    const log = new KimiSessionLog({
++      kimiSessionId: SESSION_ID,
++      kimiHome: home,
++      logger: createTestLogger(),
++      pollIntervalMs: 10,
++      ...overrides,
++    });
++    logs.push(log);
++    return log;
++  }
++
++  afterEach(() => {
++    for (const log of logs.splice(0)) {
++      log.stop();
++    }
++  });
++
++  test("picks up a goal that was created before the log started", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n${tokensUpdateLine(74)}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getGoal() !== null);
++
++    expect(log.getGoal()?.goalId).toBe(GOAL_ID);
++    expect(log.getGoal()?.turnsUsed).toBe(1);
++    expect(log.getGoal()?.tokensUsed).toBe(74);
++    expect(log.isLive()).toBe(true);
++  });
++
++  test("picks up records appended after it started", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getGoal()?.turnsUsed === 0);
++
++    appendFileSync(file, `${tokensUpdateLine(74)}\n${tokensUpdateLine(189)}\n`);
++    await waitFor(() => log.getGoal()?.turnsUsed === 2);
++
++    expect(log.getGoal()?.tokensUsed).toBe(189);
++  });
++
++  test("completes a record split across two reads", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    const line = goalCreateLine();
++    appendFileSync(file, line.slice(0, 20));
++
++    const log = createLog(home);
++    log.start();
++    await delay(80);
++
++    expect(log.getGoal()).toBeNull();
++
++    appendFileSync(file, `${line.slice(20)}\n`);
++    await waitFor(() => log.getGoal() !== null);
++
++    expect(log.getGoal()?.objective).toBe(OBJECTIVE);
++  });
++
++  test("emits usage from the token counter", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n${turnRecordedLine(48817)}\n`);
++
++    const usage: AgentUsage[] = [];
++    const log = createLog(home, { onUsage: (value) => usage.push(value) });
++    log.start();
++    await waitFor(() => usage.length > 0);
++
++    expect(usage.at(-1)).toEqual({ contextWindowUsedTokens: 48817 });
++  });
++
++  test("emits a null goal once the goal is cleared", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const emitted: Array<AgentGoal | null> = [];
++    const log = createLog(home, { onGoal: (goal) => emitted.push(goal) });
++    log.start();
++    await waitFor(() => emitted.length > 0);
++    expect(emitted.at(-1)?.goalId).toBe(GOAL_ID);
++
++    appendFileSync(file, `${clearLine()}\n`);
++    await waitFor(() => emitted.at(-1) === null);
++
++    expect(log.getGoal()).toBeNull();
++  });
++
++  test("rebuilds after the log file is replaced with a shorter one", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getGoal()?.goalId === GOAL_ID);
++
++    writeFileSync(file, `${goalCreateLine({ goalId: "replacement", objective: "small" })}\n`);
++    await waitFor(() => log.getGoal()?.goalId === "replacement");
++  });
++
++  test("waitForSettled resolves when the goal goes terminal", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isLive());
++
++    const settled = log.waitForSettled(5_000);
++    appendFileSync(file, `${statusUpdateLine("complete")}\n`);
++    await settled;
++
++    expect(log.isLive()).toBe(false);
++    expect(log.getGoal()?.status).toBe("complete");
++  });
++
++  test("waitForSettled resolves as soon as the signal aborts", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isLive());
++
++    const controller = new AbortController();
++    const startedAt = Date.now();
++    const settled = log.waitForSettled(30_000, controller.signal);
++    setTimeout(() => controller.abort(), 25);
++    await settled;
++
++    expect(Date.now() - startedAt).toBeLessThan(2_000);
++    expect(log.isLive()).toBe(true);
++  });
++
++  test("waitForSettled resolves immediately when the signal is already aborted", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isLive());
++
++    const controller = new AbortController();
++    controller.abort();
++    const startedAt = Date.now();
++    await log.waitForSettled(30_000, controller.signal);
++
++    expect(Date.now() - startedAt).toBeLessThan(500);
++  });
++
++  test("waitForSettled resolves immediately when no goal is live", async () => {
++    const { home } = createSessionHome(SESSION_ID);
++    const log = createLog(home);
++
++    const startedAt = Date.now();
++    await log.waitForSettled(30_000);
++
++    expect(Date.now() - startedAt).toBeLessThan(500);
++  });
++
++  test("start and stop are idempotent and never throw without a log file", async () => {
++    const { home } = createSessionHome(SESSION_ID);
++    const log = createLog(home);
++
++    log.start();
++    log.start();
++    await delay(50);
++    log.stop();
++    log.stop();
++
++    expect(log.getGoal()).toBeNull();
++  });
++});
++
++function createSessionHome(sessionId: string): { home: string; file: string } {
++  const home = mkdtempSync(path.join(tmpdir(), "kimi-session-log-"));
++  const file = path.join(
++    home,
++    "sessions",
++    "D--tmp-kimi-workspace",
++    sessionId,
++    "agents",
++    "main",
++    "wire.jsonl",
++  );
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, "");
++  return { home, file };
++}
++
++async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
++  const deadline = Date.now() + timeoutMs;
++  while (Date.now() < deadline) {
++    if (condition()) {
++      return;
++    }
++    await delay(10);
++  }
++  throw new Error("Timed out waiting for condition");
++}
++
++function delay(ms: number): Promise<void> {
++  return new Promise((resolve) => {
++    setTimeout(resolve, ms);
++  });
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
+new file mode 100644
+index 0000000..502a6b7
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
+@@ -0,0 +1,570 @@
++import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
++import { stat } from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
++import { createInterface } from "node:readline";
++
++import type { Logger } from "pino";
++
++import {
++  isAgentGoalLive,
++  type AgentGoal,
++  type AgentGoalStatus,
++  type AgentUsage,
++} from "../../agent-sdk-types.js";
++
++/**
++ * Kimi Code writes one JSON object per line to
++ * `<kimiHome>/sessions/<wd-slug>/<sessionId>/agents/main/wire.jsonl`.
++ *
++ * That file is the only cross-process source of truth for a session's goal and
++ * context usage: the `kimi web` HTTP server materializes a *separate, empty*
++ * runtime for a session another process owns, so it reports zeros and accepts
++ * goals the talking agent never sees. The owning process appends to this log,
++ * and both processes share it on disk.
++ *
++ * The ACP session id is the `<sessionId>` directory name, so the log path is
++ * derivable from the id the daemon already holds.
++ */
++
++const LIVE_POLL_INTERVAL_MS = 2_000;
++const IDLE_POLL_INTERVAL_MS = 10_000;
++const SETTLE_POLL_INTERVAL_MS = 250;
++/** Unchanged goals are re-announced once per bucket so a late subscriber still sees them. */
++const GOAL_REANNOUNCE_BUCKET_MS = 30_000;
++const DEFAULT_KIMI_HOME = "~/.kimi-code";
++
++/**
++ * Locate the wire log for a Kimi session. Returns null when the file does not
++ * exist yet (the session may not have produced output) or the home directory is
++ * unreadable; callers retry on their next poll.
++ */
++export function resolveKimiWireLogPath(
++  kimiSessionId: string,
++  options: { kimiHome?: string } = {},
++): string | null {
++  if (kimiSessionId.length === 0) {
++    return null;
++  }
++  const sessionsDir = path.join(resolveKimiHome(options.kimiHome), "sessions");
++  let entries: string[];
++  try {
++    entries = readdirSync(sessionsDir);
++  } catch {
++    return null;
++  }
++  for (const entry of entries) {
++    const candidate = path.join(sessionsDir, entry, kimiSessionId, "agents", "main", "wire.jsonl");
++    try {
++      if (existsSync(candidate)) {
++        return candidate;
++      }
++    } catch {
++      // Keep scanning; one unreadable slug must not hide the real one.
++    }
++  }
++  return null;
++}
++
++/** Derived state of a session log after replaying a batch of lines. */
++export interface KimiSessionLogState {
++  goal: AgentGoal | null;
++  contextWindowUsedTokens: number | null;
++}
++
++export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
++  goal: null,
++  contextWindowUsedTokens: null,
++});
++
++/**
++ * Replay raw log lines onto a previous state. Pure and side-effect free so the
++ * derivation rules are testable without a filesystem.
++ *
++ * Records the daemon relies on:
++ * - `goal.create` sets the goal to `active` with zeroed counters.
++ * - `goal.update` carries either `tokensUsed` (one per goal turn) or `status`.
++ * - `goal.clear` drops the goal.
++ * - `token_counting.turn_recorded` reports the real context size.
++ *
++ * Anything unparseable is skipped; a half-written line must not abort a replay.
++ */
++export function parseKimiSessionLogLines(
++  lines: Iterable<string>,
++  previous: KimiSessionLogState,
++): KimiSessionLogState {
++  let goal = previous.goal;
++  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
++
++  for (const raw of lines) {
++    const line = raw.trim();
++    if (line.length === 0) {
++      continue;
++    }
++    let record: unknown;
++    try {
++      record = JSON.parse(line);
++    } catch {
++      continue;
++    }
++    if (typeof record !== "object" || record === null) {
++      continue;
++    }
++    const entry = record as Record<string, unknown>;
++    switch (entry.type) {
++      case "goal.create":
++        goal = createGoalFromRecord(entry);
++        break;
++      case "goal.update":
++        goal = applyGoalUpdate(goal, entry);
++        break;
++      case "goal.clear":
++        goal = null;
++        break;
++      case "token_counting.turn_recorded": {
++        const tokens = readNumber(entry.tokens);
++        if (tokens !== undefined) {
++          contextWindowUsedTokens = tokens;
++        }
++        break;
++      }
++      default:
++        break;
++    }
++  }
++
++  return { goal, contextWindowUsedTokens };
++}
++
++export interface KimiSessionLogOptions {
++  kimiSessionId: string;
++  kimiHome?: string;
++  logger: Logger;
++  /** Overrides both cadences. Defaults to 2000ms while a goal is live, 10000ms otherwise. */
++  pollIntervalMs?: number;
++  onGoal?: (goal: AgentGoal | null) => void;
++  onUsage?: (usage: AgentUsage) => void;
++}
++
++/**
++ * Tails one session's wire log and reports the goal/usage it describes.
++ *
++ * Reads incrementally by byte offset, so a long session is never re-read. A
++ * goal created before the tailer attached is still picked up because the first
++ * read starts at byte 0.
++ */
++export class KimiSessionLog {
++  private readonly kimiSessionId: string;
++  private readonly kimiHome: string | undefined;
++  private readonly logger: Logger;
++  private readonly liveIntervalMs: number;
++  private readonly idleIntervalMs: number;
++  private readonly onGoal: ((goal: AgentGoal | null) => void) | undefined;
++  private readonly onUsage: ((usage: AgentUsage) => void) | undefined;
++
++  private resolvedPath: string | null = null;
++  private offset = 0;
++  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
++  private pending = "";
++  private goal: AgentGoal | null = null;
++  private contextWindowUsedTokens: number | null = null;
++  /** Value signature of the last goal considered; null means "nothing considered yet". */
++  private goalSignature: string | null = null;
++  private goalBucket = -1;
++  private emittedGoal = false;
++  private usageSignature: string | null = null;
++
++  private timer: ReturnType<typeof setTimeout> | null = null;
++  private started = false;
++  private stopped = false;
++
++  constructor(options: KimiSessionLogOptions) {
++    this.kimiSessionId = options.kimiSessionId;
++    this.kimiHome = options.kimiHome;
++    this.logger = options.logger;
++    this.liveIntervalMs = options.pollIntervalMs ?? LIVE_POLL_INTERVAL_MS;
++    this.idleIntervalMs = options.pollIntervalMs ?? IDLE_POLL_INTERVAL_MS;
++    this.onGoal = options.onGoal;
++    this.onUsage = options.onUsage;
++  }
++
++  /** Idempotent. Starts tailing. */
++  start(): void {
++    if (this.started || this.stopped) {
++      return;
++    }
++    this.started = true;
++    this.scheduleTick(0);
++  }
++
++  /** Idempotent. Stops tailing. */
 +  stop(): void {
 +    if (this.stopped) {
 +      return;
 +    }
 +    this.stopped = true;
 +    this.clearTimer();
-+    if (this.handle) {
-+      this.handle = null;
-+      releaseKimiServer();
-+    }
++    this.pending = "";
 +  }
 +
-+  /** Latest known goal, or null. */
++  /** Latest derived goal, or null. */
 +  getGoal(): AgentGoal | null {
 +    return this.goal;
 +  }
 +
-+  /** True while the provider is still working toward the goal. */
-+  isGoalLive(): boolean {
++  /** True while the goal is still being pursued. */
++  isLive(): boolean {
 +    return isAgentGoalLive(this.goal);
 +  }
 +
-+  /** Resolves when the goal stops being live, or after `timeoutMs`. */
-+  async waitForGoalSettled(timeoutMs: number): Promise<void> {
-+    if (!this.isGoalLive()) {
++  /**
++   * Resolves once the goal stops being live, on timeout, or as soon as `signal`
++   * aborts. The abort path is what keeps a held ACP turn from outliving the
++   * turn it belongs to.
++   */
++  async waitForSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    if (signal?.aborted === true) {
++      return;
++    }
++    if (!this.isLive()) {
 +      return;
 +    }
 +    const deadline = Date.now() + Math.max(0, timeoutMs);
-+    while (!this.stopped && this.isGoalLive()) {
-+      const remaining = deadline - Date.now();
-+      if (remaining <= 0) {
++    if (!signal) {
++      await this.pollUntilSettled(deadline);
++      return;
++    }
++    // Race the polling loop against the signal so an aborted turn is released
++    // immediately instead of at the next 250ms check.
++    const abortPromise = new Promise<void>((resolve) => {
++      signal.addEventListener("abort", () => resolve(), { once: true });
++    });
++    await Promise.race([abortPromise, this.pollUntilSettled(deadline, signal)]);
++  }
++
++  /** Re-check the goal every 250ms until it settles, the deadline passes, or the signal aborts. */
++  private async pollUntilSettled(deadline: number, signal?: AbortSignal): Promise<void> {
++    while (!this.stopped && this.isLive() && Date.now() < deadline) {
++      if (signal?.aborted === true) {
 +        return;
 +      }
++      const remaining = deadline - Date.now();
 +      await delay(Math.min(SETTLE_POLL_INTERVAL_MS, remaining));
-+    }
-+  }
-+
-+  /** Issue a goal control call. Returns true on success. */
-+  async control(action: "pause" | "resume" | "cancel"): Promise<boolean> {
-+    const handle = this.handle;
-+    if (!handle) {
-+      return false;
-+    }
-+    const result = await kimiServerPostChecked(handle, this.profilePath(), {
-+      agent_config: { goal_control: action },
-+    });
-+    if (!result.ok) {
-+      return false;
-+    }
-+    this.refreshSoon();
-+    return true;
-+  }
-+
-+  /** Create a goal. Returns true on success. */
-+  async createGoal(objective: string): Promise<boolean> {
-+    const handle = this.handle;
-+    if (!handle) {
-+      return false;
-+    }
-+    const result = await kimiServerPostChecked(handle, this.profilePath(), {
-+      agent_config: { goal_objective: objective },
-+    });
-+    if (!result.ok) {
-+      return false;
-+    }
-+    this.refreshSoon();
-+    return true;
-+  }
-+
-+  private async acquire(): Promise<void> {
-+    let handle: KimiServerHandle;
-+    try {
-+      handle = await acquireKimiServer({
-+        kimiExecutable: this.kimiExecutable,
-+        logger: this.logger,
-+      });
-+    } catch (error) {
-+      this.logger.warn(
-+        { err: error, sessionId: this.kimiSessionId },
-+        "Kimi native bridge could not acquire the local Kimi server; goal tracking is disabled",
-+      );
-+      return;
-+    }
-+    if (this.stopped) {
-+      releaseKimiServer();
-+      return;
-+    }
-+    this.handle = handle;
-+    this.scheduleTick(0);
-+  }
-+
-+  /** Re-poll as soon as possible so a mutation shows up without waiting for the idle cadence. */
-+  private refreshSoon(): void {
-+    if (this.handle) {
-+      this.scheduleTick(0);
 +    }
 +  }
 +
@@ -2123,6 +3184,7 @@ index 0000000..4662b08
 +      this.timer = null;
 +      void this.tick();
 +    }, delayMs);
++    // Never hold the daemon open for a poll.
 +    this.timer.unref();
 +  }
 +
@@ -2134,138 +3196,285 @@ index 0000000..4662b08
 +  }
 +
 +  private async tick(): Promise<void> {
-+    let intervalMs = IDLE_POLL_INTERVAL_MS;
 +    try {
-+      const handle = this.handle;
-+      if (handle && !this.stopped) {
-+        const goalPayload = await kimiServerGet<KimiServerPayload>(
-+          handle,
-+          this.sessionPath("goal"),
-+        );
-+        const statusPayload = await kimiServerGet<KimiServerPayload>(
-+          handle,
-+          this.sessionPath("status"),
-+        );
-+        if (!this.stopped) {
-+          this.applyGoal(goalPayload);
-+          this.applyUsage(statusPayload);
-+          if (this.isGoalLive() || statusPayload?.busy === true) {
-+            intervalMs = LIVE_POLL_INTERVAL_MS;
-+          }
-+        }
-+      }
++      await this.readAppended();
 +    } catch (error) {
 +      this.logger.warn(
 +        { err: error, sessionId: this.kimiSessionId },
-+        "Kimi native bridge poll failed",
++        "Kimi session log poll failed",
 +      );
 +    }
-+    this.scheduleTick(intervalMs);
-+  }
-+
-+  private applyGoal(payload: KimiServerPayload | null): void {
-+    const goal = mapKimiGoal(payload);
-+    const signature = goalSignature(goal);
-+    if (this.goalSignature === signature) {
++    if (this.stopped) {
 +      return;
 +    }
-+    const isFirstObservation = this.goalSignature === null;
++    this.publishGoal();
++    this.publishUsage();
++    this.scheduleTick(this.isLive() ? this.liveIntervalMs : this.idleIntervalMs);
++  }
++
++  private async readAppended(): Promise<void> {
++    const filePath = this.resolvePath();
++    if (!filePath) {
++      return;
++    }
++    let size: number;
++    try {
++      size = (await stat(filePath)).size;
++    } catch {
++      // The file vanished; re-resolve on the next tick.
++      this.resolvedPath = null;
++      return;
++    }
++    if (size < this.offset) {
++      // Truncated or replaced: rebuild from the beginning.
++      this.offset = 0;
++      this.pending = "";
++      this.resetDerivedState();
++    }
++    if (size === this.offset) {
++      return;
++    }
++    const { lines, fragment } = await readLinesFromRange(filePath, this.offset, size);
++    this.offset = size;
++    const merged = mergePendingFragment(this.pending, lines);
++    this.pending = fragment;
++    this.applyLines(merged);
++  }
++
++  private resolvePath(): string | null {
++    const cached = this.resolvedPath;
++    if (cached !== null && existsSync(cached)) {
++      return cached;
++    }
++    const resolved = resolveKimiWireLogPath(this.kimiSessionId, { kimiHome: this.kimiHome });
++    this.resolvedPath = resolved;
++    return resolved;
++  }
++
++  private resetDerivedState(): void {
++    this.goal = null;
++    this.contextWindowUsedTokens = null;
++  }
++
++  private applyLines(lines: string[]): void {
++    const next = parseKimiSessionLogLines(lines, {
++      goal: this.goal,
++      contextWindowUsedTokens: this.contextWindowUsedTokens,
++    });
++    this.goal = next.goal;
++    this.contextWindowUsedTokens = next.contextWindowUsedTokens;
++  }
++
++  private publishGoal(): void {
++    const goal = this.goal;
++    const signature = goalValueSignature(goal);
++    const bucket = Math.floor(Date.now() / GOAL_REANNOUNCE_BUCKET_MS);
++    if (signature === this.goalSignature && bucket === this.goalBucket) {
++      return;
++    }
++    const changed = signature !== this.goalSignature;
++    const wasEmitted = this.emittedGoal;
 +    this.goalSignature = signature;
-+    this.goal = goal;
-+    if (isFirstObservation && goal === null) {
++    this.goalBucket = bucket;
++    // Suppress the first observation when it is null (nothing to report) and
++    // never re-announce a null goal just because the bucket rolled.
++    if (goal === null && (!wasEmitted || !changed)) {
 +      return;
 +    }
-+    this.emit({ type: "goal_updated", provider: this.provider, goal });
++    this.emittedGoal = true;
++    try {
++      this.onGoal?.(goal);
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log goal listener failed",
++      );
++    }
 +  }
 +
-+  private applyUsage(payload: KimiServerPayload | null): void {
-+    if (!payload) {
++  private publishUsage(): void {
++    const used = this.contextWindowUsedTokens;
++    if (used === null) {
 +      return;
 +    }
-+    const used = readNumber(payload.context_tokens);
-+    const max = readNumber(payload.max_context_tokens);
-+    if (used === undefined && max === undefined) {
-+      return;
-+    }
-+    const signature = `${used ?? "-"}/${max ?? "-"}`;
++    const signature = String(used);
 +    if (signature === this.usageSignature) {
 +      return;
 +    }
 +    this.usageSignature = signature;
-+    const usage: AgentUsage = {};
-+    if (used !== undefined) {
-+      usage.contextWindowUsedTokens = used;
++    try {
++      this.onUsage?.({ contextWindowUsedTokens: used });
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log usage listener failed",
++      );
 +    }
-+    if (max !== undefined) {
-+      usage.contextWindowMaxTokens = max;
-+    }
-+    this.emit({ type: "usage_updated", provider: this.provider, usage });
-+  }
-+
-+  private sessionPath(route: string): string {
-+    return `/api/v1/sessions/${encodeURIComponent(this.kimiSessionId)}/${route}`;
-+  }
-+
-+  private profilePath(): string {
-+    return this.sessionPath("profile");
 +  }
 +}
 +
-+function mapKimiGoal(payload: KimiServerPayload | null): AgentGoal | null {
-+  if (!payload) {
-+    return null;
-+  }
-+  const status = payload.status;
-+  if (!isGoalStatus(status)) {
-+    return null;
-+  }
-+  const terminalReason = readString(payload.terminalReason);
-+  return {
-+    goalId: readString(payload.goalId) ?? "",
-+    objective: readString(payload.objective) ?? "",
-+    status,
-+    turnsUsed: readNumber(payload.turnsUsed) ?? 0,
-+    tokensUsed: readNumber(payload.tokensUsed) ?? 0,
-+    // Kimi reports no timestamps; `wallClockMs` advances every tick and would
-+    // make every poll look like a change, so it stays out of the goal.
-+    updatedAt: Date.now(),
-+    ...(terminalReason !== undefined ? { terminalReason } : {}),
-+  };
++interface RangeReadResult {
++  lines: string[];
++  fragment: string;
 +}
 +
 +/**
-+ * Change detector for `goal_updated`. Only fields a reader can act on take part:
-+ * `updatedAt` is stamped locally and `wallClockMs` moves on every poll.
-+ *
-+ * The signature is bucketed by time so an unchanged goal is re-announced every
-+ * 30s. The bridge emits only on change, so a state that arrived before the
-+ * consumer subscribed would otherwise be lost for the lifetime of the session.
-+ * Re-announcing is free on the client: the app's directory-update policy
-+ * compares goals by value and keeps the existing object when they are equal.
++ * Stream lines out of `[start, end)` without buffering the range. A trailing
++ * line with no newline is returned separately so the caller can prepend it to
++ * the next read instead of losing a record split across ticks.
 + */
-+function goalSignature(goal: AgentGoal | null): string {
-+  const bucket = Math.floor(Date.now() / 30_000);
-+  if (!goal) {
-+    return `null#${bucket}`;
++async function readLinesFromRange(
++  filePath: string,
++  start: number,
++  end: number,
++): Promise<RangeReadResult> {
++  const lines: string[] = [];
++  const stream = createReadStream(filePath, { start, end: end - 1, encoding: "utf8" });
++  const reader = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
++  try {
++    for await (const line of reader) {
++      lines.push(line);
++    }
++  } finally {
++    reader.close();
++    stream.destroy();
 +  }
-+  return `${JSON.stringify([
++  if (lines.length === 0 || rangeEndsWithNewline(filePath, end)) {
++    return { lines, fragment: "" };
++  }
++  return { lines, fragment: lines.pop() ?? "" };
++}
++
++function rangeEndsWithNewline(filePath: string, end: number): boolean {
++  if (end <= 0) {
++    return true;
++  }
++  let fd: number | null = null;
++  try {
++    fd = openSync(filePath, "r");
++    const buffer = Buffer.alloc(1);
++    readSync(fd, buffer, 0, 1, end - 1);
++    return buffer[0] === 0x0a;
++  } catch {
++    // Treat an unreadable byte as terminated: dropping a fragment is safer than
++    // concatenating the same bytes twice.
++    return true;
++  } finally {
++    if (fd !== null) {
++      try {
++        closeSync(fd);
++      } catch {
++        // ignore
++      }
++    }
++  }
++}
++
++function mergePendingFragment(pending: string, lines: string[]): string[] {
++  const first = lines[0];
++  if (pending.length === 0 || first === undefined) {
++    return lines;
++  }
++  return [pending + first, ...lines.slice(1)];
++}
++
++function createGoalFromRecord(entry: Record<string, unknown>): AgentGoal {
++  const completionCriterion = readString(entry.completionCriterion);
++  return {
++    goalId: readString(entry.goalId) ?? "",
++    objective: readString(entry.objective) ?? "",
++    status: "active",
++    turnsUsed: 0,
++    tokensUsed: 0,
++    updatedAt: readNumber(entry.time) ?? 0,
++    ...(completionCriterion !== undefined ? { completionCriterion } : {}),
++  };
++}
++
++function applyGoalUpdate(goal: AgentGoal | null, entry: Record<string, unknown>): AgentGoal | null {
++  if (!goal) {
++    return null;
++  }
++  const time = readNumber(entry.time) ?? goal.updatedAt;
++  let next = goal;
++
++  const tokensUsed = readNumber(entry.tokensUsed);
++  if (tokensUsed !== undefined) {
++    // One `tokensUsed` update per goal turn; that count is `turnsUsed`.
++    next = { ...next, turnsUsed: next.turnsUsed + 1, tokensUsed, updatedAt: time };
++  }
++
++  const status = readString(entry.status);
++  if (status !== undefined) {
++    const reason = readString(entry.reason);
++    next = {
++      ...next,
++      status: mapGoalStatus(status),
++      updatedAt: time,
++      ...(reason !== undefined ? { terminalReason: reason } : {}),
++    };
++  }
++
++  return next;
++}
++
++function mapGoalStatus(value: string): AgentGoalStatus {
++  switch (value) {
++    case "active":
++    case "paused":
++    case "blocked":
++    case "complete":
++    case "cleared":
++      return value;
++    default:
++      // Any other reported status is terminal; the exact label is not part of
++      // the shared vocabulary, so the goal is reported as cleared.
++      return "cleared";
++  }
++}
++
++/**
++ * Change detector for goal emission. `updatedAt` is deliberately excluded: it
++ * advances with the log and would make every replay look like a change.
++ */
++function goalValueSignature(goal: AgentGoal | null): string {
++  if (!goal) {
++    return "null";
++  }
++  return JSON.stringify([
 +    goal.goalId,
 +    goal.objective,
 +    goal.status,
 +    goal.turnsUsed,
 +    goal.tokensUsed,
++    goal.completionCriterion ?? "",
 +    goal.terminalReason ?? "",
-+  ])}#${bucket}`;
++  ]);
 +}
 +
-+function isGoalStatus(value: unknown): value is AgentGoalStatus {
-+  return (
-+    value === "active" ||
-+    value === "paused" ||
-+    value === "blocked" ||
-+    value === "complete" ||
-+    value === "cleared"
-+  );
++function resolveKimiHome(kimiHome?: string): string {
++  const raw =
++    firstNonEmpty(kimiHome, process.env.KIMI_HOME, process.env.KIMI_CODE_HOME) ?? DEFAULT_KIMI_HOME;
++  return expandHome(raw);
++}
++
++function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
++  for (const value of values) {
++    if (value !== undefined && value.length > 0) {
++      return value;
++    }
++  }
++  return undefined;
++}
++
++function expandHome(value: string): string {
++  if (value === "~") {
++    return os.homedir();
++  }
++  if (value.startsWith("~/") || value.startsWith("~\\")) {
++    return path.join(os.homedir(), value.slice(2));
++  }
++  return value;
 +}
 +
 +function readString(value: unknown): string | undefined {
@@ -2281,854 +3490,6 @@ index 0000000..4662b08
 +    setTimeout(resolve, ms);
 +  });
 +}
-diff --git a/packages/server/src/server/agent/providers/kimi/web-server-manager.test.ts b/packages/server/src/server/agent/providers/kimi/web-server-manager.test.ts
-new file mode 100644
-index 0000000..3de8d64
---- /dev/null
-+++ b/packages/server/src/server/agent/providers/kimi/web-server-manager.test.ts
-@@ -0,0 +1,99 @@
-+import path from "node:path";
-+import { describe, expect, test } from "vitest";
-+
-+import {
-+  extractKimiServerToken,
-+  parseKimiServerBanner,
-+  resolveKimiExecutable,
-+  unwrapKimiEnvelope,
-+} from "./web-server-manager.js";
-+
-+describe("resolveKimiExecutable", () => {
-+  test("prefers an explicit path over the env and the home binary", () => {
-+    expect(
-+      resolveKimiExecutable("C:/tools/kimi.exe", {
-+        env: { KIMI_EXECUTABLE: "/env/kimi" },
-+        platform: "win32",
-+        homeDir: "/home/.kimi-code",
-+        exists: () => true,
-+      }),
-+    ).toBe("C:/tools/kimi.exe");
-+  });
-+
-+  test("falls back to KIMI_EXECUTABLE when no explicit path is given", () => {
-+    expect(
-+      resolveKimiExecutable(undefined, {
-+        env: { KIMI_EXECUTABLE: "/env/kimi" },
-+        platform: "linux",
-+        homeDir: "/home/.kimi-code",
-+        exists: () => true,
-+      }),
-+    ).toBe("/env/kimi");
-+  });
-+
-+  test("uses the Kimi home binary when it exists", () => {
-+    const homeDir = path.join("home", ".kimi-code");
-+    const expected = path.join(homeDir, "bin", "kimi.exe");
-+    expect(
-+      resolveKimiExecutable(undefined, {
-+        env: {},
-+        platform: "win32",
-+        homeDir,
-+        exists: (filePath) => filePath === expected,
-+      }),
-+    ).toBe(expected);
-+  });
-+
-+  test("falls back to the bare command when the home binary is missing", () => {
-+    expect(
-+      resolveKimiExecutable(undefined, {
-+        env: {},
-+        platform: "linux",
-+        homeDir: "/home/.kimi-code",
-+        exists: () => false,
-+      }),
-+    ).toBe("kimi");
-+  });
-+});
-+
-+describe("Kimi server banner", () => {
-+  test("extracts the port and token from the startup banner", () => {
-+    const stdout = "Kimi server: http://127.0.0.1:53123/#token=abc123\n";
-+
-+    expect(parseKimiServerBanner(stdout)).toEqual({ port: 53123, token: "abc123" });
-+    expect(extractKimiServerToken(stdout)).toBe("abc123");
-+  });
-+
-+  test("finds the banner inside a larger stdout chunk", () => {
-+    const stdout = "booting\nKimi server: http://127.0.0.1:41000/#token=TOKEN-XYZ\nready\n";
-+
-+    expect(extractKimiServerToken(stdout)).toBe("TOKEN-XYZ");
-+  });
-+
-+  test("returns null when the banner never appeared", () => {
-+    expect(parseKimiServerBanner("starting up\n")).toBe(null);
-+    expect(extractKimiServerToken("")).toBe(null);
-+  });
-+});
-+
-+describe("unwrapKimiEnvelope", () => {
-+  test("returns the data payload for a success envelope", () => {
-+    const payload = { code: 0, msg: "success", data: { goal: "g" }, request_id: "r" };
-+
-+    expect(unwrapKimiEnvelope<{ goal: string }>(payload)).toEqual({ goal: "g" });
-+  });
-+
-+  test("returns null for a non-zero code", () => {
-+    expect(unwrapKimiEnvelope({ code: 401, msg: "unauthorized", data: null })).toBe(null);
-+  });
-+
-+  test("returns null for a missing or non-object envelope", () => {
-+    expect(unwrapKimiEnvelope(null)).toBe(null);
-+    expect(unwrapKimiEnvelope("not json")).toBe(null);
-+    expect(unwrapKimiEnvelope({ goal: "g" })).toBe(null);
-+  });
-+
-+  test("maps an absent data field to null", () => {
-+    expect(unwrapKimiEnvelope({ code: 0, msg: "success" })).toBe(null);
-+  });
-+});
-diff --git a/packages/server/src/server/agent/providers/kimi/web-server-manager.ts b/packages/server/src/server/agent/providers/kimi/web-server-manager.ts
-new file mode 100644
-index 0000000..3791021
---- /dev/null
-+++ b/packages/server/src/server/agent/providers/kimi/web-server-manager.ts
-@@ -0,0 +1,715 @@
-+import type { ChildProcess } from "node:child_process";
-+import { existsSync, mkdirSync, readFileSync } from "node:fs";
-+import net from "node:net";
-+import os from "node:os";
-+import path from "node:path";
-+import pino, { type Logger } from "pino";
-+
-+import { spawnProcess, type SpawnProcessOptions } from "../../../../utils/spawn.js";
-+import { terminateWithTreeKill, type ProcessTerminator } from "../../../../utils/tree-kill.js";
-+import {
-+  createManagedProcessRegistry,
-+  createSystemManagedProcessTable,
-+  type ManagedProcessRegistry,
-+} from "../../../managed-processes/managed-processes.js";
-+import { resolvePaseoHome } from "../../../paseo-home.js";
-+
-+/** Budget for the Kimi HTTP server to answer an authenticated request after spawn. */
-+export const KIMI_SERVER_STARTUP_TIMEOUT_MS = 30_000;
-+/** Every goal read/write gives up after this; a stalled sidecar must not hang a turn. */
-+export const KIMI_SERVER_REQUEST_TIMEOUT_MS = 5_000;
-+const KIMI_SERVER_GRACEFUL_SHUTDOWN_TIMEOUT_MS = 5_000;
-+const KIMI_SERVER_FORCE_SHUTDOWN_TIMEOUT_MS = 1_000;
-+const KIMI_SERVER_READINESS_POLL_INTERVAL_MS = 250;
-+const KIMI_STARTUP_OUTPUT_CAP = 8_192;
-+const KIMI_SERVER_TOKEN_FILE_NAME = "server.token";
-+// The banner is the only place the token appears on stdout; it is a fallback for
-+// a missing `server.token` file, never the primary source.
-+const KIMI_SERVER_BANNER_PATTERN = /Kimi server: http:\/\/127\.0\.0\.1:(\d+)\/#token=(\S+)/;
-+
-+export interface KimiServerHandle {
-+  /** e.g. "http://127.0.0.1:53123" (no trailing slash) */
-+  baseUrl: string;
-+  token: string;
-+}
-+
-+export interface KimiServerBanner {
-+  port: number;
-+  token: string;
-+}
-+
-+export interface KimiServerAcquireOptions {
-+  kimiExecutable?: string;
-+  logger?: Logger;
-+  /** Overrides the Kimi home that holds `server.token`; also the server cwd. */
-+  kimiHome?: string;
-+  managedProcesses?: ManagedProcessRegistry;
-+  terminateProcess?: ProcessTerminator;
-+  portAllocator?: KimiPortAllocator;
-+  spawnServerProcess?: KimiServerProcessSpawner;
-+}
-+
-+export type KimiPortAllocator = () => Promise<number>;
-+export type KimiServerProcessSpawner = (
-+  command: string,
-+  args: string[],
-+  options: SpawnProcessOptions,
-+) => ChildProcess;
-+
-+interface KimiServerGeneration {
-+  process: ChildProcess;
-+  port: number;
-+  baseUrl: string;
-+  token: string;
-+  refCount: number;
-+  ready: Promise<void>;
-+  logger: Logger;
-+  managedProcesses: ManagedProcessRegistry;
-+  terminateProcess: ProcessTerminator;
-+  managedProcessId?: string;
-+  managedProcessRecord?: Promise<{ id: string } | null>;
-+}
-+
-+let currentGeneration: KimiServerGeneration | null = null;
-+let startPromise: Promise<KimiServerGeneration> | null = null;
-+let exitHandlerRegistered = false;
-+// Bumped by shutdown. A start captures the epoch before spawning and discards
-+// its generation if the epoch moved, so a start racing shutdown cannot leave a
-+// live process behind after shutdown() returns.
-+let epoch = 0;
-+let defaultLogger: Logger | null = null;
-+let defaultManagedProcesses: ManagedProcessRegistry | null = null;
-+
-+/**
-+ * Lazily starts the sidecar if needed and returns a live handle. Throws if it cannot start.
-+ *
-+ * The process is shared across every caller; a failure inside one acquire tears
-+ * that generation down so the next acquire starts a fresh one.
-+ */
-+export async function acquireKimiServer(
-+  options: KimiServerAcquireOptions = {},
-+): Promise<KimiServerHandle> {
-+  registerExitHandler();
-+  const startedEpoch = epoch;
-+  const generation = await getOrStartGeneration(options);
-+  if (startedEpoch !== epoch) {
-+    // Shutdown moved the epoch while this acquisition was waiting on a start
-+    // another caller owned. Never hand back a handle to a torn-down process.
-+    await killGeneration(generation);
-+    throw new Error("Kimi server manager is shutting down");
-+  }
-+  generation.refCount += 1;
-+  return { baseUrl: generation.baseUrl, token: generation.token };
-+}
-+
-+/** Drop one reference; the process keeps running (it is shared across agents). */
-+export function releaseKimiServer(): void {
-+  if (!currentGeneration) {
-+    return;
-+  }
-+  currentGeneration.refCount = Math.max(0, currentGeneration.refCount - 1);
-+}
-+
-+/** Kill the sidecar and clear state. Called from daemon shutdown. */
-+export async function shutdownKimiServer(): Promise<void> {
-+  epoch += 1;
-+  const pending = startPromise;
-+  if (pending) {
-+    // A start in flight sees the moved epoch and tears its own generation down;
-+    // awaiting it here keeps shutdown from returning before that teardown.
-+    await pending.catch(() => undefined);
-+  }
-+  const generation = currentGeneration;
-+  currentGeneration = null;
-+  if (generation) {
-+    await killGeneration(generation);
-+  }
-+}
-+
-+/** Outcome of one sidecar HTTP call. `ok` is false for any transport or envelope failure. */
-+export interface KimiServerResult<T = unknown> {
-+  ok: boolean;
-+  data: T | null;
-+}
-+
-+/** Cheap GET against the sidecar. Returns null on any failure (never throws). */
-+export async function kimiServerGet<T = unknown>(
-+  handle: KimiServerHandle,
-+  requestPath: string,
-+): Promise<T | null> {
-+  const result = await requestKimiServer<T>(handle, requestPath, { method: "GET" });
-+  return result.data;
-+}
-+
-+/** Cheap POST JSON against the sidecar. Returns null on any failure (never throws). */
-+export async function kimiServerPost<T = unknown>(
-+  handle: KimiServerHandle,
-+  requestPath: string,
-+  body: unknown,
-+): Promise<T | null> {
-+  const result = await requestKimiServer<T>(handle, requestPath, { method: "POST", body });
-+  return result.data;
-+}
-+
-+/**
-+ * POST JSON and report whether the call itself succeeded.
-+ *
-+ * `kimiServerPost` cannot tell "transport failed" apart from "succeeded with an
-+ * empty payload". Side-effect calls such as goal control only care about the
-+ * former, so they use this variant.
-+ */
-+export async function kimiServerPostChecked<T = unknown>(
-+  handle: KimiServerHandle,
-+  requestPath: string,
-+  body: unknown,
-+): Promise<KimiServerResult<T>> {
-+  return requestKimiServer<T>(handle, requestPath, { method: "POST", body });
-+}
-+
-+/**
-+ * Resolve the Kimi executable: explicit argument, else KIMI_EXECUTABLE env, else
-+ * `~/.kimi-code/bin/kimi.exe` on win32 / `~/.kimi-code/bin/kimi` otherwise, else
-+ * `kimi` on PATH.
-+ */
-+export function resolveKimiExecutable(
-+  explicit?: string,
-+  options: KimiExecutableResolutionOptions = {},
-+): string {
-+  if (explicit && explicit.trim().length > 0) {
-+    return explicit;
-+  }
-+
-+  const env = options.env ?? process.env;
-+  const fromEnv = env.KIMI_EXECUTABLE?.trim();
-+  if (fromEnv) {
-+    return fromEnv;
-+  }
-+
-+  const platform = options.platform ?? process.platform;
-+  const homeDir = options.homeDir ?? resolveKimiHomeDir(env);
-+  const candidate = path.join(homeDir, "bin", platform === "win32" ? "kimi.exe" : "kimi");
-+  const exists = options.exists ?? existsSync;
-+  return exists(candidate) ? candidate : "kimi";
-+}
-+
-+export interface KimiExecutableResolutionOptions {
-+  env?: NodeJS.ProcessEnv;
-+  platform?: NodeJS.Platform;
-+  homeDir?: string;
-+  exists?: (filePath: string) => boolean;
-+}
-+
-+/** Kimi home that holds `server.token`; KIMI_HOME wins, then KIMI_CODE_HOME. */
-+export function resolveKimiHomeDir(env: NodeJS.ProcessEnv = process.env): string {
-+  const raw = env.KIMI_HOME ?? env.KIMI_CODE_HOME ?? "~/.kimi-code";
-+  return path.resolve(expandTilde(raw));
-+}
-+
-+function expandTilde(input: string): string {
-+  if (input === "~") {
-+    return os.homedir();
-+  }
-+  if (input.startsWith("~/") || input.startsWith("~\\")) {
-+    return path.join(os.homedir(), input.slice(2));
-+  }
-+  return input;
-+}
-+
-+/** Extract port and bearer token from the startup banner line. */
-+export function parseKimiServerBanner(stdout: string): KimiServerBanner | null {
-+  const match = KIMI_SERVER_BANNER_PATTERN.exec(stdout);
-+  if (!match) {
-+    return null;
-+  }
-+  const port = Number.parseInt(match[1], 10);
-+  if (!Number.isInteger(port) || port <= 0) {
-+    return null;
-+  }
-+  const token = match[2];
-+  if (token.length === 0) {
-+    return null;
-+  }
-+  return { port, token };
-+}
-+
-+/** Token from the startup banner line, or null when the line never appeared. */
-+export function extractKimiServerToken(stdout: string): string | null {
-+  return parseKimiServerBanner(stdout)?.token ?? null;
-+}
-+
-+/**
-+ * Unwrap the `{ code, msg, data, request_id }` envelope every Kimi endpoint
-+ * returns. A non-zero `code`, a missing envelope, or unparseable JSON all
-+ * collapse to null so callers treat "no usable answer" as one case.
-+ */
-+export function isKimiEnvelopeSuccess(payload: unknown): boolean {
-+  if (typeof payload !== "object" || payload === null) {
-+    return false;
-+  }
-+  return (payload as { code?: unknown }).code === 0;
-+}
-+
-+export function unwrapKimiEnvelope<T = unknown>(payload: unknown): T | null {
-+  if (!isKimiEnvelopeSuccess(payload)) {
-+    return null;
-+  }
-+  return ((payload as { data?: unknown }).data ?? null) as T;
-+}
-+
-+interface KimiServerRequestInit {
-+  method: "GET" | "POST";
-+  body?: unknown;
-+}
-+
-+async function requestKimiServer<T>(
-+  handle: KimiServerHandle,
-+  requestPath: string,
-+  init: KimiServerRequestInit,
-+): Promise<KimiServerResult<T>> {
-+  const headers: Record<string, string> = {
-+    accept: "application/json",
-+    authorization: `Bearer ${handle.token}`,
-+  };
-+  const requestInit: RequestInit = { method: init.method, headers };
-+  if (init.body !== undefined) {
-+    headers["content-type"] = "application/json";
-+    requestInit.body = JSON.stringify(init.body);
-+  }
-+  requestInit.signal = AbortSignal.timeout(KIMI_SERVER_REQUEST_TIMEOUT_MS);
-+
-+  try {
-+    const response = await fetch(joinKimiServerUrl(handle.baseUrl, requestPath), requestInit);
-+    if (!response.ok) {
-+      return { ok: false, data: null };
-+    }
-+    const payload: unknown = await response.json();
-+    return { ok: isKimiEnvelopeSuccess(payload), data: unwrapKimiEnvelope<T>(payload) };
-+  } catch {
-+    return { ok: false, data: null };
-+  }
-+}
-+
-+function joinKimiServerUrl(baseUrl: string, requestPath: string): string {
-+  const trimmedBase = baseUrl.replace(/\/+$/, "");
-+  if (requestPath.startsWith("/")) {
-+    return `${trimmedBase}${requestPath}`;
-+  }
-+  return `${trimmedBase}/${requestPath}`;
-+}
-+
-+async function getOrStartGeneration(
-+  options: KimiServerAcquireOptions,
-+): Promise<KimiServerGeneration> {
-+  if (startPromise) {
-+    return startPromise;
-+  }
-+  if (currentGeneration && isGenerationLive(currentGeneration)) {
-+    return currentGeneration;
-+  }
-+
-+  const startedEpoch = epoch;
-+  const start = startGeneration(options);
-+  startPromise = start;
-+  try {
-+    const generation = await start;
-+    if (startedEpoch !== epoch) {
-+      await killGeneration(generation);
-+      throw new Error("Kimi server manager is shutting down");
-+    }
-+    currentGeneration = generation;
-+    return generation;
-+  } finally {
-+    if (startPromise === start) {
-+      startPromise = null;
-+    }
-+  }
-+}
-+
-+async function startGeneration(
-+  options: KimiServerAcquireOptions,
-+): Promise<KimiServerGeneration> {
-+  const logger = (options.logger ?? getDefaultLogger()).child({ module: "kimi.server" });
-+  const managedProcesses = options.managedProcesses ?? getDefaultManagedProcesses(logger);
-+  const port = await (options.portAllocator ?? allocateLoopbackPort)();
-+  const baseUrl = `http://127.0.0.1:${port}`;
-+  const command = resolveKimiExecutable(options.kimiExecutable);
-+  const args = ["web", "--port", String(port), "--no-open", "--log-level", "silent"];
-+  // Run from the Kimi home so the server keeps its token file and caches in one
-+  // place, and never inherits a random workspace as its cwd.
-+  const kimiHome = options.kimiHome ?? resolveKimiHomeDir();
-+  mkdirSync(kimiHome, { recursive: true });
-+
-+  const spawnServerProcess = options.spawnServerProcess ?? spawnProcess;
-+  const serverProcess = spawnServerProcess(command, args, {
-+    cwd: kimiHome,
-+    detached: process.platform !== "win32",
-+    stdio: ["ignore", "pipe", "pipe"],
-+    windowsHide: true,
-+  });
-+  const managedProcessRecord = recordManagedServerProcess({
-+    managedProcesses,
-+    logger,
-+    process: serverProcess,
-+    command,
-+    args,
-+    port,
-+  });
-+  const generation: KimiServerGeneration = {
-+    process: serverProcess,
-+    port,
-+    baseUrl,
-+    token: "",
-+    refCount: 0,
-+    ready: Promise.resolve(),
-+    logger,
-+    managedProcesses,
-+    terminateProcess: options.terminateProcess ?? terminateWithTreeKill,
-+    managedProcessRecord,
-+  };
-+  logger.info({ pid: serverProcess.pid, port, baseUrl }, "Kimi server generation started");
-+  void managedProcessRecord.then((record) => {
-+    if (record && generation.managedProcessRecord === managedProcessRecord) {
-+      generation.managedProcessId = record.id;
-+    }
-+    return undefined;
-+  });
-+
-+  generation.ready = waitForServerReady({ generation, kimiHome, logger });
-+  try {
-+    await generation.ready;
-+  } catch (error) {
-+    await killGeneration(generation);
-+    if (currentGeneration === generation) {
-+      currentGeneration = null;
-+    }
-+    throw error;
-+  }
-+  return generation;
-+}
-+
-+interface WaitForServerReadyInput {
-+  generation: KimiServerGeneration;
-+  kimiHome: string;
-+  logger: Logger;
-+}
-+
-+function waitForServerReady(input: WaitForServerReadyInput): Promise<void> {
-+  const { generation, kimiHome, logger } = input;
-+  const serverProcess = generation.process;
-+  const tokenFilePath = path.join(kimiHome, KIMI_SERVER_TOKEN_FILE_NAME);
-+  let stderrBuffer = "";
-+  let stdoutBuffer = "";
-+  let bannerToken: string | null = null;
-+
-+  return new Promise<void>((resolve, reject) => {
-+    let settled = false;
-+    let timer: NodeJS.Timeout | null = null;
-+    const deadline = Date.now() + KIMI_SERVER_STARTUP_TIMEOUT_MS;
-+
-+    const stopTimer = () => {
-+      if (timer) {
-+        clearTimeout(timer);
-+        timer = null;
-+      }
-+    };
-+    const fail = (headline: string) => {
-+      if (settled) {
-+        return;
-+      }
-+      settled = true;
-+      stopTimer();
-+      const message = buildStartupErrorMessage(headline, stderrBuffer, stdoutBuffer, bannerToken);
-+      reject(new Error(message));
-+    };
-+    const succeed = (token: string) => {
-+      if (settled) {
-+        return;
-+      }
-+      settled = true;
-+      stopTimer();
-+      generation.token = token;
-+      resolve();
-+    };
-+
-+    const tokenCandidates = (): string[] => {
-+      const fileToken = readKimiTokenFile(tokenFilePath);
-+      const candidates = fileToken ? [fileToken] : [];
-+      if (bannerToken && bannerToken !== fileToken) {
-+        candidates.push(bannerToken);
-+      }
-+      return candidates;
-+    };
-+
-+    const poll = async (): Promise<void> => {
-+      if (settled) {
-+        return;
-+      }
-+      for (const candidate of tokenCandidates()) {
-+        if (await probeKimiServerMeta(generation.baseUrl, candidate)) {
-+          succeed(candidate);
-+          return;
-+        }
-+      }
-+      if (serverProcess.exitCode !== null || serverProcess.signalCode !== null) {
-+        fail("Kimi server exited before it became ready");
-+        return;
-+      }
-+      if (Date.now() >= deadline) {
-+        fail("Kimi server startup timeout");
-+        return;
-+      }
-+      timer = setTimeout(() => {
-+        void poll();
-+      }, KIMI_SERVER_READINESS_POLL_INTERVAL_MS);
-+    };
-+
-+    serverProcess.stdout?.on("data", (data: Buffer) => {
-+      const output = data.toString();
-+      stdoutBuffer = appendCapped(stdoutBuffer, output, KIMI_STARTUP_OUTPUT_CAP);
-+      const banner = parseKimiServerBanner(output) ?? parseKimiServerBanner(stdoutBuffer);
-+      if (banner) {
-+        bannerToken = banner.token;
-+      }
-+    });
-+
-+    serverProcess.stderr?.on("data", (data: Buffer) => {
-+      const output = data.toString();
-+      stderrBuffer = appendCapped(stderrBuffer, output, KIMI_STARTUP_OUTPUT_CAP);
-+      logger.error({ stderr: redactKimiToken(output.trim(), bannerToken) }, "Kimi server stderr");
-+    });
-+
-+    serverProcess.on("error", (error) => {
-+      const headline = error instanceof Error ? error.message : String(error);
-+      fail(headline);
-+    });
-+
-+    serverProcess.on("exit", (code, signal) => {
-+      logger.info(
-+        { pid: serverProcess.pid, port: generation.port, code, signal },
-+        "Kimi server generation exited",
-+      );
-+      removeManagedServerRecord(generation);
-+      if (currentGeneration === generation) {
-+        currentGeneration = null;
-+      }
-+      fail(`Kimi server exited with code ${code}`);
-+    });
-+
-+    void poll();
-+  });
-+}
-+
-+async function probeKimiServerMeta(baseUrl: string, token: string): Promise<boolean> {
-+  try {
-+    const response = await fetch(`${baseUrl}/api/v1/meta`, {
-+      method: "GET",
-+      headers: { authorization: `Bearer ${token}` },
-+      signal: AbortSignal.timeout(KIMI_SERVER_REQUEST_TIMEOUT_MS),
-+    });
-+    return response.status === 200;
-+  } catch {
-+    return false;
-+  }
-+}
-+
-+function readKimiTokenFile(tokenFilePath: string): string | null {
-+  try {
-+    const token = readFileSync(tokenFilePath, "utf8").trim();
-+    return token.length > 0 ? token : null;
-+  } catch {
-+    return null;
-+  }
-+}
-+
-+function buildStartupErrorMessage(
-+  headline: string,
-+  stderrBuffer: string,
-+  stdoutBuffer: string,
-+  token: string | null,
-+): string {
-+  const sections = [headline];
-+  const stderr = stderrBuffer.trim();
-+  if (stderr.length > 0) {
-+    sections.push(`stderr: ${redactKimiToken(stderr, token)}`);
-+  }
-+  const stdout = stdoutBuffer.trim();
-+  if (stdout.length > 0) {
-+    sections.push(`stdout: ${redactKimiToken(stdout, token)}`);
-+  }
-+  return sections.join("\n");
-+}
-+
-+function redactKimiToken(text: string, token: string | null): string {
-+  let redacted = text.replace(/([#?&]token=)[^\s&"']+/gi, "$1<redacted>");
-+  if (token && token.length > 0) {
-+    redacted = redacted.split(token).join("<redacted>");
-+  }
-+  return redacted;
-+}
-+
-+function appendCapped(current: string, chunk: string, cap: number): string {
-+  if (current.length >= cap) {
-+    return current;
-+  }
-+  return current + chunk.slice(0, cap - current.length);
-+}
-+
-+function isGenerationLive(generation: KimiServerGeneration): boolean {
-+  return (
-+    !generation.process.killed &&
-+    generation.process.exitCode === null &&
-+    generation.process.signalCode === null
-+  );
-+}
-+
-+async function killGeneration(generation: KimiServerGeneration): Promise<void> {
-+  const { process: child, logger } = generation;
-+  if (child.exitCode !== null || child.signalCode !== null) {
-+    removeManagedServerRecord(generation);
-+    return;
-+  }
-+
-+  const result = await generation.terminateProcess(child, {
-+    gracefulTimeoutMs: KIMI_SERVER_GRACEFUL_SHUTDOWN_TIMEOUT_MS,
-+    forceTimeoutMs: KIMI_SERVER_FORCE_SHUTDOWN_TIMEOUT_MS,
-+    onForceSignal: () => {
-+      logger.warn(
-+        { timeoutMs: KIMI_SERVER_GRACEFUL_SHUTDOWN_TIMEOUT_MS },
-+        "Kimi server did not exit after SIGTERM; sending SIGKILL",
-+      );
-+    },
-+  });
-+  if (result === "kill-timeout") {
-+    logger.warn(
-+      { timeoutMs: KIMI_SERVER_FORCE_SHUTDOWN_TIMEOUT_MS },
-+      "Kimi server did not report exit after SIGKILL",
-+    );
-+  }
-+
-+  if (generation.managedProcessId) {
-+    const id = generation.managedProcessId;
-+    generation.managedProcessId = undefined;
-+    generation.managedProcessRecord = undefined;
-+    await removeManagedProcessId(generation.managedProcesses, id, logger);
-+    return;
-+  }
-+  removeManagedServerRecord(generation);
-+}
-+
-+function recordManagedServerProcess(input: {
-+  managedProcesses: ManagedProcessRegistry;
-+  logger: Logger;
-+  process: ChildProcess;
-+  command: string;
-+  args: string[];
-+  port: number;
-+}): Promise<{ id: string } | null> {
-+  const pid = input.process.pid;
-+  if (typeof pid !== "number" || pid <= 0) {
-+    return Promise.resolve(null);
-+  }
-+
-+  return input.managedProcesses
-+    .record({
-+      owner: { provider: "kimi", kind: "helper-server" },
-+      pid,
-+      command: input.command,
-+      args: input.args,
-+      metadata: { port: input.port },
-+    })
-+    .catch((error: unknown) => {
-+      input.logger.warn(
-+        { err: error, pid, port: input.port },
-+        "Failed to record Kimi helper process",
-+      );
-+      return null;
-+    });
-+}
-+
-+function removeManagedServerRecord(generation: KimiServerGeneration): void {
-+  const record = generation.managedProcessRecord;
-+  generation.managedProcessRecord = undefined;
-+  if (generation.managedProcessId) {
-+    const id = generation.managedProcessId;
-+    generation.managedProcessId = undefined;
-+    void removeManagedProcessId(generation.managedProcesses, id, generation.logger);
-+    return;
-+  }
-+  if (record) {
-+    void record.then((resolved) => {
-+      if (resolved) {
-+        return removeManagedProcessId(
-+          generation.managedProcesses,
-+          resolved.id,
-+          generation.logger,
-+        );
-+      }
-+      return undefined;
-+    });
-+  }
-+}
-+
-+async function removeManagedProcessId(
-+  managedProcesses: ManagedProcessRegistry,
-+  id: string,
-+  logger: Logger,
-+): Promise<void> {
-+  try {
-+    await managedProcesses.remove(id);
-+  } catch (error) {
-+    logger.warn({ err: error, id }, "Failed to remove Kimi helper process record");
-+  }
-+}
-+
-+function allocateLoopbackPort(): Promise<number> {
-+  return new Promise((resolve, reject) => {
-+    const server = net.createServer();
-+    server.on("error", reject);
-+    server.listen(0, "127.0.0.1", () => {
-+      const address = server.address();
-+      server.close(() => {
-+        if (typeof address === "object" && address) {
-+          resolve(address.port);
-+        } else {
-+          reject(new Error("Failed to allocate a loopback port for the Kimi server"));
-+        }
-+      });
-+    });
-+  });
-+}
-+
-+function getDefaultLogger(): Logger {
-+  if (!defaultLogger) {
-+    defaultLogger = pino({
-+      level: process.env.PASEO_LOG_LEVEL ?? "info",
-+    }).child({ module: "kimi.server" });
-+  }
-+  return defaultLogger;
-+}
-+
-+function getDefaultManagedProcesses(logger: Logger): ManagedProcessRegistry {
-+  if (!defaultManagedProcesses) {
-+    defaultManagedProcesses = createManagedProcessRegistry({
-+      paseoHome: resolvePaseoHome(),
-+      processTable: createSystemManagedProcessTable(),
-+      terminateProcess: terminateWithTreeKill,
-+      logger,
-+    });
-+  }
-+  return defaultManagedProcesses;
-+}
-+
-+function registerExitHandler(): void {
-+  if (exitHandlerRegistered) {
-+    return;
-+  }
-+  exitHandlerRegistered = true;
-+
-+  const cleanup = () => {
-+    void shutdownKimiServer();
-+  };
-+
-+  process.on("exit", cleanup);
-+  process.on("SIGTERM", cleanup);
-+  process.on("SIGINT", cleanup);
-+}
-diff --git a/packages/server/src/server/bootstrap.ts b/packages/server/src/server/bootstrap.ts
-index 4f76b93..afdf542 100644
---- a/packages/server/src/server/bootstrap.ts
-+++ b/packages/server/src/server/bootstrap.ts
-@@ -10,6 +10,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
- import type { Logger } from "pino";
- import { z } from "zod";
- import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
-+import { shutdownKimiServer } from "./agent/providers/kimi/web-server-manager.js";
- 
- export type ListenTarget =
-   | { type: "tcp"; host: string; port: number }
-@@ -1804,6 +1805,9 @@ export async function createPaseoDaemon(
-       await wsServer.close();
-     }
-     await serviceProxy.stopStandalone();
-+    // The Kimi goal sidecar starts lazily on first use; stopping it here is a
-+    // no-op unless something acquired it during this daemon's lifetime.
-+    await shutdownKimiServer();
-     // Force-drop remaining sockets so httpServer.close() resolves promptly.
-     // We've already closed wsServer (which sent ws-layer close frames) and
-     // stopped every other service, so anything still attached is a TCP
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
 index 473cc6f..dfece89 100644
 --- a/packages/server/src/server/plugins/runtime.ts

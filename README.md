@@ -175,20 +175,31 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 | ACP plan card | tag an ACP `ExitPlanMode` approval request as kind `plan` and carry the plan text in metadata, so the approval renders as the full-height plan card instead of a 200px scroll box |
 | ACP compaction | accept the `_paseo.dev/session/compaction` extension notification and turn it into a compaction timeline marker |
 | ACP goal state | accept the `_paseo.dev/session/goal`, make a provider-reported goal first-class agent state, and carry it in the agent snapshot so any client sees it |
-| ACP provider hooks | `ACPAgentSession` gains `providerHooks` — an out-of-band hook for notifications ACP does not model, plus a turn gate so a provider can hold a turn while it works |
-| Kimi sidecar | the daemon hosts and supervises a `kimi web` local server and reads its bearer token from `~/.kimi-code/server.token` |
-| Kimi native bridge | per-session bridge that creates, polls, resumes and cancels agent goals over that server — replacing the old plugin |
+| ACP provider hooks | `ACPAgentSession` gains `providerHooks` — a prompt rewriter, an out-of-band hook for commands ACP does not model, and a turn gate that holds a turn open while the provider works (released by Stop, not only by its own timeout) |
+| Kimi session log | the daemon tails the session's own `~/.kimi-code/sessions/*/<sid>/agents/main/wire.jsonl` for `goal.create` / `goal.update` / `goal.clear` and for real token counts |
+| Kimi native bridge | per-session wrapper over that tailer, plus the settle wait the ACP turn hold awaits |
+| Kimi `/goal` | `/goal <objective>` is rewritten into a prompt that makes the agent create and pursue the goal itself; bare `/goal` and `/goal status` are answered out-of-band from the tailed log |
 | Kimi goal pill | a native composer pill showing the live goal, its status and its usage |
 | Kimi reliability | Kimi ACP capability descriptors, log instead of silently dropping session/staged events, and flag Kimi turns that complete with no assistant output |
 | Composer badges | strip the redundant "Thinking " prefix from option badges, and make composer pills shrinkable so long labels do not evict adjacent buttons |
 | Windows console | route the daemon's `fork()` call sites through `forkProcess()` with `windowsHide`, so a forked worker cannot allocate a visible console window |
 
-One series rather than a list because the pieces depend on each other: the native
-bridge is what feeds the goal state, and the goal pill is what reads it. It is
-idempotent (re-runs are a no-op) and fails loudly on a missing anchor, naming the
-file to refresh. The Windows hunks are inert on macOS (`windowsHide` is a no-op
-there), so both platforms apply the same file and the marker list describes what
-a build must contain.
+One series rather than a list because the pieces depend on each other: the session
+log tailer is what feeds the goal state, the goal pill is what reads it, and the
+prompt rewrite is what makes the goal exist in the first place. It is idempotent
+(re-runs are a no-op) and fails loudly on a missing anchor, naming the file to
+refresh. The Windows hunks are inert on macOS (`windowsHide` is a no-op there), so
+both platforms apply the same file and the marker list describes what a build must
+contain.
+
+Why the session log and not the daemon-hosted `kimi web` server: that server
+materializes a *separate, empty runtime* for a session owned by another process's
+`kimi acp` runtime — `GET /sessions/<id>/runtime` reports `acp:<id>` while
+`GET /sessions/<id>` returns zeroed usage. It therefore cannot see a goal the
+agent created, cannot create one the agent will run, and reports zeroed token
+counts. The append-only log is the only thing the two processes share. This was
+established by live measurement, not by reading the API surface; see
+`docs/specs/spec-paseo-daemon-goal.md` in the AntiVIP workspace ("架构修订 v3").
 
 Superseded patch files live in `patches/archive/`.
 `paseo-app-composer-badges.patch` stays in `patches/` because the Android
