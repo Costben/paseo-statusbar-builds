@@ -1,0 +1,305 @@
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index 1c68822..cbadad2 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -806,6 +806,22 @@ const AgentActiveTurnPayloadSchema = z.object({
+   startedAt: z.string().nullable(),
+ });
+ 
++export const AgentGoalStatusSchema = z.enum(["active", "complete", "blocked", "cleared"]);
++
++export const AgentGoalPayloadSchema = z.object({
++  goalId: z.string(),
++  objective: z.string(),
++  completionCriterion: z.string(),
++  status: AgentGoalStatusSchema,
++  turnsUsed: z.number(),
++  tokensUsed: z.number(),
++  startedAt: z.number(),
++  endedAt: z.number().nullable(),
++  updatedAt: z.number(),
++});
++
++export type AgentGoalPayload = z.infer<typeof AgentGoalPayloadSchema>;
++
+ export const AgentSnapshotPayloadSchema = z.object({
+   id: z.string(),
+   provider: AgentProviderSchema,
+@@ -827,6 +843,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+   persistence: AgentPersistenceHandleSchema.nullable(),
+   runtimeInfo: AgentRuntimeInfoSchema.optional(),
+   lastUsage: AgentUsageSchema.optional(),
++  goal: AgentGoalPayloadSchema.nullable().optional(),
+   lastError: z.string().optional(),
+   title: z.string().nullable(),
+   labels: z.record(z.string(), z.string()).default({}),
+diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
+index 9d8080b..0b8c573 100644
+--- a/packages/server/src/server/agent/agent-manager.ts
++++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -29,6 +29,7 @@ import {
+   type AgentCreateSessionOptions,
+   type AgentResumeSessionOptions,
+   type AgentFeature,
++  type AgentGoal,
+   type AgentLaunchContext,
+   type AgentSlashCommand,
+   type AgentMode,
+@@ -403,6 +404,7 @@ interface ManagedAgentBase {
+   activeTurnId: string | null;
+   activeTurnStartedAt: Date | null;
+   lastUsage?: AgentUsage;
++  goal?: AgentGoal | null;
+   lastError?: string;
+   attention: AttentionState;
+   foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
+@@ -4268,6 +4270,10 @@ export class AgentManager {
+         agent.lastUsage = event.usage;
+         this.emitState(agent);
+         return undefined;
++      case "goal_updated":
++        agent.goal = event.goal;
++        this.emitState(agent);
++        return undefined;
+       case "mode_changed":
+         agent.currentModeId = event.currentModeId;
+         agent.availableModes = event.availableModes;
+diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
+index f72bd84..9a5dda9 100644
+--- a/packages/server/src/server/agent/agent-projections.test.ts
++++ b/packages/server/src/server/agent/agent-projections.test.ts
+@@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
+     });
+   });
+ 
++  it("carries the provider-reported goal into the snapshot payload", () => {
++    const agent = createManagedAgent({
++      goal: {
++        goalId: "goal-1",
++        objective: "Ship the daemon goal state",
++        completionCriterion: "typecheck and unit tests pass",
++        status: "active",
++        turnsUsed: 3,
++        tokensUsed: 1200,
++        startedAt: 1700000000000,
++        endedAt: null,
++        updatedAt: 1700000100000,
++      },
++    });
++
++    const payload = toAgentPayload(agent);
++
++    expect(payload.goal).toEqual(agent.goal);
++  });
++
++  it("omits goal when the provider never reported one", () => {
++    const agent = createManagedAgent({ goal: undefined });
++
++    expect(toAgentPayload(agent)).not.toHaveProperty("goal");
++  });
++
+   it("includes features in the snapshot payload", () => {
+     const features = [createFeature()];
+     const agent = createManagedAgent({ features });
+diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
+index 05f932a..bc5171d 100644
+--- a/packages/server/src/server/agent/agent-projections.ts
++++ b/packages/server/src/server/agent/agent-projections.ts
+@@ -146,6 +146,10 @@ export function toAgentPayload(
+     payload.lastUsage = usage;
+   }
+ 
++  if (agent.goal !== undefined) {
++    payload.goal = agent.goal;
++  }
++
+   if (agent.lastError !== undefined) {
+     payload.lastError = agent.lastError;
+   }
+diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
+index 90e3004..a57b12b 100644
+--- a/packages/server/src/server/agent/agent-sdk-types.ts
++++ b/packages/server/src/server/agent/agent-sdk-types.ts
+@@ -236,6 +236,18 @@ export interface AgentUsage {
+   contextWindowUsedTokens?: number;
+ }
+ 
++export interface AgentGoal {
++  goalId: string;
++  objective: string;
++  completionCriterion: string;
++  status: "active" | "complete" | "blocked" | "cleared";
++  turnsUsed: number;
++  tokensUsed: number;
++  startedAt: number;
++  endedAt: number | null;
++  updatedAt: number;
++}
++
+ export const TOOL_CALL_ICON_NAMES = [
+   "wrench",
+   "square_terminal",
+@@ -421,6 +433,8 @@ export type AgentStreamEvent =
+   | { type: "turn_started"; provider: AgentProvider; turnId?: string }
+   | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
+   | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
++  // Provider-reported goal state. A null goal means the agent holds no goal.
++  | { type: "goal_updated"; provider: AgentProvider; goal: AgentGoal | null }
+   | {
+       type: "mode_changed";
+       provider: AgentProvider;
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index fd80b35..a62bc33 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -2631,6 +2631,63 @@ describe("ACPAgentSession", () => {
+     expect(events.filter((event) => event.type === "timeline")).toEqual([]);
+   });
+ 
++  test("maps the goal extension notification into a goal state event", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/goal", {
++      sessionId: "session-1",
++      goalId: "goal-1",
++      objective: "Ship the daemon goal state",
++      completionCriterion: "typecheck and unit tests pass",
++      status: "active",
++      turnsUsed: 3,
++      tokensUsed: 1200,
++      startedAt: 1700000000000,
++      updatedAt: 1700000100000,
++    });
++
++    expect(events.filter((event) => event.type === "goal_updated")).toEqual([
++      {
++        type: "goal_updated",
++        provider: "kimi",
++        goal: {
++          goalId: "goal-1",
++          objective: "Ship the daemon goal state",
++          completionCriterion: "typecheck and unit tests pass",
++          status: "active",
++          turnsUsed: 3,
++          tokensUsed: 1200,
++          startedAt: 1700000000000,
++          endedAt: null,
++          updatedAt: 1700000100000,
++        },
++      },
++    ]);
++  });
++
++  test("degrades a goal notification without a known status to no goal", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.extNotification("_paseo.dev/session/goal", {
++      sessionId: "session-1",
++      objective: "no status to read",
++    });
++    await session.extNotification("_paseo.dev/session/goal", {
++      sessionId: "session-2",
++      status: "cleared",
++    });
++
++    expect(events.filter((event) => event.type === "goal_updated")).toEqual([
++      { type: "goal_updated", provider: "kimi", goal: null },
++    ]);
++  });
++
+   test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
+     const session = createKiroSession({
+       waitForInitialCommands: true,
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index e955c88..c2633b4 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -134,6 +134,11 @@ const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
+ // `mapCompactionExtension`.
+ const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";
+ 
++// The goal engine rides inside the Kimi process, so its state reaches Paseo the
++// same way the compaction marker does instead of as an ACP session update. See
++// `mapGoalExtension`.
++const GOAL_EXTENSION_METHOD = "_paseo.dev/session/goal";
++
+ function assertChildWithPipes(
+   child: ChildProcess,
+ ): asserts child is ChildProcessWithoutNullStreams {
+@@ -2634,6 +2639,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return;
+     }
+ 
++    if (method === GOAL_EXTENSION_METHOD) {
++      const sessionId = typeof params.sessionId === "string" ? params.sessionId : null;
++      if (sessionId !== null && sessionId !== this.sessionId) {
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            expectedSessionId: this.sessionId ?? undefined,
++            receivedSessionId: sessionId,
++            reason: "session_mismatch",
++          },
++          "provider.acp.extension_dropped",
++        );
++        return;
++      }
++      this.deliverTranslatedEvents(this.mapGoalExtension(params));
++      return;
++    }
++
+     const parsedCommands = this.extensionCommandsParser?.(method, params);
+     if (parsedCommands) {
+       this.applyResolvedCommands(parsedCommands, {
+@@ -3159,6 +3183,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     return [{ type: "usage_updated", provider: this.provider, usage }];
+   }
+ 
++  /**
++   * Read Paseo's goal extension notification into a goal state event.
++   *
++   * The payload is provider-supplied and flat, like the compaction marker. Only
++   * `status` is load-bearing: without a known one there is no goal to describe,
++   * so the report degrades to a null goal and the agent drops what it held.
++   * Text and counters degrade to empty and zero rather than rejecting the
++   * report.
++   */
++  private mapGoalExtension(params: Record<string, unknown>): AgentStreamEvent[] {
++    const status = params.status;
++    if (
++      status !== "active" &&
++      status !== "complete" &&
++      status !== "blocked" &&
++      status !== "cleared"
++    ) {
++      return [{ type: "goal_updated", provider: this.provider, goal: null }];
++    }
++    return [
++      {
++        type: "goal_updated",
++        provider: this.provider,
++        goal: {
++          goalId: readString(params, ["goalId"]) ?? "",
++          objective: readString(params, ["objective"]) ?? "",
++          completionCriterion: readString(params, ["completionCriterion"]) ?? "",
++          status,
++          turnsUsed: readNumber(params, ["turnsUsed"]) ?? 0,
++          tokensUsed: readNumber(params, ["tokensUsed"]) ?? 0,
++          startedAt: readNumber(params, ["startedAt"]) ?? 0,
++          endedAt: readNumber(params, ["endedAt"]) ?? null,
++          updatedAt: readNumber(params, ["updatedAt"]) ?? 0,
++        },
++      },
++    ];
++  }
++
+   private handlePromptResponse(response: PromptResponse, turnId: string): void {
+     this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
+ 
