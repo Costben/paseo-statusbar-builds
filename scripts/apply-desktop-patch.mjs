@@ -88,6 +88,24 @@ const PATCHES = [
       needle: "handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[]",
     },
   },
+  {
+    name: "agent-cwd-guard",
+    file: "paseo-agent-cwd-guard.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/agent-loading.ts",
+      needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
+    },
+  },
+  {
+    name: "acp-spawn-error-guard",
+    file: "paseo-acp-spawn-error-guard.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: 'child.once("error", (error: Error) => {',
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -227,6 +245,16 @@ const MARKERS = [
     label: "supervisor worker spawn hides its console",
     path: "packages/server/scripts/supervisor.ts",
     needle: "child = forkProcess(workerEntry, workerArgs, {",
+  },
+  {
+    label: "Agent resume refuses a missing workspace directory",
+    path: "packages/server/src/server/agent/agent-loading.ts",
+    needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
+  },
+  {
+    label: "ACP spawn failure fails the agent, not the daemon",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: 'child.once("error", (error: Error) => {',
   },
 ];
 

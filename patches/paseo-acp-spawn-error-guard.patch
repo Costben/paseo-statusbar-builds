@@ -1,0 +1,34 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index bef77b5..b663433 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -3028,6 +3028,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     child.stderr.on("data", (chunk: Buffer | string) => {
+       stderrChunks.push(chunk.toString());
+     });
++    // A failed spawn reports through "error" — "exit" never fires for it — and an
++    // unhandled "error" is an uncaught exception that takes the daemon down.
++    child.once("error", (error: Error) => {
++      if (this.closed) {
++        return;
++      }
++      const message = `ACP agent failed to start: ${error.message}`;
++      this.logger.warn(
++        { err: error, provider: this.provider, cwd: this.config.cwd },
++        message,
++      );
++      if (this.activeForegroundTurnId) {
++        this.synthesizeCanceledToolCalls();
++        this.finishTurn({
++          type: "turn_failed",
++          provider: this.provider,
++          error: message,
++          diagnostic: stderrChunks.join("").trim() || undefined,
++          turnId: this.activeForegroundTurnId,
++        });
++      }
++    });
++
+     child.once("exit", (code, signal) => {
+       if (this.closed) {
+         return;

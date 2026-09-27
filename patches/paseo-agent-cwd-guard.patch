@@ -1,0 +1,26 @@
+diff --git a/packages/server/src/server/agent/agent-loading.ts b/packages/server/src/server/agent/agent-loading.ts
+index 248e8d2..bf89483 100644
+--- a/packages/server/src/server/agent/agent-loading.ts
++++ b/packages/server/src/server/agent/agent-loading.ts
+@@ -1,3 +1,5 @@
++import { existsSync } from "node:fs";
++
+ import type { Logger } from "pino";
+ 
+ import type { AgentProvider } from "./agent-sdk-types.js";
+@@ -102,6 +104,15 @@ export async function ensureAgentLoaded(
+       throw new Error(`Agent ${agentId} references unavailable provider '${record.provider}'`);
+     }
+ 
++    // Resuming spawns the provider inside the agent's workspace. When that
++    // directory is gone - a pruned worktree, a cleaned temp workspace, a moved
++    // project - the spawn fails with an ENOENT that names the binary rather than
++    // the directory, and the agent looks broken for no visible reason. Refuse the
++    // resume here so the failure names the real cause and no process is started.
++    if (!existsSync(record.cwd)) {
++      throw new Error(`Agent ${agentId} workspace directory no longer exists: ${record.cwd}`);
++    }
++
+     const handle = toAgentPersistenceHandle(validProviders, record.persistence);
+ 
+     let snapshot: ManagedAgent;
