@@ -1,0 +1,4 @@
+# Patch files are applied with `git apply` against the upstream checkout. A
+# CRLF-converted copy fails the context match, so keep them LF everywhere
+# regardless of the platform's core.autocrlf.
+*.patch text eol=lf

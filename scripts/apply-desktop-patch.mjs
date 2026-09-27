@@ -1,45 +1,48 @@
 #!/usr/bin/env node
-// Applies the Kimi Goal Bridge daemon patches to a freshly checked-out
-// upstream tag (getpaseo/paseo).
+// Applies the Kimi-native daemon series to a freshly checked-out upstream tag
+// (getpaseo/paseo).
 //
-// These patches are what the plugin cannot reach on its own: they live inside
-// the daemon, so they have to be compiled into the app.
+// One series, not a list of independent fixes: the pieces depend on each other.
+// The daemon hosts and supervises a `kimi web` local server, a per-session
+// bridge drives agent goals over it, and the goal is projected into agent state
+// so the composer pill can render it. Nothing in that chain is reachable from
+// outside the daemon, so it has to be compiled into the app.
 //
-//   acp-usage-update        maps ACP's usage_update notification into a
-//                           usage_updated agent event, which is what fills the
-//                           native context table (upstream getpaseo/paseo#1390).
+//   usage / plan card / compaction / goal state
+//                           ACP-side wiring: map usage_update into a
+//                           usage_updated agent event (upstream
+//                           getpaseo/paseo#1390), tag an ExitPlanMode approval
+//                           as kind "plan" with the plan text in metadata so it
+//                           renders as the full-height card, accept the
+//                           "_paseo.dev/session/compaction" extension
+//                           notification as a compaction marker, and carry a
+//                           provider-reported goal in the agent snapshot.
+//   provider hooks          ACPAgentSession gains providerHooks: an
+//                           out-of-band hook for notifications ACP does not
+//                           model, and a turn gate so a provider can hold a turn
+//                           while it works.
+//   kimi sidecar            packages/server/src/server/agent/providers/kimi/
+//                           web-server-manager.ts — bind, token, ring buffer,
+//                           ref-counted lifecycle, managed-process ledger.
+//   kimi native bridge      the same directory's native-bridge.ts — create,
+//                           poll, resume and cancel goals over the local server.
+//   goal pill               packages/app/src/composer/goal-pill.tsx.
+//   reliability             Kimi ACP capability descriptors, log instead of
+//                           silently dropping session/staged events, and flag
+//                           Kimi turns that complete with no assistant output.
+//   composer badges         strip redundant "Thinking " prefixes from thinking
+//                           option badges and make composer pills shrinkable
+//                           so long labels do not evict adjacent controls.
 //   windows-hidden-console  routes the daemon's four fork() call sites through
 //                           forkProcess() and sets windowsHide, so a forked
 //                           worker cannot allocate a visible console window that
-//                           takes the whole daemon down when closed.
-//   acp-plan-card           tags an ACP ExitPlanMode approval request as kind
-//                           "plan" and carries the plan text in metadata, so the
-//                           approval renders as the full-height plan card instead
-//                           of a 200px scroll box.
-//   acp-compaction-timeline accepts the "_paseo.dev/session/compaction"
-//                           extension notification and turns it into a
-//                           compaction timeline marker. ACP 0.17 has no
-//                           compaction update, so the Kimi Goal Bridge proxy
-//                           reads the agent's own session log and reports the
-//                           event over this extension method.
-//   app-composer-badges     strips redundant "Thinking " prefixes from thinking
-//                           option badges and makes composer pills shrinkable
-//                           so long labels do not evict adjacent controls.
-//   acp-kimi-reliability    adds Kimi ACP capability descriptors, logs instead
-//                           of silently dropping session/staged events, and
-//                           flags Kimi turns that complete with no assistant
-//                           timeline items.
-//   acp-goal-state          makes a provider-reported goal a first-class piece
-//                           of agent state: the ACP layer accepts the
-//                           "_paseo.dev/session/goal" extension notification and
-//                           the snapshot carries the goal, so every client sees
-//                           it instead of the plugin deducing it from the
-//                           agent's own session log.
+//                           takes the whole daemon down when closed. Inert on
+//                           macOS, so both platforms apply the same file.
 //
 // - Idempotent: re-running on an already-patched tree is a no-op.
-// - Fails loudly: if upstream moved the code these patches touch, exits non-zero
-//   and names the patch that no longer applies. A red CI run is the signal to
-//   refresh that patch file (or confirm it landed upstream).
+// - Fails loudly: if upstream moved the code this series touches, exits non-zero
+//   and names the file that no longer applies. A red CI run is the signal to
+//   refresh the patch (or confirm the change landed upstream).
 //
 // Usage: node apply-desktop-patch.mjs <sourceDir> <mac|win>
 
@@ -59,70 +62,22 @@ if (platform !== "mac" && platform !== "win") {
   process.exit(1);
 }
 
-// The Windows patch only matters on Windows; applying it on macOS would add
-// churn for zero behavioural difference (windowsHide is a no-op on POSIX).
+// One combined patch carrying the whole Kimi-native series: ACP usage/plan/
+// compaction wiring, the reliability guards, first-class goal state, the
+// daemon-hosted Kimi local server sidecar, the per-session native goal bridge,
+// the native goal pill, and the Windows hidden-console fix.
+//
+// Applied on both platforms. The Windows-specific hunks are inert on POSIX
+// (windowsHide is a no-op there) and keeping one series means the marker list
+// below is the single description of what a build is supposed to contain.
 const PATCHES = [
   {
-    name: "acp-usage-update",
-    file: "paseo-acp-usage-update.patch",
+    name: "kimi-native",
+    file: "paseo-kimi-native-092.patch",
     platforms: ["mac", "win"],
     marker: {
       path: "packages/server/src/server/agent/providers/acp-agent.ts",
       needle: "handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[]",
-    },
-  },
-  {
-    name: "windows-hidden-console",
-    file: "paseo-windows-hidden-console.patch",
-    platforms: ["win"],
-    marker: {
-      path: "packages/server/src/utils/spawn.ts",
-      needle: "export function forkProcess(",
-    },
-  },
-  {
-    name: "acp-plan-card",
-    file: "paseo-acp-plan-card.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: "...(planText === undefined ? {} : { planText }),",
-    },
-  },
-  {
-    name: "acp-compaction-timeline",
-    file: "paseo-acp-compaction-timeline.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: 'const COMPACTION_EXTENSION_METHOD = "_paseo.dev/session/compaction";',
-    },
-  },
-  {
-    name: "app-composer-badges",
-    file: "paseo-app-composer-badges.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/app/src/agent-controls/labels.ts",
-      needle: "function stripThinkingPrefix(",
-    },
-  },
-  {
-    name: "acp-kimi-reliability",
-    file: "paseo-acp-kimi-reliability.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: 'code: "kimi_timeline_missing"',
-    },
-  },
-  {
-    name: "acp-goal-state",
-    file: "paseo-acp-goal-state.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: 'const GOAL_EXTENSION_METHOD = "_paseo.dev/session/goal";',
     },
   },
 ];
@@ -191,6 +146,11 @@ const MARKERS = [
     needle: "goal: AgentGoalPayloadSchema.nullable().optional(),",
   },
   {
+    label: "Goal status includes paused",
+    path: "packages/protocol/src/messages.ts",
+    needle: '  "paused",',
+  },
+  {
     label: "AgentManager goal state event",
     path: "packages/server/src/server/agent/agent-manager.ts",
     needle: 'case "goal_updated":',
@@ -200,22 +160,52 @@ const MARKERS = [
     path: "packages/server/src/server/agent/agent-projections.ts",
     needle: "payload.goal = agent.goal;",
   },
+  {
+    label: "ACP provider hooks",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "export interface ACPProviderHooks",
+  },
+  {
+    label: "Kimi local server sidecar",
+    path: "packages/server/src/server/agent/providers/kimi/web-server-manager.ts",
+    needle: "export async function acquireKimiServer(",
+  },
+  {
+    label: "Kimi native goal bridge",
+    path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
+    needle: "export class KimiNativeBridge",
+  },
+  {
+    label: "Kimi provider hooks",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: "export function createKimiProviderHooks(",
+  },
+  {
+    label: "Daemon shuts the Kimi sidecar down",
+    path: "packages/server/src/server/bootstrap.ts",
+    needle: "await shutdownKimiServer();",
+  },
+  {
+    label: "Native goal pill",
+    path: "packages/app/src/composer/goal-pill.tsx",
+    needle: "export function GoalPill(",
+  },
+  {
+    label: "Goal pill mounted in the composer",
+    path: "packages/app/src/composer/index.tsx",
+    needle: "<GoalPill goal={agentState.goal} />",
+  },
+  {
+    label: "forkProcess helper",
+    path: "packages/server/src/utils/spawn.ts",
+    needle: "export function forkProcess(",
+  },
+  {
+    label: "supervisor worker spawn hides its console",
+    path: "packages/server/scripts/supervisor.ts",
+    needle: "child = forkProcess(workerEntry, workerArgs, {",
+  },
 ];
-
-if (platform === "win") {
-  MARKERS.push(
-    {
-      label: "forkProcess helper",
-      path: "packages/server/src/utils/spawn.ts",
-      needle: "export function forkProcess(",
-    },
-    {
-      label: "supervisor worker spawn hides its console",
-      path: "packages/server/scripts/supervisor.ts",
-      needle: "child = forkProcess(workerEntry, workerArgs, {",
-    },
-  );
-}
 
 function fail(message) {
   console.error(`[desktop-patch] ERROR: ${message}`);

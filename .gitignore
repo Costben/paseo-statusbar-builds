@@ -13,3 +13,7 @@ mac-signing-cert/
 *.p12
 *.p12.base64
 *.keychain-db
+
+# The upstream checkout the patch series is applied to. CI does the same
+# checkout into the same path; it is never part of this repo.
+upstream/

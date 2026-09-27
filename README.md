@@ -165,23 +165,35 @@ statusbar-build.yml          schedule */6h
 
 ## The desktop patch
 
-`scripts/apply-desktop-patch.mjs <sourceDir> <mac|win>` applies the same
-"Kimi Goal Bridge" daemon patches that the plugin cannot reach on its own:
+`scripts/apply-desktop-patch.mjs <sourceDir> <mac|win>` applies
+`patches/paseo-kimi-native-092.patch` — one series carrying everything the daemon
+needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 
-| Patch | mac | win | Change |
-|---|---|---|---|
-| `acp-usage-update` | yes | yes | map ACP's `usage_update` into an `usage_updated` agent event (fills the native context table) |
-| `windows-hidden-console` | no | yes | route the daemon's `fork()` call sites through `forkProcess()` with `windowsHide`, so a forked worker cannot allocate a visible console window |
-| `acp-plan-card` | yes | yes | tag an ACP `ExitPlanMode` approval request as kind `plan` and carry the plan text in metadata, so the approval renders as the full-height plan card instead of a 200px scroll box |
-| `acp-compaction-timeline` | yes | yes | accept the `_paseo.dev/session/compaction` extension notification and turn it into a compaction timeline marker; ACP 0.17 has no compaction update, so the Kimi Goal Bridge proxy reads the agent's own session log and reports it |
-| `app-composer-badges` | yes | yes | strip redundant "Thinking " prefix from option badges, and make composer pills shrinkable so long labels do not evict adjacent buttons |
-| `acp-kimi-reliability` | yes | yes | add Kimi ACP capability descriptors, log instead of silently dropping session/staged events, and flag Kimi turns that complete with no assistant output |
-| `acp-goal-state` | yes | yes | make a provider-reported goal first-class agent state: accept the `_paseo.dev/session/goal` extension notification and carry the goal in the agent snapshot, so any client sees it instead of the plugin deducing it from the agent's own session log |
+| Area | Change |
+|---|---|
+| ACP usage | map ACP's `usage_update` into a `usage_updated` agent event (fills the native context table) |
+| ACP plan card | tag an ACP `ExitPlanMode` approval request as kind `plan` and carry the plan text in metadata, so the approval renders as the full-height plan card instead of a 200px scroll box |
+| ACP compaction | accept the `_paseo.dev/session/compaction` extension notification and turn it into a compaction timeline marker |
+| ACP goal state | accept the `_paseo.dev/session/goal`, make a provider-reported goal first-class agent state, and carry it in the agent snapshot so any client sees it |
+| ACP provider hooks | `ACPAgentSession` gains `providerHooks` — an out-of-band hook for notifications ACP does not model, plus a turn gate so a provider can hold a turn while it works |
+| Kimi sidecar | the daemon hosts and supervises a `kimi web` local server and reads its bearer token from `~/.kimi-code/server.token` |
+| Kimi native bridge | per-session bridge that creates, polls, resumes and cancels agent goals over that server — replacing the old plugin |
+| Kimi goal pill | a native composer pill showing the live goal, its status and its usage |
+| Kimi reliability | Kimi ACP capability descriptors, log instead of silently dropping session/staged events, and flag Kimi turns that complete with no assistant output |
+| Composer badges | strip the redundant "Thinking " prefix from option badges, and make composer pills shrinkable so long labels do not evict adjacent buttons |
+| Windows console | route the daemon's `fork()` call sites through `forkProcess()` with `windowsHide`, so a forked worker cannot allocate a visible console window |
 
-It is idempotent (re-runs are a no-op) and fails loudly on a missing anchor,
-naming the patch file to refresh. `windows-hidden-console` is skipped on macOS
-because `windowsHide` is a no-op there and applying it would add rebase surface
-for no behaviour change.
+One series rather than a list because the pieces depend on each other: the native
+bridge is what feeds the goal state, and the goal pill is what reads it. It is
+idempotent (re-runs are a no-op) and fails loudly on a missing anchor, naming the
+file to refresh. The Windows hunks are inert on macOS (`windowsHide` is a no-op
+there), so both platforms apply the same file and the marker list describes what
+a build must contain.
+
+Superseded patch files live in `patches/archive/`.
+`paseo-app-composer-badges.patch` stays in `patches/` because the Android
+status bar build (`apply-statusbar-patch.mjs`) applies it on its own — the
+combined desktop series carries the same change for the desktop builds.
 
 ## Update hijack
 
@@ -437,8 +449,9 @@ Release is treated:
   `node scripts/assert-mac-signatures.mjs /Applications/Paseo.app` name the files
   that disagree.
 - **Patch does not apply** → upstream moved the code it targets. Rebuild the
-  patch against the new tag (`git diff > patches/<name>.patch`) and refresh the
-  markers in `apply-desktop-patch.mjs`.
+  series against the new tag (`git diff > patches/paseo-kimi-native-<ver>.patch`),
+  point `PATCHES` at the new filename, and refresh the markers in
+  `apply-desktop-patch.mjs`.
 - **`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`** → the manifest for the app's channel
   is missing from the latest Release, so the update check resolves nothing. Both
   `latest[-mac].yml` and `beta[-mac].yml` should be there; if one is gone, the
