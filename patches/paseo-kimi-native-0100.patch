@@ -774,7 +774,7 @@ index e2fb977..a16e57a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2..bbf7dc8 100644
+index 9d106a2..4c89284 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -1049,11 +1049,11 @@ index 9d106a2..bbf7dc8 100644
    test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
      const session = createKiroSession({
        waitForInitialCommands: true,
-@@ -2918,6 +3125,61 @@ describe("ACPAgentSession", () => {
+@@ -2918,6 +3125,219 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
-+  test("Kimi reliable mode fails explicitly when completion has no assistant timeline event", async () => {
++  test("Kimi reliable mode fails explicitly when completion produces no timeline output", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
 +      kimiReliableQueue: true,
 +    });
@@ -1068,13 +1068,77 @@ index 9d106a2..bbf7dc8 100644
 +    await Promise.resolve();
 +    await Promise.resolve();
 +
-+    expect(events).toContainEqual(
-+      expect.objectContaining({
-+        type: "turn_failed",
-+        code: "kimi_timeline_missing",
-+        turnId,
-+      }),
++    const failure = events.find((event) => event.type === "turn_failed");
++    expect(failure).toMatchObject({
++      type: "turn_failed",
++      code: "kimi_timeline_missing",
++      turnId,
++    });
++    expect(JSON.stringify(failure)).not.toContain("proxy");
++  });
++
++  test("Kimi reliable mode completes a turn that only produced reasoning and tool call output", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    const events: AgentStreamEvent[] = [];
++    let resolvePrompt!: (value: PromptResponse) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise<PromptResponse>((resolve) => {
++          resolvePrompt = resolve;
++        }),
 +    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "agent_thought_chunk",
++        messageId: "thought-1",
++        content: { type: "text", text: "Working on it" },
++      } as SessionUpdate,
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call",
++        toolCallId: "tool-1",
++        title: "Read file",
++        kind: "read",
++        status: "in_progress",
++      } as SessionUpdate,
++    });
++
++    resolvePrompt({ stopReason: "end_turn" });
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
++    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
++  });
++
++  test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: async () => ({ stopReason: "cancelled" }),
++    };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events).toContainEqual(expect.objectContaining({ type: "turn_canceled", turnId }));
++    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
 +  });
 +
 +  test("Kimi reliable mode buffers mismatched-session assistant updates for history replay", async () => {
@@ -1108,10 +1172,104 @@ index 9d106a2..bbf7dc8 100644
 +    );
 +  });
 +
++  test("Kimi reliable mode still fails when only mismatched-session updates arrived", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    const events: AgentStreamEvent[] = [];
++    let resolvePrompt!: (value: PromptResponse) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise<PromptResponse>((resolve) => {
++          resolvePrompt = resolve;
++        }),
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    await session.sessionUpdate({
++      sessionId: "session-2",
++      update: {
++        sessionUpdate: "agent_message_chunk",
++        messageId: "assistant-recovered",
++        content: { type: "text", text: "recovered" },
++      } as SessionUpdate,
++    });
++
++    resolvePrompt({ stopReason: "end_turn" });
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        type: "turn_failed",
++        code: "kimi_timeline_missing",
++        turnId,
++      }),
++    );
++  });
++
++  test("Kimi reliable mode does not count an echoed user prompt as agent output", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
++      kimiReliableQueue: true,
++    });
++    const events: AgentStreamEvent[] = [];
++    let resolvePrompt!: (value: PromptResponse) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise<PromptResponse>((resolve) => {
++          resolvePrompt = resolve;
++        }),
++    );
++    const internals = asInternals<ACPSessionInternals>(session);
++    internals.sessionId = "session-1";
++    internals.connection = { prompt };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    internals.submittedUserMessageTurnId = null;
++
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        messageId: "user-1",
++        content: { type: "text", text: "hello" },
++      } as SessionUpdate,
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "available_commands_update",
++        availableCommands: [],
++      } as SessionUpdate,
++    });
++
++    resolvePrompt({ stopReason: "end_turn" });
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        type: "timeline",
++        item: expect.objectContaining({ type: "user_message", messageId: "user-1" }),
++      }),
++    );
++    expect(events).toContainEqual(
++      expect.objectContaining({
++        type: "turn_failed",
++        code: "kimi_timeline_missing",
++        turnId,
++      }),
++    );
++  });
++
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4180,3 +4442,312 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4180,3 +4600,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -1355,13 +1513,18 @@ index 9d106a2..bbf7dc8 100644
 +      settleTurn = resolve;
 +    });
 +
-+    const session = createSessionWithConfig({}, createTestLogger(), {}, {
-+      holdTurnWhile: ({ signal }) => {
-+        signals.push(signal);
-+        markHeld();
-+        return neverSettles;
++    const session = createSessionWithConfig(
++      {},
++      createTestLogger(),
++      {},
++      {
++        holdTurnWhile: ({ signal }) => {
++          signals.push(signal);
++          markHeld();
++          return neverSettles;
++        },
 +      },
-+    });
++    );
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    asInternals<ACPSessionInternals>(session).connection = { prompt, cancel };
 +    session.subscribe((event) => {
@@ -1399,13 +1562,18 @@ index 9d106a2..bbf7dc8 100644
 +      releaseHold = resolve;
 +    });
 +
-+    const session = createSessionWithConfig({}, createTestLogger(), {}, {
-+      holdTurnWhile: ({ signal }) => {
-+        signals.push(signal);
-+        markHeld();
-+        return hold;
++    const session = createSessionWithConfig(
++      {},
++      createTestLogger(),
++      {},
++      {
++        holdTurnWhile: ({ signal }) => {
++          signals.push(signal);
++          markHeld();
++          return hold;
++        },
 +      },
-+    });
++    );
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" })),
@@ -1425,7 +1593,7 @@ index 9d106a2..bbf7dc8 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index d2e0a1b..3e2958e 100644
+index d2e0a1b..000a648 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -75,6 +75,7 @@ import {
@@ -1584,8 +1752,8 @@ index d2e0a1b..3e2958e 100644
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
-+  private readonly requiresAssistantTimeline: boolean;
-+  private currentTurnSawAssistant = false;
++  private readonly requiresTimelineOutput: boolean;
++  private currentTurnSawTimeline = false;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
 +  private readonly providerHooks?: ACPProviderHooks;
 +  private providerSessionCleanup: (() => void) | null = null;
@@ -1599,7 +1767,7 @@ index d2e0a1b..3e2958e 100644
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
-+    this.requiresAssistantTimeline = options.capabilities.kimiReliableQueue === true;
++    this.requiresTimelineOutput = options.capabilities.kimiReliableQueue === true;
      this.extensionCommandsParser = options.extensionCommandsParser;
 +    this.providerHooks = options.providerHooks;
    }
@@ -1753,7 +1921,7 @@ index d2e0a1b..3e2958e 100644
 +    const outgoing = this.applyProviderPromptTransform(prompt);
      this.activeForegroundTurnId = turnId;
 +    this.turnAbort = new AbortController();
-+    this.currentTurnSawAssistant = false;
++    this.currentTurnSawTimeline = false;
      this.fallbackAssistantMessageId = null;
      this.submittedUserMessageTurnId = null;
      this.emitBootstrapThreadEvent();
@@ -1806,10 +1974,10 @@ index d2e0a1b..3e2958e 100644
        "provider.acp.raw_event",
      );
      if (params.sessionId !== this.sessionId) {
-+      if (this.requiresAssistantTimeline) {
-+        const sawAssistant = this.currentTurnSawAssistant;
++      if (this.requiresTimelineOutput) {
++        const sawTimeline = this.currentTurnSawTimeline;
 +        const events = this.translateSessionUpdate(params.update);
-+        this.currentTurnSawAssistant = sawAssistant;
++        this.currentTurnSawTimeline = sawTimeline;
 +        for (const event of events) {
 +          if (event.type === "timeline") {
 +            this.persistedHistory.push(event.item);
@@ -1909,15 +2077,30 @@ index d2e0a1b..3e2958e 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2922,6 +3218,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
-     const pendingUserEvents = this.flushPendingUserMessage();
+@@ -2919,7 +3215,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return this.handleUserMessageChunk(update);
+     }
+ 
+-    const pendingUserEvents = this.flushPendingUserMessage();
++    const events = this.translateSessionUpdateBody(update, this.flushPendingUserMessage());
++    // A user_message item is the prompt echoed back, not output the agent produced.
++    const producedOutput = events.some(
++      (event) => event.type === "timeline" && event.item.type !== "user_message",
++    );
++    if (producedOutput) {
++      this.currentTurnSawTimeline = true;
++    }
++    return events;
++  }
++
++  private translateSessionUpdateBody(
++    update: SessionUpdate,
++    pendingUserEvents: AgentStreamEvent[],
++  ): AgentStreamEvent[] {
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
-+        this.currentTurnSawAssistant = true;
          const item = this.createMessageTimelineItem("assistant_message", update);
-         return item ? [...pendingUserEvents, this.wrapTimeline(item)] : pendingUserEvents;
-       }
-@@ -2965,8 +3262,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,8 +3275,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          this.handleSessionInfoUpdate(update);
          return pendingUserEvents;
        case "usage_update":
@@ -1927,7 +2110,7 @@ index d2e0a1b..3e2958e 100644
        case "available_commands_update":
          this.cachedCommands = update.availableCommands.map((command) => ({
            name: command.name,
-@@ -3126,13 +3422,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3126,13 +3435,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -1989,17 +2172,17 @@ index d2e0a1b..3e2958e 100644
      this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
  
 +    if (
-+      this.requiresAssistantTimeline &&
++      this.requiresTimelineOutput &&
 +      response.stopReason !== "cancelled" &&
-+      !this.currentTurnSawAssistant
++      !this.currentTurnSawTimeline
 +    ) {
 +      this.finishTurn({
 +        type: "turn_failed",
 +        provider: this.provider,
-+        error: "Kimi ACP completed without an assistant timeline event",
++        error: "Kimi ACP completed without producing any timeline output",
 +        code: "kimi_timeline_missing",
 +        diagnostic: this.collectDiagnostic(
-+          "Prompt completed without assistant_message; proxy journal reconciliation is required",
++          "The prompt returned without the agent producing any output for this turn",
 +        ),
 +        turnId,
 +      });
@@ -2009,7 +2192,7 @@ index d2e0a1b..3e2958e 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3226,6 +3588,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3226,6 +3601,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    ): void {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      this.activeForegroundTurnId = null;
@@ -2017,7 +2200,7 @@ index d2e0a1b..3e2958e 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3479,7 +3842,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3479,7 +3855,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -2038,7 +2221,7 @@ index d2e0a1b..3e2958e 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3554,6 +3929,27 @@ function mergeToolSnapshot(
+@@ -3554,6 +3942,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -2066,7 +2249,7 @@ index d2e0a1b..3e2958e 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3815,7 +4211,17 @@ function mapPermissionRequest(
+@@ -3815,7 +4224,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -2085,7 +2268,7 @@ index d2e0a1b..3e2958e 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3824,11 +4230,11 @@ function mapPermissionRequest(
+@@ -3824,11 +4243,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -2099,7 +2282,7 @@ index d2e0a1b..3e2958e 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3842,6 +4248,7 @@ function mapPermissionRequest(
+@@ -3842,6 +4261,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -2233,7 +2416,7 @@ index b388fdb..950dfa6 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 50effdf..244d4a3 100644
+index 50effdf..c7ef9c5 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -2275,9 +2458,9 @@ index 50effdf..244d4a3 100644
 +/**
 + * Kimi's agent runtime, not the ACP client, decides when a goal-driven turn
 + * ends, so the timeline can legitimately lag the prompt response.
-+ * `kimiReliableQueue` makes the ACP session validate that a non-cancelled
-+ * prompt actually produced an assistant timeline item instead of reporting
-+ * success for an empty turn.
++ * `kimiReliableQueue` makes the ACP session fail a non-cancelled prompt that
++ * produced no timeline item at all, instead of reporting success for an empty
++ * turn.
 + */
 +export const KIMI_ACP_CAPABILITIES: Partial<AgentCapabilityFlags> = {
 +  kimiReliableQueue: true,
