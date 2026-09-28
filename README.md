@@ -163,6 +163,56 @@ statusbar-build.yml          schedule */6h
   disables idle *scheduled* workflows per repository, so one live commit stream
   keeps all three schedules alive.
 
+## Which stages a change needs
+
+The chain exists to propagate a **new upstream tag**, not to rebuild everything
+for every commit. Each stage applies a different patch set, so a change usually
+needs only some of the three:
+
+| What changed | APK | macOS | Windows |
+|---|---|---|---|
+| upstream tag — new client and/or daemon code | rebuild | rebuild | rebuild |
+| `paseo-kimi-native-0100.patch`, `paseo-agent-cwd-guard.patch`, `apply-desktop-patch.mjs` | **—** | rebuild | rebuild |
+| `paseo-app-composer-badges.patch`, `apply-statusbar-patch.mjs` | rebuild | see below | see below |
+| `upload-release-assets.mjs`, the workflow files themselves | rebuild | rebuild | rebuild |
+
+The daemon series never reaches the APK. `apply-desktop-patch.mjs` is the only
+thing that applies it, and only the desktop workflows call that script;
+`statusbar-build.yml` calls only `apply-statusbar-patch.mjs`, which patches two
+config files plus `paseo-app-composer-badges.patch`, and its build path runs only
+`packages/app` through Expo and Gradle. The APK is a client, and the daemon is a
+separate process it connects to — so a daemon-only change leaves the APK's inputs
+byte-identical, and rebuilding it spends ~25 runner minutes republishing the same
+file. Phones do not need reinstalling for daemon work; only the machine running
+the daemon does.
+
+The badges row is the exception that catches people: `paseo-app-composer-badges.patch`
+is applied by the APK workflow, but the same change is carried *inside*
+`paseo-kimi-native-0100.patch` for the desktop builds. Editing one means editing
+the other and rebuilding all three. A plain status-bar change (`app.config.js`,
+`_layout.tsx`) is Android-only — the desktop patch does not apply it.
+
+### Triggering a patch-only rebuild
+
+A downstream `workflow_run` is dispatched with no inputs, so `force` is empty on
+the chained run, the guard in its `resolve` job finds the artifacts already
+present, and the stage skips. Patch-only work therefore has to skip the chain and
+trigger each desktop stage directly:
+
+```
+gh workflow run desktop-macos-build.yml -f tag=v0.10.0-beta.1 -f version=0.10.0-beta.1 -f force=true
+gh workflow run desktop-windows-build.yml -f tag=v0.10.0-beta.1 -f version=0.10.0-beta.1 -f force=true
+```
+
+`force` is the whole decision. Without it a stage re-runs its "do I already have
+this?" guard and does nothing; with it the guard is bypassed whether or not the
+stage's inputs changed — which is exactly how the APK gets rebuilt for nothing.
+Trigger the stages the table says you need, and no others.
+
+Rebuilding never duplicates anything in the Release: assets are keyed by
+filename, so a rebuild overwrites, and no two stages write the same name (the APK
+writes only `*.apk`; the desktops write their own archives and `*.yml`).
+
 ## The desktop patch
 
 `scripts/apply-desktop-patch.mjs <sourceDir> <mac|win>` applies
