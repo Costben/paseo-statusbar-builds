@@ -464,6 +464,48 @@ index db72cd3..2afa556 100644
    lastError: z.string().optional(),
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
+diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
+index 0dd49eb..606e97b 100644
+--- a/packages/protocol/src/tool-call-display.test.ts
++++ b/packages/protocol/src/tool-call-display.test.ts
+@@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
+     expect(display.displayName).toBe("Speak");
+   });
+ 
++  it("keeps a PascalCase tool name spelled the way the agent sent it", () => {
++    const display = buildToolCallDisplayModel({
++      name: "AskUserQuestion",
++      status: "running",
++      error: null,
++      detail: { type: "plain_text", label: "Asking user questions", icon: "wrench" },
++    });
++
++    expect(display).toEqual({
++      displayName: "AskUserQuestion",
++      summary: "Asking user questions",
++    });
++  });
++
+   it("labels plan detail rows as Plan", () => {
+     const display = buildToolCallDisplayModel({
+       name: "plan",
+diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
+index 6930fe1..afe2cce 100644
+--- a/packages/protocol/src/tool-call-display.ts
++++ b/packages/protocol/src/tool-call-display.ts
+@@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
+   if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
+     return trimmed;
+   }
++  // PascalCase and camelCase names are already spelled the way people read
++  // them; the lowercase pass below would turn "AskUserQuestion" into
++  // "Askuserquestion".
++  if (/[A-Z]/.test(trimmed.slice(1))) {
++    return trimmed;
++  }
+ 
+   return trimmed
+     .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
 index 1f8c137..e89365a 100644
 --- a/packages/server/scripts/supervisor.ts
@@ -774,7 +816,7 @@ index e2fb977..a16e57a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2..4c89284 100644
+index 9d106a2..b1b464e 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -1049,7 +1091,7 @@ index 9d106a2..4c89284 100644
    test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
      const session = createKiroSession({
        waitForInitialCommands: true,
-@@ -2918,6 +3125,219 @@ describe("ACPAgentSession", () => {
+@@ -2918,6 +3125,259 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -1120,6 +1162,46 @@ index 9d106a2..4c89284 100644
 +
 +    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
 +    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
++  });
++
++  test("labels a catch-all tool call with the name ACP sent on the create", async () => {
++    const session = createSessionWithConfig({ provider: "kimi" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    // Kimi opens the call with the tool's own name and only afterwards replaces
++    // the title with a sentence describing what the tool is doing.
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call",
++        toolCallId: "tool-1",
++        title: "AskUserQuestion",
++        kind: "other",
++        status: "pending",
++      } as SessionUpdate,
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call_update",
++        toolCallId: "tool-1",
++        title: "Asking user questions",
++        kind: "other",
++        status: "in_progress",
++        content: [{ type: "content", content: { type: "text", text: "{}" } }],
++      } as SessionUpdate,
++    });
++
++    const toolCalls = events.flatMap((event) =>
++      event.type === "timeline" && event.item.type === "tool_call" ? [event.item] : [],
++    );
++    expect(toolCalls[toolCalls.length - 1]).toMatchObject({
++      callId: "tool-1",
++      name: "AskUserQuestion",
++      metadata: { kind: "other", title: "Asking user questions" },
++    });
 +  });
 +
 +  test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
@@ -1269,7 +1351,7 @@ index 9d106a2..4c89284 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4180,3 +4600,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4180,3 +4640,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -1593,7 +1675,7 @@ index 9d106a2..4c89284 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index d2e0a1b..000a648 100644
+index d2e0a1b..ef0381b 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -75,6 +75,7 @@ import {
@@ -1696,7 +1778,21 @@ index d2e0a1b..000a648 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -916,6 +974,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -586,6 +644,13 @@ class ACPImportHistoryCollector {
+ export interface ACPToolSnapshot {
+   toolCallId: string;
+   title: string;
++  /**
++   * The first title ACP reported for this call. Kimi sends the tool's own name
++   * on the create and only afterwards replaces `title` with a sentence
++   * describing the call, so this is the one place the name survives. Rows for
++   * calls whose `kind` is the `other` catch-all are labelled with it.
++   */
++  initialTitle?: string | null;
+   kind?: ToolKind | null;
+   status?: ToolCallStatus | null;
+   content?: ToolCallContent[] | null;
+@@ -916,6 +981,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -1704,7 +1800,7 @@ index d2e0a1b..000a648 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -946,6 +1005,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -946,6 +1012,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -1712,7 +1808,7 @@ index d2e0a1b..000a648 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -979,6 +1039,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -979,6 +1046,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -1720,7 +1816,7 @@ index d2e0a1b..000a648 100644
        },
      );
      await session.initializeNewSession();
-@@ -1030,6 +1091,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1030,6 +1098,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -1728,7 +1824,7 @@ index d2e0a1b..000a648 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1629,6 +1691,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1629,6 +1698,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -1748,7 +1844,7 @@ index d2e0a1b..000a648 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1689,9 +1764,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1689,9 +1771,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -1763,7 +1859,7 @@ index d2e0a1b..000a648 100644
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
    private historyPending = false;
-@@ -1729,7 +1809,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1729,7 +1816,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -1773,7 +1869,7 @@ index d2e0a1b..000a648 100644
    }
  
    get id(): string | null {
-@@ -1753,6 +1835,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1753,6 +1842,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.bootstrapThreadEventPending = true;
        this.applySessionState(response);
        await this.applyConfiguredOverrides();
@@ -1781,7 +1877,7 @@ index d2e0a1b..000a648 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1807,6 +1890,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1807,6 +1897,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -1789,7 +1885,7 @@ index d2e0a1b..000a648 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1824,6 +1908,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1824,6 +1915,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -1914,7 +2010,7 @@ index d2e0a1b..000a648 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1858,20 +2060,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1858,20 +2067,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -1942,7 +2038,7 @@ index d2e0a1b..000a648 100644
          this.handlePromptResponse(response, turnId);
          return;
        })
-@@ -2413,6 +2619,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2413,6 +2626,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.pendingPermissions.clear();
  
      if (this.activeForegroundTurnId) {
@@ -1950,7 +2046,7 @@ index d2e0a1b..000a648 100644
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2422,9 +2629,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2422,9 +2636,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -1962,7 +2058,7 @@ index d2e0a1b..000a648 100644
  
      for (const pending of this.pendingPermissions.values()) {
        pending.resolve({ outcome: { outcome: "cancelled" } });
-@@ -2464,6 +2673,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2464,6 +2680,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -1970,7 +2066,7 @@ index d2e0a1b..000a648 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2522,6 +2732,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2522,6 +2739,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.raw_event",
      );
      if (params.sessionId !== this.sessionId) {
@@ -2010,7 +2106,7 @@ index d2e0a1b..000a648 100644
        return;
      }
  
-@@ -2542,6 +2785,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2542,6 +2792,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -2029,7 +2125,7 @@ index d2e0a1b..000a648 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2567,6 +2822,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2567,6 +2829,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -2077,7 +2173,7 @@ index d2e0a1b..000a648 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2919,7 +3215,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2919,7 +3222,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return this.handleUserMessageChunk(update);
      }
  
@@ -2100,7 +2196,7 @@ index d2e0a1b..000a648 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -2965,8 +3275,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,8 +3282,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          this.handleSessionInfoUpdate(update);
          return pendingUserEvents;
        case "usage_update":
@@ -2110,7 +2206,7 @@ index d2e0a1b..000a648 100644
        case "available_commands_update":
          this.cachedCommands = update.availableCommands.map((command) => ({
            name: command.name,
-@@ -3126,13 +3435,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3126,13 +3442,79 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -2192,7 +2288,7 @@ index d2e0a1b..000a648 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3226,6 +3601,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3226,6 +3608,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    ): void {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      this.activeForegroundTurnId = null;
@@ -2200,7 +2296,7 @@ index d2e0a1b..000a648 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3479,7 +3855,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3479,7 +3862,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -2221,7 +2317,15 @@ index d2e0a1b..000a648 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3554,6 +3942,27 @@ function mergeToolSnapshot(
+@@ -3545,6 +3940,7 @@ function mergeToolSnapshot(
+   return {
+     toolCallId,
+     title: update.title ?? previous?.title ?? toolCallId,
++    initialTitle: previous?.initialTitle ?? update.title ?? null,
+     kind: update.kind ?? previous?.kind ?? null,
+     status: update.status ?? previous?.status ?? null,
+     content: coalesceDefined(update.content, previous?.content, null),
+@@ -3554,6 +3950,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -2249,7 +2353,27 @@ index d2e0a1b..000a648 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3815,7 +4224,17 @@ function mapPermissionRequest(
+@@ -3570,10 +3987,18 @@ function mapToolSnapshotToTimeline(
+ ): ToolCallTimelineItem {
+   const status = mapToolStatus(snapshot.status);
+   const detail = mapToolDetail(snapshot, terminals);
++  // `kind` is the label the row leads with, but `other` is a catch-all that
++  // reads as a missing word rather than a category — everything Kimi does not
++  // recognise lands there. The tool's own name is more useful, and the create
++  // is the only notification that carries it.
++  const name =
++    snapshot.kind && snapshot.kind !== "other"
++      ? snapshot.kind
++      : (snapshot.initialTitle ?? snapshot.title);
+   const base = {
+     type: "tool_call" as const,
+     callId: snapshot.toolCallId,
+-    name: snapshot.kind ?? snapshot.title,
++    name,
+     detail,
+     metadata: {
+       kind: snapshot.kind ?? undefined,
+@@ -3815,7 +4240,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -2268,7 +2392,7 @@ index d2e0a1b..000a648 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3824,11 +4243,11 @@ function mapPermissionRequest(
+@@ -3824,11 +4259,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -2282,7 +2406,7 @@ index d2e0a1b..000a648 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3842,6 +4261,7 @@ function mapPermissionRequest(
+@@ -3842,6 +4277,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,

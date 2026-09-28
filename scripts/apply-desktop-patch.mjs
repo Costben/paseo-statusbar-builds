@@ -286,6 +286,16 @@ const MARKERS = [
     path: "packages/server/src/server/agent/agent-loading.ts",
     needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
   },
+  {
+    label: "ACP catch-all tool calls are labelled with the tool name",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: 'snapshot.kind !== "other"',
+  },
+  {
+    label: "CamelCase tool names keep the spelling the agent sent",
+    path: "packages/protocol/src/tool-call-display.ts",
+    needle: "if (/[A-Z]/.test(trimmed.slice(1))) {",
+  },
 ];
 
 function fail(message) {
