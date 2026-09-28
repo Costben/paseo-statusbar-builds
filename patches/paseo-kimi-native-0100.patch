@@ -2425,10 +2425,10 @@ index 50effdf..244d4a3 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 0000000..5790de1
+index 0000000..a0a1c7f
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,100 @@
 +import type { Logger } from "pino";
 +
 +import {
@@ -2440,7 +2440,7 @@ index 0000000..5790de1
 +import { KimiSessionLog } from "./session-log.js";
 +
 +/**
-+ * Native goal/usage bridge for one live Kimi ACP session.
++ * Native goal/usage/subagent bridge for one live Kimi ACP session.
 + *
 + * Kimi keeps driving a goal after the ACP prompt returns, and the ACP stream
 + * carries no goal state. The daemon used to read a `kimi web` HTTP sidecar, but
@@ -2449,9 +2449,10 @@ index 0000000..5790de1
 + * agent's own goals never appear there.
 + *
 + * The session's append-only log file is the only cross-process truth, so the
-+ * bridge tails `agents/main/wire.jsonl` and derives the goal from it. There is
-+ * deliberately no control API: the daemon cannot mutate a goal it does not own,
-+ * so control commands are rewritten into prompts instead.
++ * bridge tails `agents/main/wire.jsonl` and derives the goal and the subagent
++ * registry from it. There is deliberately no control API: the daemon cannot
++ * mutate a goal it does not own, so control commands are rewritten into prompts
++ * instead.
 + */
 +export interface KimiNativeBridgeOptions {
 +  kimiSessionId: string;
@@ -2485,6 +2486,9 @@ index 0000000..5790de1
 +      },
 +      onUsage: (usage) => {
 +        this.emit({ type: "usage_updated", provider: this.provider, usage });
++      },
++      onSubagent: (event) => {
++        this.emit({ type: "provider_subagent", provider: this.provider, event });
 +      },
 +    });
 +  }
@@ -2527,10 +2531,10 @@ index 0000000..5790de1
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..99fc996
+index 0000000..28c8c5f
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,681 @@
+@@ -0,0 +1,951 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -2538,6 +2542,7 @@ index 0000000..99fc996
 +
 +import { createTestLogger } from "../../../../test-utils/test-logger.js";
 +import { isAgentGoalLive, type AgentGoal, type AgentUsage } from "../../agent-sdk-types.js";
++import type { ProviderSubagentInputEvent } from "../../provider-subagents/store.js";
 +import {
 +  EMPTY_KIMI_SESSION_LOG_STATE,
 +  KimiSessionLog,
@@ -2553,6 +2558,10 @@ index 0000000..99fc996
 +/** Fixed so the config mtime cache is exercised without relying on clock granularity. */
 +const CONFIG_MTIME = new Date(1_790_000_000_000);
 +const OBJECTIVE = "在当前目录创建 goal-ok.txt 并写入 hello";
++const SUBAGENT_ID = "agent-0";
++const SUBAGENT_TIME = 1_790_474_206_678;
++const SUBAGENT_SUMMARY =
++  "## Bottom line up front\n\nThe daemon derives the goal from the wire log.";
 +const CRITERION =
 +  "当前工作目录 D:\\Erl-Project\\AntiVIP\\.tmp\\goal-ws-test 下存在 goal-ok.txt，且其内容为 hello";
 +
@@ -2655,6 +2664,90 @@ index 0000000..99fc996
 +
 +function configFor(modelAlias: string, maxContextSize: number): string {
 +  return `[models."${modelAlias}"]\nmax_context_size = ${maxContextSize}\n`;
++}
++
++interface SubagentSpawnOverrides {
++  subagentId?: string;
++  subagentName?: string;
++  description?: string;
++  parentToolCallId?: string;
++  time?: number;
++}
++
++function subagentSpawnedLine(overrides: SubagentSpawnOverrides = {}): string {
++  return JSON.stringify({
++    type: "subagent.spawned",
++    subagentId: overrides.subagentId ?? SUBAGENT_ID,
++    subagentName: overrides.subagentName ?? "explore",
++    parentToolCallId: overrides.parentToolCallId ?? "call_01_parent",
++    parentAgentId: "main",
++    callerAgentId: "main",
++    description: overrides.description ?? "Explore Paseo daemon goal model",
++    runInBackground: false,
++    model: OTHER_MODEL_ALIAS,
++    thinkingEffort: "high",
++    taskId: "agent-jc0tdk7g",
++    time: overrides.time ?? SUBAGENT_TIME,
++  });
++}
++
++function subagentStartedLine(subagentId = SUBAGENT_ID, time = SUBAGENT_TIME + 322): string {
++  return JSON.stringify({ type: "subagent.started", subagentId, time });
++}
++
++interface SubagentCompletedOverrides {
++  subagentId?: string;
++  resultSummary?: string;
++  time?: number;
++}
++
++function subagentCompletedLine(overrides: SubagentCompletedOverrides = {}): string {
++  return JSON.stringify({
++    type: "subagent.completed",
++    subagentId: overrides.subagentId ?? SUBAGENT_ID,
++    resultSummary: overrides.resultSummary ?? SUBAGENT_SUMMARY,
++    usage: { inputOther: 1575339, output: 18479, inputCacheRead: 0, inputCacheCreation: 0 },
++    contextTokens: 97754,
++    time: overrides.time ?? SUBAGENT_TIME + 134851,
++  });
++}
++
++function subagentCancelledLine(subagentId = SUBAGENT_ID, time = SUBAGENT_TIME + 200000): string {
++  return JSON.stringify({ type: "subagent.cancelled", subagentId, time });
++}
++
++function subagentTextLine(text: string): string {
++  return JSON.stringify({
++    type: "context.append_loop_event",
++    agentId: SUBAGENT_ID,
++    event: { type: "content.part", part: { type: "text", text } },
++    time: SUBAGENT_TIME + 1,
++  });
++}
++
++function writeSubagentLog(sessionDir: string, subagentId: string, contents: string): string {
++  const file = path.join(sessionDir, "agents", subagentId, "wire.jsonl");
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, contents);
++  return file;
++}
++
++function hasSubagentTimeline(events: ProviderSubagentInputEvent[]): boolean {
++  return events.some((event) => event.type === "timeline");
++}
++
++function hasAssistantTimeline(events: ProviderSubagentInputEvent[]): boolean {
++  return events.some(
++    (event) => event.type === "timeline" && event.item.type === "assistant_message",
++  );
++}
++
++function hasCompletedUpsert(events: ProviderSubagentInputEvent[]): boolean {
++  return events.some((event) => event.type === "upsert" && event.status === "completed");
++}
++
++function countUpserts(events: ProviderSubagentInputEvent[]): number {
++  return events.filter((event) => event.type === "upsert").length;
 +}
 +
 +function writeKimiConfig(home: string, text: string): string {
@@ -2857,6 +2950,87 @@ index 0000000..99fc996
 +    const state = parseKimiSessionLogLines([tokensUpdateLine(74)], EMPTY_KIMI_SESSION_LOG_STATE);
 +
 +    expect(state.goal).toBeNull();
++  });
++
++  test("records a spawned subagent and its completion", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentStartedLine(), subagentCompletedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents).toEqual([
++      {
++        id: SUBAGENT_ID,
++        name: "explore",
++        description: "Explore Paseo daemon goal model",
++        toolCallId: "call_01_parent",
++        status: "completed",
++        spawnedAt: SUBAGENT_TIME,
++        updatedAt: SUBAGENT_TIME + 134851,
++        resultSummary: SUBAGENT_SUMMARY,
++      },
++    ]);
++  });
++
++  test("leaves a spawned subagent running until a terminal record arrives", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentStartedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.status).toBe("running");
++    expect(state.subagents[0]?.resultSummary).toBeNull();
++  });
++
++  test("reports a cancelled subagent as canceled", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentCancelledLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.status).toBe("canceled");
++  });
++
++  test("creates the record for a completion of a subagent it never saw spawn", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentCompletedLine({ subagentId: "agent-7" })],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents).toEqual([
++      {
++        id: "agent-7",
++        name: null,
++        description: null,
++        toolCallId: null,
++        status: "completed",
++        spawnedAt: SUBAGENT_TIME + 134851,
++        updatedAt: SUBAGENT_TIME + 134851,
++        resultSummary: SUBAGENT_SUMMARY,
++      },
++    ]);
++  });
++
++  test("keeps spawn order across incremental replays", () => {
++    const first = parseKimiSessionLogLines(
++      [subagentSpawnedLine({ subagentId: "agent-1", time: 200 })],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines(
++      [subagentSpawnedLine({ subagentId: "agent-0", time: 100 }), subagentStartedLine("agent-1")],
++      first,
++    );
++
++    expect(second.subagents.map((subagent) => subagent.id)).toEqual(["agent-1", "agent-0"]);
++  });
++
++  test("a repeated spawn does not resurrect a finished subagent", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentCompletedLine(), subagentSpawnedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.status).toBe("completed");
 +  });
 +});
 +
@@ -3178,22 +3352,122 @@ index 0000000..99fc996
 +
 +    expect(log.getGoal()).toBeNull();
 +  });
++
++  test("emits a subagent upsert and the timeline of its own log", async () => {
++    const { home, file, sessionDir } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++    writeSubagentLog(sessionDir, SUBAGENT_ID, `${subagentTextLine("Reading the daemon")}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => hasSubagentTimeline(events));
++
++    expect(events[0]).toMatchObject({
++      type: "upsert",
++      id: SUBAGENT_ID,
++      title: "explore",
++      description: "Explore Paseo daemon goal model",
++      toolCallId: "call_01_parent",
++      status: "running",
++    });
++    expect(events.find((event) => event.type === "timeline")).toMatchObject({
++      id: SUBAGENT_ID,
++      item: { type: "assistant_message", text: "Reading the daemon" },
++    });
++    expect(log.getGoal()).toBeNull();
++  });
++
++  test("does not repeat an unchanged subagent upsert", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++    await delay(80);
++
++    expect(events).toHaveLength(1);
++  });
++
++  test("reports a completion and falls back to the result summary without a log", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++
++    appendFileSync(file, `${subagentCompletedLine({ resultSummary: "All done." })}\n`);
++    await waitFor(() => hasAssistantTimeline(events));
++
++    const completed = events.findLast((event) => event.type === "upsert");
++    expect(completed).toMatchObject({ id: SUBAGENT_ID, status: "completed" });
++    expect(
++      events.find((event) => event.type === "timeline" && event.item.type === "assistant_message"),
++    ).toMatchObject({ id: SUBAGENT_ID, item: { type: "assistant_message", text: "All done." } });
++  });
++
++  test("prefers the subagent log's own text over the result summary", async () => {
++    const { home, file, sessionDir } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++    writeSubagentLog(sessionDir, SUBAGENT_ID, `${subagentTextLine("Final report")}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => hasSubagentTimeline(events));
++
++    appendFileSync(file, `${subagentCompletedLine({ resultSummary: "Final report" })}\n`);
++    await waitFor(() => hasCompletedUpsert(events));
++    await delay(80);
++
++    const assistantMessages = events.filter(
++      (event) => event.type === "timeline" && event.item.type === "assistant_message",
++    );
++    expect(assistantMessages).toHaveLength(1);
++  });
++
++  test("does not repeat the summary of a subagent pushed out of the tailer cap", async () => {
++    const { home, file, sessionDir } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++    writeSubagentLog(sessionDir, SUBAGENT_ID, `${subagentTextLine("Live report")}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => hasAssistantTimeline(events));
++
++    const newerSpawns = Array.from({ length: 8 }, (_, index) =>
++      subagentSpawnedLine({ subagentId: `agent-${index + 1}`, time: SUBAGENT_TIME + index + 1 }),
++    );
++    appendFileSync(file, `${newerSpawns.join("\n")}\n`);
++    await waitFor(() => countUpserts(events) >= 9);
++
++    appendFileSync(file, `${subagentCompletedLine({ resultSummary: "Live report" })}\n`);
++    await waitFor(() => hasCompletedUpsert(events));
++    await delay(80);
++
++    const assistantMessages = events.filter(
++      (event) => event.type === "timeline" && event.item.type === "assistant_message",
++    );
++    expect(assistantMessages).toHaveLength(1);
++  });
 +});
 +
-+function createSessionHome(sessionId: string): { home: string; file: string } {
++function createSessionHome(sessionId: string): {
++  home: string;
++  file: string;
++  sessionDir: string;
++} {
 +  const home = mkdtempSync(path.join(tmpdir(), "kimi-session-log-"));
-+  const file = path.join(
-+    home,
-+    "sessions",
-+    "D--tmp-kimi-workspace",
-+    sessionId,
-+    "agents",
-+    "main",
-+    "wire.jsonl",
-+  );
++  const sessionDir = path.join(home, "sessions", "D--tmp-kimi-workspace", sessionId);
++  const file = path.join(sessionDir, "agents", "main", "wire.jsonl");
 +  mkdirSync(path.dirname(file), { recursive: true });
 +  writeFileSync(file, "");
-+  return { home, file };
++  return { home, file, sessionDir };
 +}
 +
 +async function waitFor(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
@@ -3214,10 +3488,10 @@ index 0000000..99fc996
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..3c66762
+index 0000000..7e832ce
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,756 @@
+@@ -0,0 +1,1048 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -3230,8 +3504,11 @@ index 0000000..3c66762
 +  isAgentGoalLive,
 +  type AgentGoal,
 +  type AgentGoalStatus,
++  type AgentTimelineItem,
 +  type AgentUsage,
 +} from "../../agent-sdk-types.js";
++import type { ProviderSubagentInputEvent } from "../../provider-subagents/store.js";
++import { KimiSubagentLogTailer } from "./subagent-log.js";
 +
 +/**
 + * Kimi Code writes one JSON object per line to
@@ -3255,6 +3532,8 @@ index 0000000..3c66762
 +const GOAL_REANNOUNCE_BUCKET_MS = 30_000;
 +const DEFAULT_KIMI_HOME = "~/.kimi-code";
 +const KIMI_CONFIG_FILENAME = "config.toml";
++/** Reading every subagent log from byte 0 is unbounded; tail only the newest few. */
++const TAILED_SUBAGENT_LIMIT = 8;
 +
 +/**
 + * Locate the wire log for a Kimi session. Returns null when the file does not
@@ -3288,18 +3567,35 @@ index 0000000..3c66762
 +  return null;
 +}
 +
++export type KimiSubagentStatus = "running" | "completed" | "canceled";
++
++/** Lifecycle of one subagent, as announced by the main log. */
++export interface KimiSubagentRecord {
++  id: string;
++  name: string | null;
++  description: string | null;
++  toolCallId: string | null;
++  status: KimiSubagentStatus;
++  spawnedAt: number;
++  updatedAt: number;
++  resultSummary: string | null;
++}
++
 +/** Derived state of a session log after replaying a batch of lines. */
 +export interface KimiSessionLogState {
 +  goal: AgentGoal | null;
 +  contextWindowUsedTokens: number | null;
 +  /** Model alias bound by the last `profile.bind` or `llm.request`; keys the config lookup. */
 +  modelAlias: string | null;
++  /** Subagents of the session, in spawn order. */
++  subagents: KimiSubagentRecord[];
 +}
 +
 +export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
 +  goal: null,
 +  contextWindowUsedTokens: null,
 +  modelAlias: null,
++  subagents: [],
 +});
 +
 +/**
@@ -3316,6 +3612,9 @@ index 0000000..3c66762
 + *   context size of one step. `token_counting.turn_recorded` is deliberately not
 + *   read: its `tokens` measures something else and lands well below the real
 + *   context size.
++ * - `subagent.spawned`, `subagent.started`, `subagent.completed` and
++ *   `subagent.cancelled` maintain the subagent registry. Only the lifecycle is
++ *   read here; each subagent's transcript lives in its own log.
 + *
 + * Anything unparseable is skipped; a half-written line must not abort a replay.
 + */
@@ -3326,6 +3625,12 @@ index 0000000..3c66762
 +  let goal = previous.goal;
 +  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
 +  let modelAlias = previous.modelAlias;
++  // Keyed by id, so a lifecycle record updates its entry in place and the
++  // iteration order stays the spawn order.
++  const subagents = new Map<string, KimiSubagentRecord>();
++  for (const subagent of previous.subagents) {
++    subagents.set(subagent.id, subagent);
++  }
 +
 +  for (const raw of lines) {
 +    const line = raw.trim();
@@ -3360,6 +3665,18 @@ index 0000000..3c66762
 +        }
 +        break;
 +      }
++      case "subagent.spawned":
++        applySubagentSpawn(subagents, entry);
++        break;
++      case "subagent.started":
++        applySubagentStarted(subagents, entry);
++        break;
++      case "subagent.completed":
++        applySubagentTerminal(subagents, entry, "completed");
++        break;
++      case "subagent.cancelled":
++        applySubagentTerminal(subagents, entry, "canceled");
++        break;
 +      default: {
 +        const used = stepContextUsage(entry);
 +        if (used !== null) {
@@ -3370,7 +3687,85 @@ index 0000000..3c66762
 +    }
 +  }
 +
-+  return { goal, contextWindowUsedTokens, modelAlias };
++  return { goal, contextWindowUsedTokens, modelAlias, subagents: [...subagents.values()] };
++}
++
++function applySubagentSpawn(
++  subagents: Map<string, KimiSubagentRecord>,
++  entry: Record<string, unknown>,
++): void {
++  const id = readString(entry.subagentId);
++  if (id === undefined || id.length === 0) {
++    return;
++  }
++  const existing = subagents.get(id);
++  const time = readNumber(entry.time) ?? existing?.spawnedAt ?? 0;
++  subagents.set(id, {
++    id,
++    name: readSubagentField(entry.subagentName, existing?.name),
++    description: readSubagentField(entry.description, existing?.description),
++    toolCallId: readSubagentField(entry.parentToolCallId, existing?.toolCallId),
++    // A repeated spawn must not resurrect a subagent that already finished.
++    status: existing?.status ?? "running",
++    spawnedAt: existing?.spawnedAt ?? time,
++    updatedAt: time,
++    resultSummary: existing?.resultSummary ?? null,
++  });
++}
++
++function applySubagentStarted(
++  subagents: Map<string, KimiSubagentRecord>,
++  entry: Record<string, unknown>,
++): void {
++  const id = readString(entry.subagentId);
++  if (id === undefined || id.length === 0) {
++    return;
++  }
++  const existing = subagents.get(id);
++  const time = readNumber(entry.time) ?? existing?.spawnedAt ?? 0;
++  subagents.set(id, {
++    id,
++    name: existing?.name ?? null,
++    description: existing?.description ?? null,
++    toolCallId: existing?.toolCallId ?? null,
++    status: existing?.status ?? "running",
++    spawnedAt: existing?.spawnedAt ?? time,
++    updatedAt: time,
++    resultSummary: existing?.resultSummary ?? null,
++  });
++}
++
++function applySubagentTerminal(
++  subagents: Map<string, KimiSubagentRecord>,
++  entry: Record<string, unknown>,
++  status: "completed" | "canceled",
++): void {
++  const id = readString(entry.subagentId);
++  if (id === undefined || id.length === 0) {
++    return;
++  }
++  // A completion always creates the record: its upsert is the only signal the
++  // client ever gets that this subagent existed.
++  const existing = subagents.get(id);
++  const time = readNumber(entry.time) ?? existing?.updatedAt ?? 0;
++  subagents.set(id, {
++    id,
++    name: existing?.name ?? null,
++    description: existing?.description ?? null,
++    toolCallId: existing?.toolCallId ?? null,
++    status,
++    spawnedAt: existing?.spawnedAt ?? time,
++    updatedAt: time,
++    resultSummary: readString(entry.resultSummary) ?? existing?.resultSummary ?? null,
++  });
++}
++
++/**
++ * A lifecycle record only carries the fields that changed, so an absent one
++ * keeps whatever the spawn announced.
++ */
++function readSubagentField(value: unknown, previous: string | null | undefined): string | null {
++  return readString(value) ?? previous ?? null;
 +}
 +
 +export interface KimiSessionLogOptions {
@@ -3386,10 +3781,12 @@ index 0000000..3c66762
 +  activeIntervalMs?: number;
 +  onGoal?: (goal: AgentGoal | null) => void;
 +  onUsage?: (usage: AgentUsage) => void;
++  onSubagent?: (event: ProviderSubagentInputEvent) => void;
 +}
 +
 +/**
-+ * Tails one session's wire log and reports the goal/usage it describes.
++ * Tails one session's wire log and reports the goal/usage/subagents it
++ * describes.
 + *
 + * Reads incrementally by byte offset, so a long session is never re-read. A
 + * goal created before the tailer attached is still picked up because the first
@@ -3398,6 +3795,9 @@ index 0000000..3c66762
 + * Usage needs both numbers: the used side comes from the log, the max side from
 + * the model alias plus `<kimiHome>/config.toml`. While either is unknown nothing
 + * is reported, because the client renders a context ring only for a full pair.
++ *
++ * Subagent transcripts are not in this log. Only their lifecycle is, and each
++ * one is tailed from its own `agents/<subagentId>/wire.jsonl`.
 + */
 +export class KimiSessionLog {
 +  private readonly kimiSessionId: string;
@@ -3408,6 +3808,7 @@ index 0000000..3c66762
 +  private readonly idleIntervalMs: number;
 +  private readonly onGoal: ((goal: AgentGoal | null) => void) | undefined;
 +  private readonly onUsage: ((usage: AgentUsage) => void) | undefined;
++  private readonly onSubagent: ((event: ProviderSubagentInputEvent) => void) | undefined;
 +
 +  private resolvedPath: string | null = null;
 +  private offset = 0;
@@ -3416,11 +3817,22 @@ index 0000000..3c66762
 +  private goal: AgentGoal | null = null;
 +  private contextWindowUsedTokens: number | null = null;
 +  private modelAlias: string | null = null;
++  private subagents: KimiSubagentRecord[] = [];
 +  /** Value signature of the last goal considered; null means "nothing considered yet". */
 +  private goalSignature: string | null = null;
 +  private goalBucket = -1;
 +  private emittedGoal = false;
 +  private usageSignature: string | null = null;
++  private readonly subagentTailers = new Map<string, KimiSubagentLogTailer>();
++  /** Value signature of the last upsert emitted per subagent. */
++  private readonly subagentSignatures = new Map<string, string>();
++  /**
++   * Subagents whose own log has yielded assistant text. Kept past the tailer,
++   * because a subagent can fall out of the tailer cap before it finishes.
++   */
++  private readonly subagentsWithText = new Set<string>();
++  /** Subagents whose result summary has already been emitted as a fallback. */
++  private readonly summarisedSubagents = new Set<string>();
 +
 +  private timer: ReturnType<typeof setTimeout> | null = null;
 +  private started = false;
@@ -3436,6 +3848,7 @@ index 0000000..3c66762
 +    this.idleIntervalMs = options.pollIntervalMs ?? IDLE_POLL_INTERVAL_MS;
 +    this.onGoal = options.onGoal;
 +    this.onUsage = options.onUsage;
++    this.onSubagent = options.onSubagent;
 +  }
 +
 +  /** Idempotent. Starts tailing. */
@@ -3541,6 +3954,10 @@ index 0000000..3c66762
 +    if (this.stopped) {
 +      return;
 +    }
++    await this.publishSubagents();
++    if (this.stopped) {
++      return;
++    }
 +    this.scheduleTick(this.nextIntervalMs(readNewBytes));
 +  }
 +
@@ -3600,6 +4017,11 @@ index 0000000..3c66762
 +    this.goal = null;
 +    this.contextWindowUsedTokens = null;
 +    this.modelAlias = null;
++    this.subagents = [];
++    this.subagentTailers.clear();
++    this.subagentSignatures.clear();
++    this.subagentsWithText.clear();
++    this.summarisedSubagents.clear();
 +  }
 +
 +  private applyLines(lines: string[]): void {
@@ -3607,10 +4029,12 @@ index 0000000..3c66762
 +      goal: this.goal,
 +      contextWindowUsedTokens: this.contextWindowUsedTokens,
 +      modelAlias: this.modelAlias,
++      subagents: this.subagents,
 +    });
 +    this.goal = next.goal;
 +    this.contextWindowUsedTokens = next.contextWindowUsedTokens;
 +    this.modelAlias = next.modelAlias;
++    this.subagents = next.subagents;
 +  }
 +
 +  private publishGoal(): void {
@@ -3675,6 +4099,123 @@ index 0000000..3c66762
 +    }
 +  }
 +
++  /**
++   * Reports the subagent registry, then the transcript of the newest few.
++   *
++   * Replaying every subagent log from byte 0 is unbounded, so only the most
++   * recently spawned are tailed; the rest keep a lifecycle row and no timeline.
++   */
++  private async publishSubagents(): Promise<void> {
++    for (const subagent of this.subagents) {
++      const signature = subagentValueSignature(subagent);
++      if (this.subagentSignatures.get(subagent.id) === signature) {
++        continue;
++      }
++      this.subagentSignatures.set(subagent.id, signature);
++      this.emitSubagent({
++        type: "upsert",
++        id: subagent.id,
++        title: subagent.name,
++        description: subagent.description,
++        toolCallId: subagent.toolCallId,
++        status: subagent.status,
++      });
++    }
++
++    const tailed = selectTailedSubagents(this.subagents);
++    const tailedIds = new Set(tailed.map((subagent) => subagent.id));
++    // Deleting from a Map while iterating its keys is well defined: the removed
++    // entry is simply skipped.
++    for (const subagentId of this.subagentTailers.keys()) {
++      if (!tailedIds.has(subagentId)) {
++        this.subagentTailers.delete(subagentId);
++      }
++    }
++
++    const sessionDir = this.resolveSessionDir();
++    if (sessionDir !== null) {
++      for (const subagent of tailed) {
++        const tailer = this.attachSubagentTailer(subagent.id, sessionDir);
++        let items: AgentTimelineItem[];
++        try {
++          items = await tailer.readAppended();
++        } catch (error) {
++          this.logger.warn(
++            { err: error, sessionId: this.kimiSessionId, subagentId: subagent.id },
++            "Kimi subagent log poll failed",
++          );
++          continue;
++        }
++        for (const item of items) {
++          this.emitSubagent({ type: "timeline", id: subagent.id, item });
++        }
++        if (tailer.hasAssistantText) {
++          this.subagentsWithText.add(subagent.id);
++        }
++      }
++    }
++
++    this.publishSubagentSummaries();
++  }
++
++  /**
++   * A finished subagent normally reports itself through the last message of its
++   * own log, which is the same text as `resultSummary`; emitting the summary
++   * unconditionally would duplicate it. The summary is the only copy left when
++   * the log could not be read, which happens for a subagent over the tailer cap
++   * or one whose file is gone.
++   */
++  private publishSubagentSummaries(): void {
++    for (const subagent of this.subagents) {
++      if (subagent.status === "running" || this.summarisedSubagents.has(subagent.id)) {
++        continue;
++      }
++      const summary = subagent.resultSummary;
++      if (summary === null || summary.length === 0) {
++        continue;
++      }
++      if (this.subagentsWithText.has(subagent.id)) {
++        continue;
++      }
++      this.summarisedSubagents.add(subagent.id);
++      this.emitSubagent({
++        type: "timeline",
++        id: subagent.id,
++        item: { type: "assistant_message", text: summary },
++      });
++    }
++  }
++
++  private attachSubagentTailer(subagentId: string, sessionDir: string): KimiSubagentLogTailer {
++    const existing = this.subagentTailers.get(subagentId);
++    if (existing !== undefined) {
++      return existing;
++    }
++    const tailer = new KimiSubagentLogTailer({ subagentId, sessionDir, logger: this.logger });
++    this.subagentTailers.set(subagentId, tailer);
++    return tailer;
++  }
++
++  private emitSubagent(event: ProviderSubagentInputEvent): void {
++    try {
++      this.onSubagent?.(event);
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log subagent listener failed",
++      );
++    }
++  }
++
++  /** The `<sessionId>` directory, derived from the main log it contains. */
++  private resolveSessionDir(): string | null {
++    const filePath = this.resolvePath();
++    if (filePath === null) {
++      return null;
++    }
++    return path.dirname(path.dirname(path.dirname(filePath)));
++  }
++
 +  /** Context window of the bound model, or null while the alias or the config is unknown. */
 +  private async contextWindowMax(): Promise<number | null> {
 +    const alias = this.modelAlias;
@@ -3687,7 +4228,7 @@ index 0000000..3c66762
 +  }
 +}
 +
-+interface RangeReadResult {
++export interface RangeReadResult {
 +  lines: string[];
 +  fragment: string;
 +}
@@ -3697,7 +4238,7 @@ index 0000000..3c66762
 + * line with no newline is returned separately so the caller can prepend it to
 + * the next read instead of losing a record split across ticks.
 + */
-+async function readLinesFromRange(
++export async function readLinesFromRange(
 +  filePath: string,
 +  start: number,
 +  end: number,
@@ -3744,7 +4285,11 @@ index 0000000..3c66762
 +  }
 +}
 +
-+function mergePendingFragment(pending: string, lines: string[]): string[] {
++/**
++ * Join a line held back from the previous read onto the first line of this one.
++ * Exported for the per-subagent tailer, which reads the same way.
++ */
++export function mergePendingFragment(pending: string, lines: string[]): string[] {
 +  const first = lines[0];
 +  if (pending.length === 0 || first === undefined) {
 +    return lines;
@@ -3826,6 +4371,25 @@ index 0000000..3c66762
 +  ]);
 +}
 +
++/**
++ * Change detector for subagent upserts, covering the fields the client renders.
++ * The timestamps are excluded for the same reason as in the goal signature.
++ */
++function subagentValueSignature(subagent: KimiSubagentRecord): string {
++  return JSON.stringify([
++    subagent.status,
++    subagent.name,
++    subagent.description,
++    subagent.toolCallId,
++    subagent.resultSummary !== null,
++  ]);
++}
++
++function selectTailedSubagents(subagents: KimiSubagentRecord[]): KimiSubagentRecord[] {
++  const byRecency = [...subagents].sort((left, right) => right.spawnedAt - left.spawnedAt);
++  return byRecency.slice(0, TAILED_SUBAGENT_LIMIT);
++}
++
 +function resolveKimiHome(kimiHome?: string): string {
 +  const raw =
 +    firstNonEmpty(kimiHome, process.env.KIMI_HOME, process.env.KIMI_CODE_HOME) ?? DEFAULT_KIMI_HOME;
@@ -3851,7 +4415,8 @@ index 0000000..3c66762
 +  return value;
 +}
 +
-+function readString(value: unknown): string | undefined {
++/** A log value is only a string when it is still a string after parsing. */
++export function readString(value: unknown): string | undefined {
 +  return typeof value === "string" ? value : undefined;
 +}
 +
@@ -3859,7 +4424,8 @@ index 0000000..3c66762
 +  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 +}
 +
-+function asRecord(value: unknown): Record<string, unknown> | null {
++/** Narrow a parsed log record to an object before reading its fields. */
++export function asRecord(value: unknown): Record<string, unknown> | null {
 +  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 +}
 +
@@ -3973,6 +4539,519 @@ index 0000000..3c66762
 +  return new Promise((resolve) => {
 +    setTimeout(resolve, ms);
 +  });
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
+new file mode 100644
+index 0000000..d9a7b87
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
+@@ -0,0 +1,285 @@
++import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import {
++  KimiSubagentLogTailer,
++  mapKimiSubagentLogLines,
++  resolveKimiSubagentLogPath,
++  type KimiSubagentCallRecord,
++} from "./subagent-log.js";
++
++const SUBAGENT_ID = "agent-0";
++const CALL_ID = "call_00_hIU8vYJmQ2VNzrWqX";
++const TIME = 1_790_474_207_000;
++
++function loopEventLine(event: unknown, agentId = SUBAGENT_ID, time = TIME): string {
++  return JSON.stringify({ type: "context.append_loop_event", agentId, event, time });
++}
++
++function textPartLine(text: string): string {
++  return loopEventLine({ type: "content.part", part: { type: "text", text } });
++}
++
++function thinkPartLine(text: string): string {
++  // Kimi keys a thinking part's text as `think`, not `text`; a real log line is
++  // `{"part":{"type":"think","think":"..."}}`.
++  return loopEventLine({ type: "content.part", part: { type: "think", think: text } });
++}
++
++function toolCallLine(callId: string, name: string, args: unknown): string {
++  return loopEventLine({ type: "tool.call", toolCallId: callId, name, args });
++}
++
++function toolResultLine(callId: string, output: string): string {
++  return loopEventLine({
++    type: "tool.result",
++    toolCallId: callId,
++    result: { output, durationMs: 222 },
++  });
++}
++
++function createTailerHome(): { subagentId: string; sessionDir: string; file: string } {
++  const sessionDir = mkdtempSync(path.join(tmpdir(), "kimi-subagent-log-"));
++  const file = path.join(sessionDir, "agents", SUBAGENT_ID, "wire.jsonl");
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, "");
++  return { subagentId: SUBAGENT_ID, sessionDir, file };
++}
++
++describe("resolveKimiSubagentLogPath", () => {
++  test("points at the subagent's own wire log", () => {
++    expect(resolveKimiSubagentLogPath("/sessions/x", SUBAGENT_ID)).toBe(
++      path.join("/sessions/x", "agents", SUBAGENT_ID, "wire.jsonl"),
++    );
++  });
++
++  test("rejects ids that could walk out of the session directory", () => {
++    expect(resolveKimiSubagentLogPath("/sessions/x", "../main")).toBeNull();
++    expect(resolveKimiSubagentLogPath("/sessions/x", "a/b")).toBeNull();
++    expect(resolveKimiSubagentLogPath("/sessions/x", "a\\b")).toBeNull();
++    expect(resolveKimiSubagentLogPath("/sessions/x", "")).toBeNull();
++  });
++});
++
++describe("mapKimiSubagentLogLines", () => {
++  test("maps text parts to assistant messages and think parts to reasoning", () => {
++    const items = mapKimiSubagentLogLines(
++      [textPartLine("Looking at the daemon"), thinkPartLine("First, the socket layer")],
++      new Map(),
++    );
++
++    expect(items).toEqual([
++      { type: "assistant_message", text: "Looking at the daemon" },
++      { type: "reasoning", text: "First, the socket layer" },
++    ]);
++  });
++
++  test("ignores a thinking part that spells its text under the spoken key", () => {
++    const items = mapKimiSubagentLogLines(
++      [loopEventLine({ type: "content.part", part: { type: "think", text: "wrong key" } })],
++      new Map(),
++    );
++
++    expect(items).toEqual([]);
++  });
++
++  test("skips empty text", () => {
++    const items = mapKimiSubagentLogLines(
++      [
++        textPartLine(""),
++        thinkPartLine(""),
++        loopEventLine({ type: "content.part", part: { type: "text" } }),
++      ],
++      new Map(),
++    );
++
++    expect(items).toEqual([]);
++  });
++
++  test("maps a tool call to a running item and remembers it", () => {
++    const calls = new Map<string, KimiSubagentCallRecord>();
++    const items = mapKimiSubagentLogLines(
++      [toolCallLine(CALL_ID, "Grep", { pattern: "goal", path: "packages/server" })],
++      calls,
++    );
++
++    expect(items).toEqual([
++      {
++        type: "tool_call",
++        callId: CALL_ID,
++        name: "Grep",
++        detail: {
++          type: "unknown",
++          input: { pattern: "goal", path: "packages/server" },
++          output: null,
++        },
++        status: "running",
++        error: null,
++      },
++    ]);
++    expect(calls.get(CALL_ID)).toEqual({
++      name: "Grep",
++      input: { pattern: "goal", path: "packages/server" },
++    });
++  });
++
++  test("names a tool result from a call seen in an earlier batch", () => {
++    const calls = new Map<string, KimiSubagentCallRecord>();
++    mapKimiSubagentLogLines([toolCallLine(CALL_ID, "Read", { filePath: "a.ts" })], calls);
++
++    const items = mapKimiSubagentLogLines([toolResultLine(CALL_ID, "file contents")], calls);
++
++    expect(items).toEqual([
++      {
++        type: "tool_call",
++        callId: CALL_ID,
++        name: "Read",
++        detail: { type: "unknown", input: { filePath: "a.ts" }, output: "file contents" },
++        status: "completed",
++        error: null,
++      },
++    ]);
++  });
++
++  test("falls back to a placeholder when the call was never seen", () => {
++    const items = mapKimiSubagentLogLines([toolResultLine("call_unknown", "out")], new Map());
++
++    expect(items).toEqual([
++      {
++        type: "tool_call",
++        callId: "call_unknown",
++        name: "tool",
++        detail: { type: "unknown", input: null, output: "out" },
++        status: "completed",
++        error: null,
++      },
++    ]);
++  });
++
++  test("holds no arguments for a call that carried none", () => {
++    const items = mapKimiSubagentLogLines([toolCallLine(CALL_ID, "Glob", undefined)], new Map());
++
++    expect(items[0]).toMatchObject({ detail: { type: "unknown", input: null, output: null } });
++  });
++
++  test("skips unparseable lines without dropping the rest of the batch", () => {
++    const items = mapKimiSubagentLogLines(
++      [textPartLine("kept"), '{"type":"context.append_loop', "not json", ""],
++      new Map(),
++    );
++
++    expect(items).toEqual([{ type: "assistant_message", text: "kept" }]);
++  });
++
++  test("ignores records that are not loop events", () => {
++    const items = mapKimiSubagentLogLines(
++      [
++        JSON.stringify({ type: "subagent.started", subagentId: SUBAGENT_ID, time: TIME }),
++        JSON.stringify({
++          type: "agent.message.appended",
++          agentId: SUBAGENT_ID,
++          message: { role: "user", content: "git context and the whole task" },
++        }),
++        loopEventLine({ type: "step.begin", turnId: "0", step: 1 }),
++      ],
++      new Map(),
++    );
++
++    expect(items).toEqual([]);
++  });
++});
++
++describe("KimiSubagentLogTailer", () => {
++  function createTailer(
++    file: string,
++    subagentId = SUBAGENT_ID,
++    sessionDir?: string,
++  ): KimiSubagentLogTailer {
++    return new KimiSubagentLogTailer({
++      subagentId,
++      sessionDir: sessionDir ?? path.dirname(path.dirname(path.dirname(file))),
++      logger: createTestLogger(),
++    });
++  }
++
++  test("returns only the items appended since the previous read", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${textPartLine("one")}\n`);
++    const tailer = createTailer(file);
++
++    expect(await tailer.readAppended()).toEqual([{ type: "assistant_message", text: "one" }]);
++
++    appendFileSync(file, `${textPartLine("two")}\n${thinkPartLine("hmm")}\n`);
++
++    expect(await tailer.readAppended()).toEqual([
++      { type: "assistant_message", text: "two" },
++      { type: "reasoning", text: "hmm" },
++    ]);
++    expect(await tailer.readAppended()).toEqual([]);
++  });
++
++  test("replays a log that was already complete when the tailer attached", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${textPartLine("finished before attach")}\n`);
++
++    const tailer = createTailer(file);
++
++    expect(await tailer.readAppended()).toEqual([
++      { type: "assistant_message", text: "finished before attach" },
++    ]);
++  });
++
++  test("holds an unterminated trailing line until the rest of it arrives", async () => {
++    const { file } = createTailerHome();
++    const line = textPartLine("split across reads");
++    appendFileSync(file, line.slice(0, 30));
++    const tailer = createTailer(file);
++
++    expect(await tailer.readAppended()).toEqual([]);
++
++    appendFileSync(file, `${line.slice(30)}\n`);
++
++    expect(await tailer.readAppended()).toEqual([
++      { type: "assistant_message", text: "split across reads" },
++    ]);
++  });
++
++  test("replays from the start after the log is replaced with a shorter one", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${textPartLine("old one")}\n${textPartLine("old two")}\n`);
++    const tailer = createTailer(file);
++    await tailer.readAppended();
++
++    writeFileSync(file, `${textPartLine("fresh")}\n`);
++
++    expect(await tailer.readAppended()).toEqual([{ type: "assistant_message", text: "fresh" }]);
++  });
++
++  test("reports assistant text without counting reasoning as one", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${thinkPartLine("thinking")}\n`);
++    const tailer = createTailer(file);
++
++    await tailer.readAppended();
++    expect(tailer.hasAssistantText).toBe(false);
++
++    appendFileSync(file, `${textPartLine("the answer")}\n`);
++    await tailer.readAppended();
++
++    expect(tailer.hasAssistantText).toBe(true);
++  });
++
++  test("returns nothing while the subagent log does not exist", async () => {
++    const { sessionDir } = createTailerHome();
++    const tailer = new KimiSubagentLogTailer({
++      subagentId: "agent_missing",
++      sessionDir,
++      logger: createTestLogger(),
++    });
++
++    expect(await tailer.readAppended()).toEqual([]);
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
+new file mode 100644
+index 0000000..73f28be
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
+@@ -0,0 +1,216 @@
++import { stat } from "node:fs/promises";
++import path from "node:path";
++
++import type { Logger } from "pino";
++
++import type { AgentTimelineItem } from "../../agent-sdk-types.js";
++import { asRecord, mergePendingFragment, readLinesFromRange, readString } from "./session-log.js";
++
++/**
++ * Each subagent writes its own wire log next to the main one, in the same
++ * format and at `agents/<subagentId>/wire.jsonl`. The main log only announces
++ * a subagent; its transcript lives here.
++ *
++ * Returns null for an id that could walk out of the session directory, so a
++ * crafted log entry cannot direct a read at an arbitrary file.
++ */
++export function resolveKimiSubagentLogPath(sessionDir: string, subagentId: string): string | null {
++  if (!isSafeSubagentId(subagentId)) {
++    return null;
++  }
++  return path.join(sessionDir, "agents", subagentId, "wire.jsonl");
++}
++
++function isSafeSubagentId(subagentId: string): boolean {
++  return (
++    subagentId.length > 0 &&
++    !subagentId.includes("/") &&
++    !subagentId.includes("\\") &&
++    !subagentId.includes("..")
++  );
++}
++
++export interface KimiSubagentCallRecord {
++  name: string;
++  input: unknown;
++}
++
++/**
++ * Replay raw subagent log lines into timeline items.
++ *
++ * `calls` is the only state, and it outlives one batch: a `tool.result` record
++ * carries neither the tool name nor its arguments, while the client merges a
++ * tool call by spreading the new item over the old one. Re-supplying both from
++ * the recorded call is what keeps a completed call from losing its name.
++ *
++ * Anything unparseable is skipped, because a half-written line must not abort
++ * a replay.
++ */
++export function mapKimiSubagentLogLines(
++  lines: Iterable<string>,
++  calls: Map<string, KimiSubagentCallRecord>,
++): AgentTimelineItem[] {
++  const items: AgentTimelineItem[] = [];
++  for (const raw of lines) {
++    const line = raw.trim();
++    if (line.length === 0) {
++      continue;
++    }
++    let parsed: unknown;
++    try {
++      parsed = JSON.parse(line);
++    } catch {
++      continue;
++    }
++    const record = asRecord(parsed);
++    if (record === null || record.type !== "context.append_loop_event") {
++      continue;
++    }
++    const event = asRecord(record.event);
++    if (event === null) {
++      continue;
++    }
++    mapKimiLoopEvent(event, calls, items);
++  }
++  return items;
++}
++
++function mapKimiLoopEvent(
++  event: Record<string, unknown>,
++  calls: Map<string, KimiSubagentCallRecord>,
++  items: AgentTimelineItem[],
++): void {
++  switch (event.type) {
++    case "content.part": {
++      const part = asRecord(event.part);
++      if (part === null) {
++        return;
++      }
++      // A thinking part carries its text under `think`, a spoken one under
++      // `text`. Reading the wrong key drops every reasoning block silently.
++      const text = readString(part.type === "think" ? part.think : part.text);
++      if (text === undefined || text.length === 0) {
++        return;
++      }
++      if (part.type === "text") {
++        items.push({ type: "assistant_message", text });
++      } else if (part.type === "think") {
++        items.push({ type: "reasoning", text });
++      }
++      return;
++    }
++    case "tool.call": {
++      const callId = readString(event.toolCallId);
++      if (callId === undefined) {
++        return;
++      }
++      const name = readString(event.name) ?? "tool";
++      const input = event.args ?? null;
++      calls.set(callId, { name, input });
++      items.push({
++        type: "tool_call",
++        callId,
++        name,
++        detail: { type: "unknown", input, output: null },
++        status: "running",
++        error: null,
++      });
++      return;
++    }
++    case "tool.result": {
++      const callId = readString(event.toolCallId);
++      if (callId === undefined) {
++        return;
++      }
++      const call = calls.get(callId);
++      const result = asRecord(event.result);
++      items.push({
++        type: "tool_call",
++        callId,
++        name: call?.name ?? "tool",
++        detail: {
++          type: "unknown",
++          input: call?.input ?? null,
++          output: result?.output ?? null,
++        },
++        status: "completed",
++        error: null,
++      });
++      return;
++    }
++    default:
++      return;
++  }
++}
++
++export interface KimiSubagentLogTailerOptions {
++  subagentId: string;
++  /** The `<sessionId>` directory, parent of the per-agent `agents/` directory. */
++  sessionDir: string;
++  logger: Logger;
++}
++
++/**
++ * Tails one subagent's wire log.
++ *
++ * Reads incrementally by byte offset, but the first read starts at byte 0, so a
++ * subagent that finished before the tailer attached is replayed in full instead
++ * of showing up empty.
++ */
++export class KimiSubagentLogTailer {
++  private readonly subagentId: string;
++  private readonly sessionDir: string;
++  private readonly logger: Logger;
++  private readonly calls = new Map<string, KimiSubagentCallRecord>();
++  private offset = 0;
++  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
++  private pending = "";
++  private sawAssistantText = false;
++
++  constructor(options: KimiSubagentLogTailerOptions) {
++    this.subagentId = options.subagentId;
++    this.sessionDir = options.sessionDir;
++    this.logger = options.logger;
++  }
++
++  /** True once the log has yielded assistant text, including a replayed one. */
++  get hasAssistantText(): boolean {
++    return this.sawAssistantText;
++  }
++
++  /** Returns the items produced by bytes appended since the previous call. */
++  async readAppended(): Promise<AgentTimelineItem[]> {
++    const filePath = resolveKimiSubagentLogPath(this.sessionDir, this.subagentId);
++    if (filePath === null) {
++      return [];
++    }
++    let size: number;
++    try {
++      size = (await stat(filePath)).size;
++    } catch {
++      // The log may simply not exist yet; the caller re-checks on its next tick.
++      return [];
++    }
++    if (size < this.offset) {
++      // Truncated or replaced: rebuild from the beginning.
++      this.logger.debug(
++        { subagentId: this.subagentId },
++        "Kimi subagent log shrank, replaying from the start",
++      );
++      this.offset = 0;
++      this.pending = "";
++    }
++    if (size === this.offset) {
++      return [];
++    }
++    const { lines, fragment } = await readLinesFromRange(filePath, this.offset, size);
++    this.offset = size;
++    const merged = mergePendingFragment(this.pending, lines);
++    this.pending = fragment;
++    const items = mapKimiSubagentLogLines(merged, this.calls);
++    if (!this.sawAssistantText && items.some((item) => item.type === "assistant_message")) {
++      this.sawAssistantText = true;
++    }
++    return items;
++  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
 index 473cc6f..dfece89 100644

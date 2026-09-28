@@ -28,6 +28,14 @@
 //   kimi native bridge      the same directory's native-bridge.ts — per-session
 //                           wrapper over that tailer, with the settle wait the
 //                           turn hold awaits.
+//   kimi subagents          the same directory's subagent-log.ts plus the
+//                           session log's subagent registry: the main log
+//                           announces each subagent an Agent tool call spawned,
+//                           and each one's own `agents/<id>/wire.jsonl` is
+//                           tailed for its transcript. Both are projected into
+//                           Paseo's existing provider-subagent events, so the
+//                           composer's subagent pill and detail panel work for
+//                           Kimi without a single client change.
 //   kimi /goal              `/goal <objective>` is rewritten into a prompt that
 //                           makes the agent create and pursue the goal itself,
 //                           because Kimi's goal engine is driven by the model's
@@ -212,6 +220,26 @@ const MARKERS = [
     label: "Kimi native goal bridge",
     path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
     needle: "export class KimiNativeBridge",
+  },
+  {
+    label: "Kimi subagent registry in the session log",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "export interface KimiSubagentRecord",
+  },
+  {
+    label: "Kimi subagent transcript tailer",
+    path: "packages/server/src/server/agent/providers/kimi/subagent-log.ts",
+    needle: "export class KimiSubagentLogTailer",
+  },
+  {
+    label: "Kimi subagent transcript mapping",
+    path: "packages/server/src/server/agent/providers/kimi/subagent-log.ts",
+    needle: "export function mapKimiSubagentLogLines(",
+  },
+  {
+    label: "Kimi subagent events reach the client",
+    path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
+    needle: 'type: "provider_subagent"',
   },
   {
     label: "Kimi provider hooks",
