@@ -172,7 +172,8 @@ needs only some of the three:
 | What changed | APK | macOS | Windows |
 |---|---|---|---|
 | upstream tag — new client and/or daemon code | rebuild | rebuild | rebuild |
-| `paseo-kimi-native-0100.patch`, `paseo-agent-cwd-guard.patch`, `apply-desktop-patch.mjs` | **—** | rebuild | rebuild |
+| `paseo-kimi-native-0100.patch`, `paseo-agent-cwd-guard.patch`, `apply-desktop-patch.mjs` — daemon and/or desktop-app code | **—** | rebuild | rebuild |
+| the same, but the change also lands in code the APK bundles (e.g. `packages/protocol/`) | rebuild | rebuild | rebuild |
 | `paseo-app-composer-badges.patch`, `apply-statusbar-patch.mjs` | rebuild | see below | see below |
 | `upload-release-assets.mjs`, the workflow files themselves | rebuild | rebuild | rebuild |
 
@@ -186,10 +187,19 @@ byte-identical, and rebuilding it spends ~25 runner minutes republishing the sam
 file. Phones do not need reinstalling for daemon work; only the machine running
 the daemon does.
 
+"Daemon-only" is the part that needs checking rather than assuming. The APK
+builds `packages/app`, which imports `@getpaseo/protocol/*` — resolved through
+that package's `dist`, built from `src` earlier in the same job. So a hunk of the
+desktop patch that lands in `packages/protocol/` **is** part of the client, and
+skipping the APK ships a phone whose rendering disagrees with the desktop's.
+
 The badges row is the exception that catches people: `paseo-app-composer-badges.patch`
 is applied by the APK workflow, but the same change is carried *inside*
 `paseo-kimi-native-0100.patch` for the desktop builds. Editing one means editing
-the other and rebuilding all three. A plain status-bar change (`app.config.js`,
+the other and rebuilding all three. That is also the mechanism for any other
+shared-code change: mirror the hunk into `paseo-app-composer-badges.patch`, and
+`apply-statusbar-patch.mjs` post-checks it so a build that silently lost it goes
+red instead of shipping. A plain status-bar change (`app.config.js`,
 `_layout.tsx`) is Android-only — the desktop patch does not apply it.
 
 ### Triggering a patch-only rebuild

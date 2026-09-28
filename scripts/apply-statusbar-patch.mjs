@@ -185,4 +185,15 @@ assertDependency(sourceDir);
 patchAppConfig(sourceDir);
 patchRootLayout(sourceDir);
 patchComposerBadges(sourceDir);
+
+// The badges patch also carries the tool-call display fix: a catch-all ACP tool
+// call shows the tool's own name instead of the word "Other", and camelCase
+// names keep their spelling. `git apply` succeeding only proves the text
+// landed, so check the code that is supposed to be there.
+assertContains(
+  join(sourceDir, "packages", "protocol", "src", "tool-call-display.ts"),
+  "if (/[A-Z]/.test(trimmed.slice(1))) {",
+  "packages/protocol/src/tool-call-display.ts",
+);
+
 console.log("[statusbar-patch] done");

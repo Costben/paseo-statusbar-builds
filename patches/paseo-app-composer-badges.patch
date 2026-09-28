@@ -74,3 +74,20 @@ index 3ab03c8..69a9923 100644
      minHeight: COMPOSER_PILL_MIN_HEIGHT,
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
+diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
+index 6930fe1..afe2cce 100644
+--- a/packages/protocol/src/tool-call-display.ts
++++ b/packages/protocol/src/tool-call-display.ts
+@@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
+   if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
+     return trimmed;
+   }
++  // PascalCase and camelCase names are already spelled the way people read
++  // them; the lowercase pass below would turn "AskUserQuestion" into
++  // "Askuserquestion".
++  if (/[A-Z]/.test(trimmed.slice(1))) {
++    return trimmed;
++  }
+ 
+   return trimmed
+     .replace(/[._-]+/g, " ")
