@@ -816,7 +816,7 @@ index e2fb977..a16e57a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2..2527fe9 100644
+index 9d106a2..c5f4009 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -1003,18 +1003,247 @@ index 9d106a2..2527fe9 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -2608,6 +2719,112 @@ describe("ACPAgentSession", () => {
+@@ -1410,6 +1521,203 @@ describe("ACPAgentSession Zed parity", () => {
+     });
+   });
+ 
++  test("sends an answer to an expired question as a new prompt", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    internals.activeForegroundTurnId = "turn-1";
++    const permission = session.requestPermission({
++      sessionId: "session-1",
++      toolCall: {
++        toolCallId: "question-1",
++        title: "AskUserQuestion",
++        status: "pending",
++        content: [
++          { type: "content", content: { type: "text", text: "Which color should the badge be?" } },
++        ],
++      },
++      options: [
++        { optionId: "q0_opt_0", name: "Green", kind: "allow_once" },
++        { optionId: "q0_opt_1", name: "Blue", kind: "allow_once" },
++        { optionId: "q0_skip", name: "Skip", kind: "reject_once" },
++      ],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++
++    internals.activeForegroundTurnId = null;
++
++    await expect(
++      session.respondToPermission(requested.request.id, {
++        behavior: "allow",
++        selectedActionId: "q0_opt_1",
++      }),
++    ).resolves.toEqual({
++      followUpPrompt: "Answers to your questions:\n\nWhich color should the badge be?\nBlue",
++    });
++    await expect(permission).resolves.toEqual({
++      outcome: { outcome: "selected", optionId: "q0_opt_1" },
++    });
++    expect(events).toContainEqual(
++      expect.objectContaining({ type: "permission_resolved", requestId: requested.request.id }),
++    );
++    expect(session.getPendingPermissions()).toHaveLength(0);
++  });
++
++  test("names a plain late tool approval as a request, not a question", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    internals.activeForegroundTurnId = "turn-1";
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "tool-1", title: "Edit file", kind: "edit", status: "pending" },
++      options: [
++        { optionId: "allow-once", name: "Allow", kind: "allow_once" },
++        { optionId: "reject-once", name: "Reject", kind: "reject_once" },
++      ],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++
++    internals.activeForegroundTurnId = null;
++
++    await expect(
++      session.respondToPermission(requested.request.id, {
++        behavior: "allow",
++        selectedActionId: "allow-once",
++      }),
++    ).resolves.toEqual({
++      followUpPrompt: 'The user answered your earlier request "Edit file": Allow',
++    });
++  });
++
++  test("sends a question-form answer to an expired question as a new prompt", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    internals.activeForegroundTurnId = "turn-1";
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "tool-1", title: "Asking user questions", kind: "other" },
++      options: [{ optionId: "allow-once", name: "Submit", kind: "allow_once" }],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++
++    internals.activeForegroundTurnId = null;
++
++    await expect(
++      session.respondToPermission(requested.request.id, {
++        behavior: "allow",
++        updatedInput: { answers: { Color: "Green", Size: "" } },
++      }),
++    ).resolves.toEqual({
++      followUpPrompt: "Answers to your questions:\n\nColor\nGreen",
++    });
++  });
++
++  test("keeps resolving answers in place while the asking turn is still running", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    internals.activeForegroundTurnId = "turn-1";
++    const permission = session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "tool-1", title: "Asking user questions", kind: "other" },
++      options: [{ optionId: "q0_opt_0", name: "Green", kind: "allow_once" }],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++
++    await expect(
++      session.respondToPermission(requested.request.id, {
++        behavior: "allow",
++        selectedActionId: "q0_opt_0",
++      }),
++    ).resolves.toBeUndefined();
++    await expect(permission).resolves.toEqual({
++      outcome: { outcome: "selected", optionId: "q0_opt_0" },
++    });
++  });
++
++  test("drops a dismissed late answer instead of messaging the agent", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    internals.activeForegroundTurnId = "turn-1";
++    session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "tool-1", title: "Asking user questions", kind: "other" },
++      options: [{ optionId: "q0_opt_0", name: "Green", kind: "allow_once" }],
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++
++    internals.activeForegroundTurnId = null;
++
++    await expect(
++      session.respondToPermission(requested.request.id, {
++        behavior: "deny",
++        message: "Dismissed by user",
++      }),
++    ).resolves.toBeUndefined();
++  });
++
++  test("still rejects answers for unknown permission requests", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp" });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++
++    await expect(
++      session.respondToPermission("missing-request", { behavior: "allow" }),
++    ).rejects.toThrow("No pending permission request");
++  });
++
+   test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
+     const session = createSessionWithConfig({
+       provider: "cursor-acp",
+@@ -2608,48 +2916,154 @@ describe("ACPAgentSession", () => {
      );
    });
  
+-  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
+-    const session = createKiroSession({
+-      waitForInitialCommands: true,
+-      initialCommandsWaitTimeoutMs: 1500,
+-    });
 +  test("maps the compaction extension notification into a timeline marker", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    const listCommandsPromise = session.listCommands();
+-
+-    await session.extNotification("_kiro.dev/commands/available", {
 +    await session.extNotification("_paseo.dev/session/compaction", {
-+      sessionId: "session-1",
+       sessionId: "session-1",
+-      commands: [
+-        {
+-          name: "/agent",
+-          description: "Select or list available agents",
+-          meta: { inputType: "selection", hint: "swap <name>" },
+-        },
+-      ],
+-      prompts: [
+-        {
+-          name: "agent-sync-doctor",
+-          description: "Hand off Claude or Codex state across Macs",
+-          arguments: [],
+-          serverName: "skill:config",
+-        },
+-      ],
+-      // Tools are not slash commands and must be ignored.
+-      tools: [{ name: "code", description: "Code intelligence", source: "built-in" }],
 +      status: "in_progress",
 +      trigger: "auto",
 +    });
@@ -1023,16 +1252,25 @@ index 9d106a2..2527fe9 100644
 +      status: "completed",
 +      trigger: "auto",
 +      preTokens: 253457,
-+    });
-+
+     });
+ 
+-    expect(await listCommandsPromise).toEqual([
 +    expect(events.filter((event) => event.type === "timeline")).toEqual([
-+      {
+       {
+-        name: "agent",
+-        description: "Select or list available agents",
+-        argumentHint: "swap <name>",
+-        kind: "command",
 +        type: "timeline",
 +        provider: "kimi",
 +        item: { type: "compaction", status: "loading", trigger: "auto" },
 +        turnId: undefined,
-+      },
-+      {
+       },
+       {
+-        name: "agent-sync-doctor",
+-        description: "Hand off Claude or Codex state across Macs",
+-        argumentHint: "",
+-        kind: "skill",
 +        type: "timeline",
 +        provider: "kimi",
 +        item: { type: "compaction", status: "completed", trigger: "auto", preTokens: 253457 },
@@ -1113,10 +1351,52 @@ index 9d106a2..2527fe9 100644
 +    ]);
 +  });
 +
-   test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
-     const session = createKiroSession({
-       waitForInitialCommands: true,
-@@ -2918,6 +3135,325 @@ describe("ACPAgentSession", () => {
++  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
++    const session = createKiroSession({
++      waitForInitialCommands: true,
++      initialCommandsWaitTimeoutMs: 1500,
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++
++    const listCommandsPromise = session.listCommands();
++
++    await session.extNotification("_kiro.dev/commands/available", {
++      sessionId: "session-1",
++      commands: [
++        {
++          name: "/agent",
++          description: "Select or list available agents",
++          meta: { inputType: "selection", hint: "swap <name>" },
++        },
++      ],
++      prompts: [
++        {
++          name: "agent-sync-doctor",
++          description: "Hand off Claude or Codex state across Macs",
++          arguments: [],
++          serverName: "skill:config",
++        },
++      ],
++      // Tools are not slash commands and must be ignored.
++      tools: [{ name: "code", description: "Code intelligence", source: "built-in" }],
++    });
++
++    expect(await listCommandsPromise).toEqual([
++      {
++        name: "agent",
++        description: "Select or list available agents",
++        argumentHint: "swap <name>",
++        kind: "command",
++      },
++      {
++        name: "agent-sync-doctor",
++        description: "Hand off Claude or Codex state across Macs",
++        argumentHint: "",
++        kind: "skill",
+       },
+     ]);
+   });
+@@ -2918,6 +3332,325 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -1442,7 +1722,7 @@ index 9d106a2..2527fe9 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4180,3 +4716,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4180,3 +4913,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -1766,10 +2046,14 @@ index 9d106a2..2527fe9 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index d2e0a1b..de74f03 100644
+index d2e0a1b..c5426a5 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -75,6 +75,7 @@ import {
+@@ -72,9 +72,11 @@ import {
+   type AgentPermissionRequest,
+   type AgentPermissionRequestKind,
+   type AgentPermissionResponse,
++  type AgentPermissionResult,
    type AgentPersistenceHandle,
    type AgentPromptContentBlock,
    type AgentPromptInput,
@@ -1777,7 +2061,7 @@ index d2e0a1b..de74f03 100644
    type AgentRunOptions,
    type AgentRunResult,
    type AgentRuntimeInfo,
-@@ -84,6 +85,7 @@ import {
+@@ -84,6 +86,7 @@ import {
    type AgentStreamEvent,
    type AgentTimelineItem,
    type AgentUsage,
@@ -1785,7 +2069,7 @@ index d2e0a1b..de74f03 100644
    type FetchCatalogOptions,
    type ProviderRefreshContext,
    type ImportableProviderSession,
-@@ -128,6 +130,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+@@ -128,6 +131,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
  
  const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
  
@@ -1802,7 +2086,7 @@ index d2e0a1b..de74f03 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -292,6 +304,11 @@ export function buildACPClientCapabilities(
+@@ -292,6 +305,11 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -1814,7 +2098,7 @@ index d2e0a1b..de74f03 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
-@@ -427,6 +444,50 @@ export type ACPCatalogModelResolver = (
+@@ -427,6 +445,50 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -1865,7 +2149,7 @@ index d2e0a1b..de74f03 100644
  interface ACPAgentClientOptions {
    provider: string;
    logger: Logger;
-@@ -456,6 +517,7 @@ interface ACPAgentClientOptions {
+@@ -456,6 +518,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -1873,7 +2157,7 @@ index d2e0a1b..de74f03 100644
    now?: () => number;
  }
  
-@@ -489,7 +551,9 @@ interface ACPAgentSessionOptions {
+@@ -489,7 +552,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -1883,7 +2167,7 @@ index d2e0a1b..de74f03 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -586,6 +650,13 @@ class ACPImportHistoryCollector {
+@@ -586,6 +651,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -1897,7 +2181,7 @@ index d2e0a1b..de74f03 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -916,6 +987,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -916,6 +988,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -1905,7 +2189,7 @@ index d2e0a1b..de74f03 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -946,6 +1018,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -946,6 +1019,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -1913,7 +2197,7 @@ index d2e0a1b..de74f03 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -979,6 +1052,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -979,6 +1053,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -1921,7 +2205,7 @@ index d2e0a1b..de74f03 100644
        },
      );
      await session.initializeNewSession();
-@@ -1030,6 +1104,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1030,6 +1105,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -1929,7 +2213,7 @@ index d2e0a1b..de74f03 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1629,6 +1704,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1629,6 +1705,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -1949,7 +2233,7 @@ index d2e0a1b..de74f03 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1689,9 +1777,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1689,9 +1778,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -1969,7 +2253,7 @@ index d2e0a1b..de74f03 100644
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
    private historyPending = false;
-@@ -1729,7 +1827,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1729,7 +1828,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -1980,7 +2264,7 @@ index d2e0a1b..de74f03 100644
    }
  
    get id(): string | null {
-@@ -1753,6 +1854,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1753,6 +1855,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.bootstrapThreadEventPending = true;
        this.applySessionState(response);
        await this.applyConfiguredOverrides();
@@ -1988,7 +2272,7 @@ index d2e0a1b..de74f03 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1807,6 +1909,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1807,6 +1910,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -1996,7 +2280,7 @@ index d2e0a1b..de74f03 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1824,6 +1927,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1824,6 +1928,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -2121,7 +2405,7 @@ index d2e0a1b..de74f03 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1858,24 +2079,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1858,24 +2080,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -2170,7 +2454,36 @@ index d2e0a1b..de74f03 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2413,6 +2654,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2349,7 +2591,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
+   }
+ 
+-  async respondToPermission(requestId: string, response: AgentPermissionResponse): Promise<void> {
++  async respondToPermission(
++    requestId: string,
++    response: AgentPermissionResponse,
++  ): Promise<AgentPermissionResult | void> {
+     const pending = this.pendingPermissions.get(requestId);
+     if (!pending) {
+       throw new Error(`No pending permission request with id '${requestId}'`);
+@@ -2385,6 +2630,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
+       await this.connection.cancel({ sessionId: this.sessionId });
+     }
++
++    // The turn that asked is over, so the resolution above went into an ACP
++    // request nobody is waiting on any more. Hand the answer back as a prompt
++    // instead of letting it disappear.
++    if (pending.turnId !== null && pending.turnId !== this.activeForegroundTurnId) {
++      const prompt = buildLatePermissionAnswer(pending, response, selectedOption);
++      if (prompt !== null) {
++        return { followUpPrompt: prompt };
++      }
++    }
+   }
+ 
+   describePersistence(): AgentPersistenceHandle | null {
+@@ -2413,6 +2668,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.pendingPermissions.clear();
  
      if (this.activeForegroundTurnId) {
@@ -2178,7 +2491,7 @@ index d2e0a1b..de74f03 100644
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2422,9 +2664,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2422,9 +2678,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -2190,7 +2503,7 @@ index d2e0a1b..de74f03 100644
  
      for (const pending of this.pendingPermissions.values()) {
        pending.resolve({ outcome: { outcome: "cancelled" } });
-@@ -2464,6 +2708,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2464,6 +2722,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -2198,7 +2511,7 @@ index d2e0a1b..de74f03 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2522,10 +2767,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2522,10 +2781,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.raw_event",
      );
      if (params.sessionId !== this.sessionId) {
@@ -2244,7 +2557,7 @@ index d2e0a1b..de74f03 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2542,6 +2822,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2542,6 +2836,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -2263,7 +2576,7 @@ index d2e0a1b..de74f03 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2567,6 +2859,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2567,6 +2873,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -2311,7 +2624,7 @@ index d2e0a1b..de74f03 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2919,7 +3252,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2919,7 +3266,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return this.handleUserMessageChunk(update);
      }
  
@@ -2335,7 +2648,7 @@ index d2e0a1b..de74f03 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -2965,8 +3313,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,8 +3327,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          this.handleSessionInfoUpdate(update);
          return pendingUserEvents;
        case "usage_update":
@@ -2345,7 +2658,7 @@ index d2e0a1b..de74f03 100644
        case "available_commands_update":
          this.cachedCommands = update.availableCommands.map((command) => ({
            name: command.name,
-@@ -3126,13 +3473,175 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3126,13 +3487,175 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -2363,8 +2676,9 @@ index d2e0a1b..de74f03 100644
 +      return [];
 +    }
 +    return [{ type: "usage_updated", provider: this.provider, usage }];
-+  }
-+
+   }
+ 
+-  private handlePromptResponse(response: PromptResponse, turnId: string): void {
 +  /**
 +   * Read Paseo's goal extension notification into a goal state event.
 +   *
@@ -2458,9 +2772,8 @@ index d2e0a1b..de74f03 100644
 +    clearTimeout(timer);
 +    this.lateTimelineWaiters.delete(waiter);
 +    return this.currentTurnSawTimeline;
-   }
- 
--  private handlePromptResponse(response: PromptResponse, turnId: string): void {
++  }
++
 +  private releaseLateTimelineWaiters(): void {
 +    const waiters = Array.from(this.lateTimelineWaiters);
 +    this.lateTimelineWaiters.clear();
@@ -2524,7 +2837,7 @@ index d2e0a1b..de74f03 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3226,6 +3735,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3226,6 +3749,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    ): void {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      this.activeForegroundTurnId = null;
@@ -2532,7 +2845,7 @@ index d2e0a1b..de74f03 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3479,7 +3989,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3479,7 +4003,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -2553,7 +2866,7 @@ index d2e0a1b..de74f03 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3545,6 +4067,7 @@ function mergeToolSnapshot(
+@@ -3545,6 +4081,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -2561,7 +2874,7 @@ index d2e0a1b..de74f03 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3554,6 +4077,27 @@ function mergeToolSnapshot(
+@@ -3554,6 +4091,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -2589,7 +2902,7 @@ index d2e0a1b..de74f03 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3570,10 +4114,18 @@ function mapToolSnapshotToTimeline(
+@@ -3570,10 +4128,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -2609,7 +2922,7 @@ index d2e0a1b..de74f03 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -3815,7 +4367,17 @@ function mapPermissionRequest(
+@@ -3815,7 +4381,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -2628,7 +2941,7 @@ index d2e0a1b..de74f03 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3824,11 +4386,11 @@ function mapPermissionRequest(
+@@ -3824,11 +4400,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -2642,7 +2955,7 @@ index d2e0a1b..de74f03 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3842,6 +4404,7 @@ function mapPermissionRequest(
+@@ -3842,6 +4418,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -2650,6 +2963,72 @@ index d2e0a1b..de74f03 100644
      },
    };
  }
+@@ -3870,6 +4447,65 @@ function selectPermissionOption(
+   return null;
+ }
+ 
++/**
++ * Text to send the agent when the user answers a permission request whose turn
++ * already ended. Returning null means "nothing worth saying", which keeps a
++ * dismissal from turning into a stray user message.
++ */
++function buildLatePermissionAnswer(
++  pending: PendingPermission,
++  response: AgentPermissionResponse,
++  selectedOption: PermissionOption | null,
++): string | null {
++  if (response.behavior !== "allow") {
++    return null;
++  }
++
++  const answers = readQuestionFormAnswers(response.updatedInput);
++  if (answers) {
++    const blocks = Object.entries(answers).map(([header, answer]) => `${header}\n${answer}`);
++    return `Answers to your questions:\n\n${blocks.join("\n\n")}`;
++  }
++
++  const answer = selectedOption?.name?.trim();
++  if (!answer) {
++    return null;
++  }
++  // A chooser is a question with pickable options; the question itself lives in
++  // the request detail. Anything else is a plain tool approval, where
++  // "answers to your questions" would read as nonsense.
++  if (isACPChooserRequest(pending.options)) {
++    return `Answers to your questions:\n\n${latePermissionQuestion(pending)}\n${answer}`;
++  }
++  const subject = pending.request.title ?? pending.request.name;
++  return `The user answered your earlier request "${subject}": ${answer}`;
++}
++
++function latePermissionQuestion(pending: PendingPermission): string {
++  const detail = pending.request.detail;
++  if (detail?.type === "plain_text" && detail.text?.trim()) {
++    return detail.text.trim();
++  }
++  return pending.request.title ?? pending.request.name;
++}
++
++/** Non-empty `Record<string,string>` from a question-form submission, else null. */
++function readQuestionFormAnswers(
++  updatedInput: AgentMetadata | undefined,
++): Record<string, string> | null {
++  const raw = updatedInput?.answers;
++  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
++    return null;
++  }
++  const answers: Record<string, string> = {};
++  for (const [key, value] of Object.entries(raw)) {
++    if (typeof value === "string" && value.trim().length > 0) {
++      answers[key] = value;
++    }
++  }
++  return Object.keys(answers).length > 0 ? answers : null;
++}
++
+ function isACPChooserRequest(options: PermissionOption[]): boolean {
+   const allowKinds = new Set<PermissionOption["kind"]>();
+   for (const option of options) {
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 index c8f8960..4c9f1d5 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
