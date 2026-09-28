@@ -2531,10 +2531,10 @@ index 0000000..a0a1c7f
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..28c8c5f
+index 0000000..fb0327a
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,951 @@
+@@ -0,0 +1,1233 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -2670,25 +2670,42 @@ index 0000000..28c8c5f
 +  subagentId?: string;
 +  subagentName?: string;
 +  description?: string;
-+  parentToolCallId?: string;
++  /** Null omits the field, which is how a log that never recorded it looks. */
++  parentToolCallId?: string | null;
++  /** Null omits the field, which is how a log that never recorded it looks. */
++  runInBackground?: boolean | null;
 +  time?: number;
 +}
 +
 +function subagentSpawnedLine(overrides: SubagentSpawnOverrides = {}): string {
++  const runInBackground =
++    overrides.runInBackground === null ? undefined : (overrides.runInBackground ?? false);
++  const parentToolCallId =
++    overrides.parentToolCallId === null
++      ? undefined
++      : (overrides.parentToolCallId ?? "call_01_parent");
 +  return JSON.stringify({
 +    type: "subagent.spawned",
 +    subagentId: overrides.subagentId ?? SUBAGENT_ID,
 +    subagentName: overrides.subagentName ?? "explore",
-+    parentToolCallId: overrides.parentToolCallId ?? "call_01_parent",
++    parentToolCallId,
 +    parentAgentId: "main",
 +    callerAgentId: "main",
 +    description: overrides.description ?? "Explore Paseo daemon goal model",
-+    runInBackground: false,
++    runInBackground,
 +    model: OTHER_MODEL_ALIAS,
 +    thinkingEffort: "high",
 +    taskId: "agent-jc0tdk7g",
 +    time: overrides.time ?? SUBAGENT_TIME,
 +  });
++}
++
++function turnStartedLine(turnId = "turn-1", time = SUBAGENT_TIME + 100): string {
++  return JSON.stringify({ type: "agent.turn.started", agentId: "main", turnId, time });
++}
++
++function turnEndedLine(turnId = "turn-0", time = SUBAGENT_TIME + 100): string {
++  return JSON.stringify({ type: "agent.turn.ended", agentId: "main", turnId, time });
 +}
 +
 +function subagentStartedLine(subagentId = SUBAGENT_ID, time = SUBAGENT_TIME + 322): string {
@@ -2746,8 +2763,32 @@ index 0000000..28c8c5f
 +  return events.some((event) => event.type === "upsert" && event.status === "completed");
 +}
 +
++function hasCanceledUpsert(events: ProviderSubagentInputEvent[]): boolean {
++  return events.some((event) => event.type === "upsert" && event.status === "canceled");
++}
++
 +function countUpserts(events: ProviderSubagentInputEvent[]): number {
 +  return events.filter((event) => event.type === "upsert").length;
++}
++
++function upsertStatuses(events: ProviderSubagentInputEvent[]): string[] {
++  const statuses: string[] = [];
++  for (const event of events) {
++    if (event.type === "upsert" && event.status !== undefined) {
++      statuses.push(event.status);
++    }
++  }
++  return statuses;
++}
++
++function assistantTimelineTexts(events: ProviderSubagentInputEvent[]): string[] {
++  const texts: string[] = [];
++  for (const event of events) {
++    if (event.type === "timeline" && event.item.type === "assistant_message") {
++      texts.push(event.item.text);
++    }
++  }
++  return texts;
 +}
 +
 +function writeKimiConfig(home: string, text: string): string {
@@ -2968,6 +3009,8 @@ index 0000000..28c8c5f
 +        spawnedAt: SUBAGENT_TIME,
 +        updatedAt: SUBAGENT_TIME + 134851,
 +        resultSummary: SUBAGENT_SUMMARY,
++        turn: 0,
++        runInBackground: false,
 +      },
 +    ]);
 +  });
@@ -3007,6 +3050,8 @@ index 0000000..28c8c5f
 +        spawnedAt: SUBAGENT_TIME + 134851,
 +        updatedAt: SUBAGENT_TIME + 134851,
 +        resultSummary: SUBAGENT_SUMMARY,
++        turn: 0,
++        runInBackground: null,
 +      },
 +    ]);
 +  });
@@ -3024,13 +3069,169 @@ index 0000000..28c8c5f
 +    expect(second.subagents.map((subagent) => subagent.id)).toEqual(["agent-1", "agent-0"]);
 +  });
 +
-+  test("a repeated spawn does not resurrect a finished subagent", () => {
++  test("a repeated spawn with the same Agent tool call does not resurrect a finished subagent", () => {
 +    const state = parseKimiSessionLogLines(
 +      [subagentSpawnedLine(), subagentCompletedLine(), subagentSpawnedLine()],
 +      EMPTY_KIMI_SESSION_LOG_STATE,
 +    );
 +
 +    expect(state.subagents[0]?.status).toBe("completed");
++    expect(state.subagents[0]?.description).toBe("Explore Paseo daemon goal model");
++  });
++
++  test("a repeated spawn with no Agent tool call on either side is the same incarnation", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        subagentSpawnedLine({ parentToolCallId: null }),
++        subagentCompletedLine(),
++        subagentSpawnedLine({ parentToolCallId: null }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.toolCallId).toBeNull();
++    expect(state.subagents[0]?.status).toBe("completed");
++  });
++
++  test("a recycled id spawning a different Agent tool call starts a fresh subagent", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        subagentSpawnedLine(),
++        subagentStartedLine(),
++        subagentCompletedLine(),
++        subagentSpawnedLine({
++          parentToolCallId: "call_02_recycled",
++          subagentName: "coder",
++          description: "Fix recycled subagent id",
++          time: SUBAGENT_TIME + 5000,
++        }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents).toEqual([
++      {
++        id: SUBAGENT_ID,
++        name: "coder",
++        description: "Fix recycled subagent id",
++        toolCallId: "call_02_recycled",
++        status: "running",
++        spawnedAt: SUBAGENT_TIME + 5000,
++        updatedAt: SUBAGENT_TIME + 5000,
++        resultSummary: null,
++        turn: 0,
++        runInBackground: false,
++      },
++    ]);
++  });
++
++  test("a recycled id whose spawn only now names a tool call also starts fresh", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        subagentSpawnedLine({ parentToolCallId: null }),
++        subagentCompletedLine(),
++        subagentSpawnedLine({ parentToolCallId: "call_02_recycled" }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.status).toBe("running");
++    expect(state.subagents[0]?.resultSummary).toBeNull();
++    expect(state.subagents[0]?.toolCallId).toBe("call_02_recycled");
++  });
++
++  test("cancels a running subagent once a later turn starts", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        subagentSpawnedLine(),
++        subagentStartedLine(),
++        turnStartedLine(),
++        subagentSpawnedLine({ subagentId: "agent-1", time: SUBAGENT_TIME + 200 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.turnGeneration).toBe(1);
++    expect(state.settledThroughTurn).toBe(0);
++    expect(state.subagents[0]?.status).toBe("canceled");
++    expect(state.subagents[1]?.status).toBe("running");
++  });
++
++  test("cancels an abandoned subagent when the boundary lands in a later batch", () => {
++    const first = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentStartedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(first.subagents[0]?.status).toBe("running");
++
++    const second = parseKimiSessionLogLines([turnStartedLine()], first);
++
++    expect(second.subagents[0]?.status).toBe("canceled");
++  });
++
++  test("keeps a running subagent while no turn boundary has been observed", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentStartedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.settledThroughTurn).toBe(-1);
++    expect(state.subagents[0]?.status).toBe("running");
++  });
++
++  test("does not cancel a background subagent when its turn is over", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine({ runInBackground: true }), subagentStartedLine(), turnStartedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.runInBackground).toBe(true);
++    expect(state.subagents[0]?.status).toBe("running");
++  });
++
++  test("treats a spawn that never recorded runInBackground as foreground", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine({ runInBackground: null }), turnStartedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.runInBackground).toBeNull();
++    expect(state.subagents[0]?.status).toBe("canceled");
++  });
++
++  test("does not cancel a subagent that already completed", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentStartedLine(), subagentCompletedLine(), turnStartedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.status).toBe("completed");
++    expect(state.subagents[0]?.resultSummary).toBe(SUBAGENT_SUMMARY);
++  });
++
++  test("a turn end cancels the running subagent of that same turn", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine(), subagentStartedLine(), turnEndedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.settledThroughTurn).toBe(0);
++    expect(state.subagents[0]?.status).toBe("canceled");
++  });
++
++  test("keeps the spawn turn and background flag across lifecycle records", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        turnStartedLine(),
++        subagentSpawnedLine({ runInBackground: true, time: SUBAGENT_TIME + 5 }),
++        subagentStartedLine(),
++        subagentCompletedLine({ time: SUBAGENT_TIME + 9 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]).toMatchObject({ turn: 1, runInBackground: true });
 +  });
 +});
 +
@@ -3455,6 +3656,87 @@ index 0000000..28c8c5f
 +    );
 +    expect(assistantMessages).toHaveLength(1);
 +  });
++
++  test("emits a cancel upsert when a later turn abandons a running subagent", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n${subagentStartedLine()}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => countUpserts(events) > 0);
++    expect(events.at(-1)).toMatchObject({ id: SUBAGENT_ID, status: "running" });
++
++    appendFileSync(file, `${turnStartedLine()}\n`);
++    await waitFor(() => hasCanceledUpsert(events));
++
++    expect(events.findLast((event) => event.type === "upsert")).toMatchObject({
++      id: SUBAGENT_ID,
++      status: "canceled",
++    });
++  });
++
++  test("emits running then completed when a recycled id starts a new run", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n${subagentCompletedLine()}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => hasCompletedUpsert(events));
++
++    appendFileSync(
++      file,
++      `${subagentSpawnedLine({
++        parentToolCallId: "call_02_recycled",
++        description: "Fix recycled subagent id",
++        time: SUBAGENT_TIME + 5000,
++      })}\n`,
++    );
++    await waitFor(() => countUpserts(events) >= 2);
++    expect(upsertStatuses(events)).toEqual(["completed", "running"]);
++
++    appendFileSync(
++      file,
++      `${subagentCompletedLine({ resultSummary: "Second run done", time: SUBAGENT_TIME + 6000 })}\n`,
++    );
++    await waitFor(() => countUpserts(events) >= 3);
++
++    expect(upsertStatuses(events)).toEqual(["completed", "running", "completed"]);
++    expect(
++      events.findLast((event) => event.type === "upsert" && event.status === "running"),
++    ).toMatchObject({ description: "Fix recycled subagent id" });
++  });
++
++  test("lets a recycled id report its new run's summary despite the old run's text", async () => {
++    const { home, file, sessionDir } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++    writeSubagentLog(sessionDir, SUBAGENT_ID, `${subagentTextLine("First run report")}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => hasAssistantTimeline(events));
++
++    appendFileSync(file, `${subagentCompletedLine({ resultSummary: "First run done" })}\n`);
++    await waitFor(() => hasCompletedUpsert(events));
++    await delay(80);
++    // The first run's own text stands in for its summary.
++    expect(assistantTimelineTexts(events)).toEqual(["First run report"]);
++
++    // The recycled id starts a new run whose log yields no assistant text.
++    appendFileSync(
++      file,
++      `${subagentSpawnedLine({
++        parentToolCallId: "call_02_recycled",
++        description: "Fix recycled subagent id",
++        time: SUBAGENT_TIME + 5000,
++      })}\n${subagentCompletedLine({ resultSummary: "Second run done", time: SUBAGENT_TIME + 6000 })}\n`,
++    );
++    await waitFor(() => assistantTimelineTexts(events).length === 2);
++
++    expect(assistantTimelineTexts(events)).toEqual(["First run report", "Second run done"]);
++  });
 +});
 +
 +function createSessionHome(sessionId: string): {
@@ -3488,10 +3770,10 @@ index 0000000..28c8c5f
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..7e832ce
+index 0000000..972724b
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1048 @@
+@@ -0,0 +1,1196 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -3579,6 +3861,10 @@ index 0000000..7e832ce
 +  spawnedAt: number;
 +  updatedAt: number;
 +  resultSummary: string | null;
++  /** Turn generation that spawned it; the boundary of that turn bounds its life. */
++  turn: number;
++  /** From the spawn record. Null when the log did not say, which is treated as foreground. */
++  runInBackground: boolean | null;
 +}
 +
 +/** Derived state of a session log after replaying a batch of lines. */
@@ -3589,6 +3875,10 @@ index 0000000..7e832ce
 +  modelAlias: string | null;
 +  /** Subagents of the session, in spawn order. */
 +  subagents: KimiSubagentRecord[];
++  /** Count of `agent.turn.started` records seen. */
++  turnGeneration: number;
++  /** Highest turn known to be over. Starts at -1 so no boundary is assumed before one is seen. */
++  settledThroughTurn: number;
 +}
 +
 +export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
@@ -3596,6 +3886,8 @@ index 0000000..7e832ce
 +  contextWindowUsedTokens: null,
 +  modelAlias: null,
 +  subagents: [],
++  turnGeneration: 0,
++  settledThroughTurn: -1,
 +});
 +
 +/**
@@ -3615,6 +3907,8 @@ index 0000000..7e832ce
 + * - `subagent.spawned`, `subagent.started`, `subagent.completed` and
 + *   `subagent.cancelled` maintain the subagent registry. Only the lifecycle is
 + *   read here; each subagent's transcript lives in its own log.
++ * - `agent.turn.started` and `agent.turn.ended` move the turn watermark that
++ *   closes out subagents whose turn is over.
 + *
 + * Anything unparseable is skipped; a half-written line must not abort a replay.
 + */
@@ -3625,6 +3919,8 @@ index 0000000..7e832ce
 +  let goal = previous.goal;
 +  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
 +  let modelAlias = previous.modelAlias;
++  let turnGeneration = previous.turnGeneration;
++  let settledThroughTurn = previous.settledThroughTurn;
 +  // Keyed by id, so a lifecycle record updates its entry in place and the
 +  // iteration order stays the spawn order.
 +  const subagents = new Map<string, KimiSubagentRecord>();
@@ -3637,16 +3933,10 @@ index 0000000..7e832ce
 +    if (line.length === 0) {
 +      continue;
 +    }
-+    let record: unknown;
-+    try {
-+      record = JSON.parse(line);
-+    } catch {
++    const entry = parseKimiLogLine(line);
++    if (entry === null) {
 +      continue;
 +    }
-+    if (typeof record !== "object" || record === null) {
-+      continue;
-+    }
-+    const entry = record as Record<string, unknown>;
 +    switch (entry.type) {
 +      case "goal.create":
 +        goal = createGoalFromRecord(entry);
@@ -3665,57 +3955,96 @@ index 0000000..7e832ce
 +        }
 +        break;
 +      }
++      case "agent.turn.started":
++        turnGeneration += 1;
++        // A new turn proves every earlier one is over.
++        settledThroughTurn = Math.max(settledThroughTurn, turnGeneration - 1);
++        demoteSettledSubagents(subagents, settledThroughTurn);
++        break;
++      case "agent.turn.ended":
++        // A turn ending proves its own turn is over.
++        settledThroughTurn = Math.max(settledThroughTurn, turnGeneration);
++        demoteSettledSubagents(subagents, settledThroughTurn);
++        break;
 +      case "subagent.spawned":
-+        applySubagentSpawn(subagents, entry);
++        applySubagentSpawn(subagents, entry, turnGeneration);
 +        break;
 +      case "subagent.started":
-+        applySubagentStarted(subagents, entry);
++        applySubagentStarted(subagents, entry, turnGeneration);
 +        break;
 +      case "subagent.completed":
-+        applySubagentTerminal(subagents, entry, "completed");
++        applySubagentTerminal(subagents, entry, "completed", turnGeneration);
 +        break;
 +      case "subagent.cancelled":
-+        applySubagentTerminal(subagents, entry, "canceled");
++        applySubagentTerminal(subagents, entry, "canceled", turnGeneration);
 +        break;
-+      default: {
-+        const used = stepContextUsage(entry);
-+        if (used !== null) {
-+          contextWindowUsedTokens = used;
-+        }
++      default:
++        contextWindowUsedTokens = nextContextUsage(entry, contextWindowUsedTokens);
 +        break;
-+      }
 +    }
 +  }
 +
-+  return { goal, contextWindowUsedTokens, modelAlias, subagents: [...subagents.values()] };
++  return {
++    goal,
++    contextWindowUsedTokens,
++    modelAlias,
++    subagents: [...subagents.values()],
++    turnGeneration,
++    settledThroughTurn,
++  };
++}
++
++/**
++ * Parse one log line into a record, or null when it is blank, truncated, or not
++ * an object. A half-written line must not abort a replay.
++ */
++function parseKimiLogLine(line: string): Record<string, unknown> | null {
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(line);
++  } catch {
++    return null;
++  }
++  return asRecord(parsed);
 +}
 +
 +function applySubagentSpawn(
 +  subagents: Map<string, KimiSubagentRecord>,
 +  entry: Record<string, unknown>,
++  turn: number,
 +): void {
 +  const id = readString(entry.subagentId);
 +  if (id === undefined || id.length === 0) {
 +    return;
 +  }
-+  const existing = subagents.get(id);
-+  const time = readNumber(entry.time) ?? existing?.spawnedAt ?? 0;
-+  subagents.set(id, {
++  const previous = subagents.get(id);
++  const toolCallId = readString(entry.parentToolCallId);
++  // Kimi recycles `agent-N` ids, so a spawn that names a different `Agent` tool
++  // call is a new subagent that must start fresh: inheriting the previous
++  // incarnation's status would report a live subagent as complete. Its panel
++  // still shows both runs, because Kimi appends both to the one log for this id
++  // and nothing on those records separates them.
++  const recycled =
++    previous !== undefined && toolCallId !== undefined && previous.toolCallId !== toolCallId;
++  const existing = recycled ? undefined : previous;
++  const time = readNumber(entry.time) ?? previous?.spawnedAt ?? 0;
++  subagents.set(
 +    id,
-+    name: readSubagentField(entry.subagentName, existing?.name),
-+    description: readSubagentField(entry.description, existing?.description),
-+    toolCallId: readSubagentField(entry.parentToolCallId, existing?.toolCallId),
-+    // A repeated spawn must not resurrect a subagent that already finished.
-+    status: existing?.status ?? "running",
-+    spawnedAt: existing?.spawnedAt ?? time,
-+    updatedAt: time,
-+    resultSummary: existing?.resultSummary ?? null,
-+  });
++    mergeSubagentRecord(id, existing, {
++      name: readString(entry.subagentName),
++      description: readString(entry.description),
++      toolCallId,
++      updatedAt: time,
++      turn,
++      runInBackground: readBoolean(entry.runInBackground),
++    }),
++  );
 +}
 +
 +function applySubagentStarted(
 +  subagents: Map<string, KimiSubagentRecord>,
 +  entry: Record<string, unknown>,
++  turn: number,
 +): void {
 +  const id = readString(entry.subagentId);
 +  if (id === undefined || id.length === 0) {
@@ -3723,22 +4052,17 @@ index 0000000..7e832ce
 +  }
 +  const existing = subagents.get(id);
 +  const time = readNumber(entry.time) ?? existing?.spawnedAt ?? 0;
-+  subagents.set(id, {
++  subagents.set(
 +    id,
-+    name: existing?.name ?? null,
-+    description: existing?.description ?? null,
-+    toolCallId: existing?.toolCallId ?? null,
-+    status: existing?.status ?? "running",
-+    spawnedAt: existing?.spawnedAt ?? time,
-+    updatedAt: time,
-+    resultSummary: existing?.resultSummary ?? null,
-+  });
++    mergeSubagentRecord(id, existing, { updatedAt: time, turn: existing?.turn ?? turn }),
++  );
 +}
 +
 +function applySubagentTerminal(
 +  subagents: Map<string, KimiSubagentRecord>,
 +  entry: Record<string, unknown>,
 +  status: "completed" | "canceled",
++  turn: number,
 +): void {
 +  const id = readString(entry.subagentId);
 +  if (id === undefined || id.length === 0) {
@@ -3748,24 +4072,88 @@ index 0000000..7e832ce
 +  // client ever gets that this subagent existed.
 +  const existing = subagents.get(id);
 +  const time = readNumber(entry.time) ?? existing?.updatedAt ?? 0;
-+  subagents.set(id, {
++  subagents.set(
 +    id,
-+    name: existing?.name ?? null,
-+    description: existing?.description ?? null,
-+    toolCallId: existing?.toolCallId ?? null,
-+    status,
-+    spawnedAt: existing?.spawnedAt ?? time,
-+    updatedAt: time,
-+    resultSummary: readString(entry.resultSummary) ?? existing?.resultSummary ?? null,
-+  });
++    mergeSubagentRecord(id, existing, {
++      status,
++      updatedAt: time,
++      resultSummary: readString(entry.resultSummary),
++      turn: existing?.turn ?? turn,
++    }),
++  );
++}
++
++/** Fields a lifecycle record changes. Anything absent keeps the previous value. */
++interface KimiSubagentPatch {
++  name?: string;
++  description?: string;
++  toolCallId?: string;
++  status?: KimiSubagentStatus;
++  updatedAt: number;
++  resultSummary?: string;
++  turn: number;
++  runInBackground?: boolean;
 +}
 +
 +/**
-+ * A lifecycle record only carries the fields that changed, so an absent one
-+ * keeps whatever the spawn announced.
++ * Build the next record from a partial update. A lifecycle record only carries
++ * the fields that changed, so an absent one keeps whatever the spawn announced.
 + */
-+function readSubagentField(value: unknown, previous: string | null | undefined): string | null {
-+  return readString(value) ?? previous ?? null;
++function mergeSubagentRecord(
++  id: string,
++  existing: KimiSubagentRecord | undefined,
++  patch: KimiSubagentPatch,
++): KimiSubagentRecord {
++  return {
++    id,
++    name: stickyField(patch.name, existing?.name),
++    description: stickyField(patch.description, existing?.description),
++    toolCallId: stickyField(patch.toolCallId, existing?.toolCallId),
++    // A repeated spawn must not resurrect a subagent that already finished.
++    status: patch.status ?? existing?.status ?? "running",
++    spawnedAt: existing?.spawnedAt ?? patch.updatedAt,
++    updatedAt: patch.updatedAt,
++    resultSummary: stickyField(patch.resultSummary, existing?.resultSummary),
++    turn: patch.turn,
++    runInBackground: stickyField(patch.runInBackground, existing?.runInBackground),
++  };
++}
++
++/** An absent value keeps the stored one; a present value replaces it. */
++function stickyField<T>(next: T | undefined, previous: T | null | undefined): T | null {
++  return next ?? previous ?? null;
++}
++
++/**
++ * Close out the subagents of turns that are already over.
++ *
++ * A foreground subagent blocks the turn that spawned it, so it cannot still be
++ * alive once that turn ends. Kimi writes no terminal record when the user
++ * interrupts an `Agent` call and sends a new prompt, and it has no heartbeat to
++ * fall back on, so the turn boundary is the only evidence that the subagent is
++ * gone. Without this, an abandoned subagent is reported as running forever.
++ *
++ * `canceled` rather than a new status because Kimi already uses that word for
++ * its own `subagent.cancelled`, and the client renders it as an ordinary, done
++ * row instead of claiming attention.
++ */
++function demoteSettledSubagents(
++  subagents: Map<string, KimiSubagentRecord>,
++  settledThroughTurn: number,
++): void {
++  for (const [id, subagent] of subagents) {
++    if (subagent.status !== "running" || subagent.runInBackground === true) {
++      continue;
++    }
++    if (subagent.turn > settledThroughTurn) {
++      continue;
++    }
++    subagents.set(id, { ...subagent, status: "canceled" });
++  }
++}
++
++function readBoolean(value: unknown): boolean | undefined {
++  return typeof value === "boolean" ? value : undefined;
 +}
 +
 +export interface KimiSessionLogOptions {
@@ -3818,6 +4206,8 @@ index 0000000..7e832ce
 +  private contextWindowUsedTokens: number | null = null;
 +  private modelAlias: string | null = null;
 +  private subagents: KimiSubagentRecord[] = [];
++  private turnGeneration = 0;
++  private settledThroughTurn = -1;
 +  /** Value signature of the last goal considered; null means "nothing considered yet". */
 +  private goalSignature: string | null = null;
 +  private goalBucket = -1;
@@ -3833,6 +4223,11 @@ index 0000000..7e832ce
 +  private readonly subagentsWithText = new Set<string>();
 +  /** Subagents whose result summary has already been emitted as a fallback. */
 +  private readonly summarisedSubagents = new Set<string>();
++  /**
++   * `Agent` tool call id of the incarnation last reported per subagent id, which
++   * is how a recycled id is told apart from a repeated record.
++   */
++  private readonly subagentIncarnations = new Map<string, string | null>();
 +
 +  private timer: ReturnType<typeof setTimeout> | null = null;
 +  private started = false;
@@ -4018,10 +4413,13 @@ index 0000000..7e832ce
 +    this.contextWindowUsedTokens = null;
 +    this.modelAlias = null;
 +    this.subagents = [];
++    this.turnGeneration = 0;
++    this.settledThroughTurn = -1;
 +    this.subagentTailers.clear();
 +    this.subagentSignatures.clear();
 +    this.subagentsWithText.clear();
 +    this.summarisedSubagents.clear();
++    this.subagentIncarnations.clear();
 +  }
 +
 +  private applyLines(lines: string[]): void {
@@ -4030,11 +4428,15 @@ index 0000000..7e832ce
 +      contextWindowUsedTokens: this.contextWindowUsedTokens,
 +      modelAlias: this.modelAlias,
 +      subagents: this.subagents,
++      turnGeneration: this.turnGeneration,
++      settledThroughTurn: this.settledThroughTurn,
 +    });
 +    this.goal = next.goal;
 +    this.contextWindowUsedTokens = next.contextWindowUsedTokens;
 +    this.modelAlias = next.modelAlias;
 +    this.subagents = next.subagents;
++    this.turnGeneration = next.turnGeneration;
++    this.settledThroughTurn = next.settledThroughTurn;
 +  }
 +
 +  private publishGoal(): void {
@@ -4107,6 +4509,14 @@ index 0000000..7e832ce
 +   */
 +  private async publishSubagents(): Promise<void> {
 +    for (const subagent of this.subagents) {
++      if (this.incarnationChanged(subagent)) {
++        // The latches describe the previous run of a recycled id, and would
++        // otherwise suppress this run's summary or mis-report its text.
++        this.subagentsWithText.delete(subagent.id);
++        this.summarisedSubagents.delete(subagent.id);
++      }
++      this.subagentIncarnations.set(subagent.id, subagent.toolCallId);
++
 +      const signature = subagentValueSignature(subagent);
 +      if (this.subagentSignatures.get(subagent.id) === signature) {
 +        continue;
@@ -4149,7 +4559,10 @@ index 0000000..7e832ce
 +        for (const item of items) {
 +          this.emitSubagent({ type: "timeline", id: subagent.id, item });
 +        }
-+        if (tailer.hasAssistantText) {
++        // Read the latch off this batch rather than the tailer's sticky flag: a
++        // recycled id shares one log, so the previous run's text must not carry
++        // over to the new run.
++        if (items.some((item) => item.type === "assistant_message")) {
 +          this.subagentsWithText.add(subagent.id);
 +        }
 +      }
@@ -4184,6 +4597,18 @@ index 0000000..7e832ce
 +        item: { type: "assistant_message", text: summary },
 +      });
 +    }
++  }
++
++  /**
++   * True when this record is a different subagent than the last one reported for
++   * the same id. Kimi recycles `agent-N` ids, and the two runs share one log and
++   * one client row, so only the `Agent` tool call tells them apart.
++   */
++  private incarnationChanged(subagent: KimiSubagentRecord): boolean {
++    if (!this.subagentIncarnations.has(subagent.id)) {
++      return false;
++    }
++    return this.subagentIncarnations.get(subagent.id) !== subagent.toolCallId;
 +  }
 +
 +  private attachSubagentTailer(subagentId: string, sessionDir: string): KimiSubagentLogTailer {
@@ -4464,6 +4889,11 @@ index 0000000..7e832ce
 +  return used > 0 ? used : null;
 +}
 +
++/** The context size this record reports, or the previous value when it reports none. */
++function nextContextUsage(entry: Record<string, unknown>, previous: number | null): number | null {
++  return stepContextUsage(entry) ?? previous;
++}
++
 +interface ConfigWindowCacheEntry {
 +  mtimeMs: number;
 +  windows: Record<string, number>;
@@ -4542,7 +4972,7 @@ index 0000000..7e832ce
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 0000000..d9a7b87
+index 0000000..355fc08
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,285 @@
@@ -4806,18 +5236,18 @@ index 0000000..d9a7b87
 +    expect(await tailer.readAppended()).toEqual([{ type: "assistant_message", text: "fresh" }]);
 +  });
 +
-+  test("reports assistant text without counting reasoning as one", async () => {
++  test("a thinking part yields reasoning, not assistant text", async () => {
 +    const { file } = createTailerHome();
 +    appendFileSync(file, `${thinkPartLine("thinking")}\n`);
 +    const tailer = createTailer(file);
 +
-+    await tailer.readAppended();
-+    expect(tailer.hasAssistantText).toBe(false);
++    expect(await tailer.readAppended()).toEqual([{ type: "reasoning", text: "thinking" }]);
 +
 +    appendFileSync(file, `${textPartLine("the answer")}\n`);
-+    await tailer.readAppended();
 +
-+    expect(tailer.hasAssistantText).toBe(true);
++    expect(await tailer.readAppended()).toEqual([
++      { type: "assistant_message", text: "the answer" },
++    ]);
 +  });
 +
 +  test("returns nothing while the subagent log does not exist", async () => {
@@ -4833,10 +5263,10 @@ index 0000000..d9a7b87
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 0000000..73f28be
+index 0000000..81fc174
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,206 @@
 +import { stat } from "node:fs/promises";
 +import path from "node:path";
 +
@@ -5004,17 +5434,11 @@ index 0000000..73f28be
 +  private offset = 0;
 +  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
 +  private pending = "";
-+  private sawAssistantText = false;
 +
 +  constructor(options: KimiSubagentLogTailerOptions) {
 +    this.subagentId = options.subagentId;
 +    this.sessionDir = options.sessionDir;
 +    this.logger = options.logger;
-+  }
-+
-+  /** True once the log has yielded assistant text, including a replayed one. */
-+  get hasAssistantText(): boolean {
-+    return this.sawAssistantText;
 +  }
 +
 +  /** Returns the items produced by bytes appended since the previous call. */
@@ -5046,11 +5470,7 @@ index 0000000..73f28be
 +    this.offset = size;
 +    const merged = mergePendingFragment(this.pending, lines);
 +    this.pending = fragment;
-+    const items = mapKimiSubagentLogLines(merged, this.calls);
-+    if (!this.sawAssistantText && items.some((item) => item.type === "assistant_message")) {
-+      this.sawAssistantText = true;
-+    }
-+    return items;
++    return mapKimiSubagentLogLines(merged, this.calls);
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
