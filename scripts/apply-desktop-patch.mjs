@@ -296,6 +296,21 @@ const MARKERS = [
     path: "packages/protocol/src/tool-call-display.ts",
     needle: "if (/[A-Z]/.test(trimmed.slice(1))) {",
   },
+  {
+    label: "A turn with no output waits out the late timeline grace",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "lateTimelineGraceMs",
+  },
+  {
+    label: "An expired question is answered as a new prompt",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "function buildLatePermissionAnswer(",
+  },
+  {
+    label: "Kimi background tasks are tailed for the subagent pill",
+    path: "packages/server/src/server/agent/providers/kimi/task-log.ts",
+    needle: "export class KimiTaskOutputTailer",
+  },
 ];
 
 function fail(message) {
