@@ -244,6 +244,7 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 | Harness reminders | a user message that is nothing but a `<system-reminder>` envelope is dropped before it reaches the timeline. Kimi Code and Claude Code inject their own reminders this way (date changes, todo nudges, "the previous turn was interrupted"); Paseo already filtered its own `<paseo-system>` envelope but not this one, so every reminder rendered as a bubble the user appeared to have typed |
 | Composer badges | strip the redundant "Thinking " prefix from option badges, and make composer pills shrinkable so long labels do not evict adjacent buttons |
 | Windows console | route the daemon's `fork()` call sites through `forkProcess()` with `windowsHide`, so a forked worker cannot allocate a visible console window |
+| Terminal output cap | trim an oversized terminal buffer in one byte pass instead of one character at a time. The old shape re-measured the whole string per deleted character, so a command whose output overshot the limit by 1 MB cost tens of seconds on the main thread and the daemon stopped answering |
 
 One series rather than a list because the pieces depend on each other: the session
 log tailer is what feeds the goal state, the goal pill is what reads it, and the

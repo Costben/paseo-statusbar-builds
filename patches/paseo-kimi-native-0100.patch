@@ -1273,7 +1273,7 @@ index e2fb9779b..2571603a5 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2c1..c5f4009c2 100644
+index 9d106a2c1..72f8731a5 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -1355,7 +1355,125 @@ index 9d106a2c1..c5f4009c2 100644
      },
    );
  }
-@@ -1069,6 +1089,39 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -806,6 +826,117 @@ describe("ACPAgentSession terminal tools", () => {
+       truncated: false,
+     });
+   });
++
++  /**
++   * The limit is enforced on bytes, so an oversized chunk has to be trimmed in
++   * one pass. The shape this replaced deleted one character at a time and
++   * re-measured the whole buffer each round, which pinned the event loop for
++   * tens of seconds on exactly the bursts a build produces.
++   */
++  describe("terminal output byte limit", () => {
++    const LIMIT = 100 * 1024;
++
++    async function startLimitedTerminal(): Promise<{
++      session: ACPAgentSession;
++      child: ChildProcess;
++      terminalId: string;
++    }> {
++      const child = createTerminalChildStub();
++      vi.spyOn(spawnUtils, "spawnProcess").mockReturnValue(child);
++      const session = createSession();
++      const terminal = await session.createTerminal({
++        sessionId: "session-1",
++        command: "yes",
++        args: [],
++        outputByteLimit: LIMIT,
++      });
++      vi.restoreAllMocks();
++      return { session, child, terminalId: terminal.terminalId };
++    }
++
++    function readOutput(
++      session: ACPAgentSession,
++      terminalId: string,
++    ): Promise<{ output: string; truncated: boolean }> {
++      return session.terminalOutput({ sessionId: "session-1", terminalId });
++    }
++
++    test("keeps the tail, within the limit, when one chunk blows past it", async () => {
++      const { session, child, terminalId } = await startLimitedTerminal();
++
++      child.stdout!.emit("data", "head".repeat(1) + "a".repeat(LIMIT) + "TAIL-MARKER");
++
++      const { output, truncated } = await readOutput(session, terminalId);
++      expect(truncated).toBe(true);
++      expect(Buffer.byteLength(output, "utf8")).toBeLessThanOrEqual(LIMIT);
++      expect(output.endsWith("TAIL-MARKER")).toBe(true);
++      expect(output.startsWith("head")).toBe(false);
++    });
++
++    test("trims across many chunks without losing the newest bytes", async () => {
++      const { session, child, terminalId } = await startLimitedTerminal();
++
++      for (let index = 0; index < 20; index += 1) {
++        child.stdout!.emit("data", `${String(index).padStart(4, "0")}-${"x".repeat(16 * 1024)}`);
++      }
++      child.stdout!.emit("data", "FINAL");
++
++      const { output, truncated } = await readOutput(session, terminalId);
++      expect(truncated).toBe(true);
++      expect(Buffer.byteLength(output, "utf8")).toBeLessThanOrEqual(LIMIT);
++      expect(output.endsWith("FINAL")).toBe(true);
++    });
++
++    test("cuts multi-byte characters on a boundary, never in half", async () => {
++      const { session, child, terminalId } = await startLimitedTerminal();
++
++      // Three bytes each, so the cut lands inside a character most of the time.
++      child.stdout!.emit("data", "中".repeat(60 * 1024));
++
++      const { output, truncated } = await readOutput(session, terminalId);
++      expect(truncated).toBe(true);
++      expect(Buffer.byteLength(output, "utf8")).toBeLessThanOrEqual(LIMIT);
++      expect(output.includes("�")).toBe(false);
++      expect(output).toMatch(/^中+$/);
++    });
++
++    test("cuts an emoji on a surrogate pair boundary", async () => {
++      const { session, child, terminalId } = await startLimitedTerminal();
++
++      child.stdout!.emit("data", "😀".repeat(40 * 1024));
++
++      const { output } = await readOutput(session, terminalId);
++      expect(Buffer.byteLength(output, "utf8")).toBeLessThanOrEqual(LIMIT);
++      expect(output.includes("�")).toBe(false);
++      expect(output).toMatch(/^(😀)+$/);
++    });
++
++    test("leaves a buffer that fits untouched", async () => {
++      const { session, child, terminalId } = await startLimitedTerminal();
++
++      child.stdout!.emit("data", "short output");
++
++      await expect(readOutput(session, terminalId)).resolves.toEqual({
++        output: "short output",
++        truncated: false,
++        exitStatus: undefined,
++      });
++    });
++
++    test("trims a 1.2 MB burst without stalling the event loop", async () => {
++      const { session, child, terminalId } = await startLimitedTerminal();
++
++      const started = process.hrtime.bigint();
++      child.stdout!.emit("data", "a".repeat(1_200 * 1024));
++      const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6;
++
++      // The character-at-a-time version needed tens of seconds here.
++      expect(elapsedMs).toBeLessThan(500);
++      const { output, truncated } = await readOutput(session, terminalId);
++      expect(truncated).toBe(true);
++      expect(Buffer.byteLength(output, "utf8")).toBeLessThanOrEqual(LIMIT);
++    });
++  });
+ });
+ 
+ describe("mapACPUsage", () => {
+@@ -1069,6 +1200,39 @@ describe("ACPAgentSession Zed parity", () => {
      );
    });
  
@@ -1395,7 +1513,7 @@ index 9d106a2c1..c5f4009c2 100644
    test("routes config_option_update and refreshes derived mode, model, and thinking state", async () => {
      const session = createSession();
      const internals = asInternals<ACPSessionInternals>(session);
-@@ -1357,6 +1410,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1357,6 +1521,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -1460,7 +1578,7 @@ index 9d106a2c1..c5f4009c2 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -1410,6 +1521,203 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1410,6 +1632,203 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -1664,43 +1782,19 @@ index 9d106a2c1..c5f4009c2 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2608,48 +2916,154 @@ describe("ACPAgentSession", () => {
+@@ -2608,7 +3027,113 @@ describe("ACPAgentSession", () => {
      );
    });
  
 -  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
--    const session = createKiroSession({
--      waitForInitialCommands: true,
--      initialCommandsWaitTimeoutMs: 1500,
--    });
 +  test("maps the compaction extension notification into a timeline marker", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    session.subscribe((event) => events.push(event));
- 
--    const listCommandsPromise = session.listCommands();
--
--    await session.extNotification("_kiro.dev/commands/available", {
++
 +    await session.extNotification("_paseo.dev/session/compaction", {
-       sessionId: "session-1",
--      commands: [
--        {
--          name: "/agent",
--          description: "Select or list available agents",
--          meta: { inputType: "selection", hint: "swap <name>" },
--        },
--      ],
--      prompts: [
--        {
--          name: "agent-sync-doctor",
--          description: "Hand off Claude or Codex state across Macs",
--          arguments: [],
--          serverName: "skill:config",
--        },
--      ],
--      // Tools are not slash commands and must be ignored.
--      tools: [{ name: "code", description: "Code intelligence", source: "built-in" }],
++      sessionId: "session-1",
 +      status: "in_progress",
 +      trigger: "auto",
 +    });
@@ -1709,25 +1803,16 @@ index 9d106a2c1..c5f4009c2 100644
 +      status: "completed",
 +      trigger: "auto",
 +      preTokens: 253457,
-     });
- 
--    expect(await listCommandsPromise).toEqual([
++    });
++
 +    expect(events.filter((event) => event.type === "timeline")).toEqual([
-       {
--        name: "agent",
--        description: "Select or list available agents",
--        argumentHint: "swap <name>",
--        kind: "command",
++      {
 +        type: "timeline",
 +        provider: "kimi",
 +        item: { type: "compaction", status: "loading", trigger: "auto" },
 +        turnId: undefined,
-       },
-       {
--        name: "agent-sync-doctor",
--        description: "Hand off Claude or Codex state across Macs",
--        argumentHint: "",
--        kind: "skill",
++      },
++      {
 +        type: "timeline",
 +        provider: "kimi",
 +        item: { type: "compaction", status: "completed", trigger: "auto", preTokens: 253457 },
@@ -1809,51 +1894,10 @@ index 9d106a2c1..c5f4009c2 100644
 +  });
 +
 +  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
-+    const session = createKiroSession({
-+      waitForInitialCommands: true,
-+      initialCommandsWaitTimeoutMs: 1500,
-+    });
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+
-+    const listCommandsPromise = session.listCommands();
-+
-+    await session.extNotification("_kiro.dev/commands/available", {
-+      sessionId: "session-1",
-+      commands: [
-+        {
-+          name: "/agent",
-+          description: "Select or list available agents",
-+          meta: { inputType: "selection", hint: "swap <name>" },
-+        },
-+      ],
-+      prompts: [
-+        {
-+          name: "agent-sync-doctor",
-+          description: "Hand off Claude or Codex state across Macs",
-+          arguments: [],
-+          serverName: "skill:config",
-+        },
-+      ],
-+      // Tools are not slash commands and must be ignored.
-+      tools: [{ name: "code", description: "Code intelligence", source: "built-in" }],
-+    });
-+
-+    expect(await listCommandsPromise).toEqual([
-+      {
-+        name: "agent",
-+        description: "Select or list available agents",
-+        argumentHint: "swap <name>",
-+        kind: "command",
-+      },
-+      {
-+        name: "agent-sync-doctor",
-+        description: "Hand off Claude or Codex state across Macs",
-+        argumentHint: "",
-+        kind: "skill",
-       },
-     ]);
-   });
-@@ -2918,6 +3332,325 @@ describe("ACPAgentSession", () => {
+     const session = createKiroSession({
+       waitForInitialCommands: true,
+       initialCommandsWaitTimeoutMs: 1500,
+@@ -2918,6 +3443,325 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -2179,7 +2223,7 @@ index 9d106a2c1..c5f4009c2 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4180,3 +4913,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4180,3 +5024,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -2503,7 +2547,7 @@ index 9d106a2c1..c5f4009c2 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index d2e0a1beb..c5426a569 100644
+index d2e0a1beb..f36c682b8 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -72,9 +72,11 @@ import {
@@ -2638,7 +2682,16 @@ index d2e0a1beb..c5426a569 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -916,6 +988,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -618,6 +690,8 @@ interface TerminalEntry {
+   id: string;
+   child: ChildProcess;
+   output: string;
++  /** Bytes `output` currently holds, so a chunk under the limit costs one measure. */
++  outputBytes: number;
+   truncated: boolean;
+   outputByteLimit: number | null;
+   exit: TerminalExit | null;
+@@ -916,6 +990,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -2646,7 +2699,7 @@ index d2e0a1beb..c5426a569 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -946,6 +1019,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -946,6 +1021,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -2654,7 +2707,7 @@ index d2e0a1beb..c5426a569 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -979,6 +1053,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -979,6 +1055,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -2662,7 +2715,7 @@ index d2e0a1beb..c5426a569 100644
        },
      );
      await session.initializeNewSession();
-@@ -1030,6 +1105,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1030,6 +1107,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -2670,7 +2723,7 @@ index d2e0a1beb..c5426a569 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1629,6 +1705,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1629,6 +1707,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -2690,7 +2743,7 @@ index d2e0a1beb..c5426a569 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1689,9 +1778,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1689,9 +1780,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -2710,7 +2763,7 @@ index d2e0a1beb..c5426a569 100644
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
    private historyPending = false;
-@@ -1729,7 +1828,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1729,7 +1830,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -2721,7 +2774,7 @@ index d2e0a1beb..c5426a569 100644
    }
  
    get id(): string | null {
-@@ -1753,6 +1855,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1753,6 +1857,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.bootstrapThreadEventPending = true;
        this.applySessionState(response);
        await this.applyConfiguredOverrides();
@@ -2729,7 +2782,7 @@ index d2e0a1beb..c5426a569 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1807,6 +1910,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1807,6 +1912,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -2737,7 +2790,7 @@ index d2e0a1beb..c5426a569 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1824,6 +1928,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1824,6 +1930,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -2862,7 +2915,7 @@ index d2e0a1beb..c5426a569 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1858,24 +2080,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1858,24 +2082,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -2911,7 +2964,7 @@ index d2e0a1beb..c5426a569 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2349,7 +2591,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2349,7 +2593,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -2923,7 +2976,7 @@ index d2e0a1beb..c5426a569 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2385,6 +2630,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2385,6 +2632,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -2940,7 +2993,7 @@ index d2e0a1beb..c5426a569 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2413,6 +2668,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2413,6 +2670,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.pendingPermissions.clear();
  
      if (this.activeForegroundTurnId) {
@@ -2948,7 +3001,7 @@ index d2e0a1beb..c5426a569 100644
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2422,9 +2678,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2422,9 +2680,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -2960,7 +3013,7 @@ index d2e0a1beb..c5426a569 100644
  
      for (const pending of this.pendingPermissions.values()) {
        pending.resolve({ outcome: { outcome: "cancelled" } });
-@@ -2464,6 +2722,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2464,6 +2724,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -2968,7 +3021,7 @@ index d2e0a1beb..c5426a569 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2522,10 +2781,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2522,10 +2783,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.raw_event",
      );
      if (params.sessionId !== this.sessionId) {
@@ -3014,7 +3067,7 @@ index d2e0a1beb..c5426a569 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2542,6 +2836,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2542,6 +2838,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -3033,7 +3086,7 @@ index d2e0a1beb..c5426a569 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2567,6 +2873,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2567,6 +2875,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -3081,7 +3134,15 @@ index d2e0a1beb..c5426a569 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2919,7 +3266,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2653,6 +3002,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       id: terminalId,
+       child,
+       output: "",
++      outputBytes: 0,
+       truncated: false,
+       outputByteLimit: params.outputByteLimit ?? null,
+       exit: null,
+@@ -2919,7 +3269,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return this.handleUserMessageChunk(update);
      }
  
@@ -3105,7 +3166,7 @@ index d2e0a1beb..c5426a569 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -2965,8 +3327,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,8 +3330,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          this.handleSessionInfoUpdate(update);
          return pendingUserEvents;
        case "usage_update":
@@ -3115,7 +3176,7 @@ index d2e0a1beb..c5426a569 100644
        case "available_commands_update":
          this.cachedCommands = update.availableCommands.map((command) => ({
            name: command.name,
-@@ -3126,13 +3487,175 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3126,13 +3490,175 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -3133,9 +3194,8 @@ index d2e0a1beb..c5426a569 100644
 +      return [];
 +    }
 +    return [{ type: "usage_updated", provider: this.provider, usage }];
-   }
- 
--  private handlePromptResponse(response: PromptResponse, turnId: string): void {
++  }
++
 +  /**
 +   * Read Paseo's goal extension notification into a goal state event.
 +   *
@@ -3237,8 +3297,9 @@ index d2e0a1beb..c5426a569 100644
 +    for (const waiter of waiters) {
 +      waiter();
 +    }
-+  }
-+
+   }
+ 
+-  private handlePromptResponse(response: PromptResponse, turnId: string): void {
 +  private async handlePromptResponse(response: PromptResponse, turnId: string): Promise<void> {
 +    if (turnId !== this.activeForegroundTurnId) {
 +      this.logger.warn(
@@ -3294,7 +3355,7 @@ index d2e0a1beb..c5426a569 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3226,6 +3749,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3226,6 +3752,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    ): void {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      this.activeForegroundTurnId = null;
@@ -3302,7 +3363,7 @@ index d2e0a1beb..c5426a569 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3479,7 +4003,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3479,7 +4006,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -3323,7 +3384,7 @@ index d2e0a1beb..c5426a569 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3545,6 +4081,7 @@ function mergeToolSnapshot(
+@@ -3545,6 +4084,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -3331,7 +3392,7 @@ index d2e0a1beb..c5426a569 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3554,6 +4091,27 @@ function mergeToolSnapshot(
+@@ -3554,6 +4094,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -3359,7 +3420,7 @@ index d2e0a1beb..c5426a569 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3570,10 +4128,18 @@ function mapToolSnapshotToTimeline(
+@@ -3570,10 +4131,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -3379,7 +3440,7 @@ index d2e0a1beb..c5426a569 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -3815,7 +4381,17 @@ function mapPermissionRequest(
+@@ -3815,7 +4384,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -3398,7 +3459,7 @@ index d2e0a1beb..c5426a569 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3824,11 +4400,11 @@ function mapPermissionRequest(
+@@ -3824,11 +4403,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -3412,7 +3473,7 @@ index d2e0a1beb..c5426a569 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3842,6 +4418,7 @@ function mapPermissionRequest(
+@@ -3842,6 +4421,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -3420,7 +3481,7 @@ index d2e0a1beb..c5426a569 100644
      },
    };
  }
-@@ -3870,6 +4447,65 @@ function selectPermissionOption(
+@@ -3870,6 +4450,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -3486,6 +3547,48 @@ index d2e0a1beb..c5426a569 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
+@@ -3884,16 +4523,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+   return false;
+ }
+ 
++/**
++ * Keep a terminal's output inside its byte limit.
++ *
++ * The trimming is done once, in bytes: measure the buffer, drop the excess from
++ * the front, and land on a character boundary. The earlier shape appended a
++ * chunk and then deleted one character at a time, re-measuring the whole string
++ * every round, which cost O(overflow x keptBytes) on the main thread — a build
++ * that emitted a 1 MB burst against a 100 KB limit held the event loop for tens
++ * of seconds, and the daemon answered nothing until it finished.
++ *
++ * What is kept is unchanged: the last `limit` bytes, with `truncated` set.
++ */
+ function appendTerminalOutput(entry: TerminalEntry, chunk: string): void {
+   entry.output += chunk;
++  entry.outputBytes += Buffer.byteLength(chunk, "utf8");
+   const limit = entry.outputByteLimit;
+-  if (!limit) {
++  if (!limit || entry.outputBytes <= limit) {
+     return;
+   }
+-  while (Buffer.byteLength(entry.output, "utf8") > limit && entry.output.length > 0) {
+-    entry.output = entry.output.slice(1);
+-    entry.truncated = true;
++
++  const bytes = Buffer.from(entry.output, "utf8");
++  let start = bytes.byteLength - limit;
++  // Never cut a multi-byte character in half; that would put U+FFFD at the
++  // front of the output.
++  while (start < bytes.byteLength && (bytes[start]! & 0xc0) === 0x80) {
++    start += 1;
+   }
++
++  entry.output = bytes.subarray(start).toString("utf8");
++  entry.outputBytes = bytes.byteLength - start;
++  entry.truncated = true;
+ }
+ 
+ function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 index c8f8960ea..4c9f1d53b 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts

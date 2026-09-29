@@ -341,6 +341,11 @@ const MARKERS = [
     path: "packages/app/src/composer/goal-pill.tsx",
     needle: "export function formatGoalInputUsage(",
   },
+  {
+    label: "Terminal output is trimmed in one pass",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "entry.outputBytes += Buffer.byteLength(chunk, \"utf8\");",
+  },
 ];
 
 function fail(message) {
