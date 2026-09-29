@@ -172,7 +172,7 @@ needs only some of the three:
 | What changed | APK | macOS | Windows |
 |---|---|---|---|
 | upstream tag — new client and/or daemon code | rebuild | rebuild | rebuild |
-| `paseo-kimi-native-0100.patch`, `paseo-agent-cwd-guard.patch`, `apply-desktop-patch.mjs` — daemon and/or desktop-app code | **—** | rebuild | rebuild |
+| `paseo-kimi-native-0100.patch`, `paseo-agent-cwd-guard.patch`, `paseo-0.10.1-kimi-session-log-hotloop.patch`, `apply-desktop-patch.mjs` — daemon and/or desktop-app code | **—** | rebuild | rebuild |
 | the same, but the change also lands in code the APK bundles (e.g. `packages/protocol/`) | rebuild | rebuild | rebuild |
 | `paseo-app-composer-badges.patch`, `apply-statusbar-patch.mjs` | rebuild | see below | see below |
 | `upload-release-assets.mjs`, the workflow files themselves | rebuild | rebuild | rebuild |
