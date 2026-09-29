@@ -97,16 +97,6 @@ const PATCHES = [
     },
   },
   {
-    // Touches files the series above creates, so it has to follow it.
-    name: "kimi-session-log-hotloop",
-    file: "paseo-0.10.1-kimi-session-log-hotloop.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-      needle: "export const MAX_BYTES_PER_TICK = 512 * 1024;",
-    },
-  },
-  {
     name: "agent-cwd-guard",
     file: "paseo-agent-cwd-guard.patch",
     platforms: ["mac", "win"],
@@ -340,6 +330,16 @@ const MARKERS = [
     label: "A long stretch of lines is parsed in chunks that yield",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
     needle: "yieldToEventLoop",
+  },
+  {
+    label: "A goal carries the input tokens its steps read",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "function stepInputUsage(",
+  },
+  {
+    label: "Goal detail shows the input side",
+    path: "packages/app/src/composer/goal-pill.tsx",
+    needle: "export function formatGoalInputUsage(",
   },
 ];
 

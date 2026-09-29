@@ -73,10 +73,10 @@ index 1bebc8a5a..82bfd2763 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 000000000..413c80a5f
+index 000000000..2272776c4
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,155 @@
 +import React, { act, type ReactNode } from "react";
 +import { createRoot, type Root } from "react-dom/client";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -102,9 +102,19 @@ index 000000000..413c80a5f
 +  status: "active",
 +  turnsUsed: 7,
 +  tokensUsed: 136_400,
++  inputTokens: 6_398_865,
 +  startedAt: STARTED_AT,
 +  updatedAt: STARTED_AT + 60_000,
 +};
++
++/** A goal whose log carried cache reads, which the input row has to name. */
++const CACHED_GOAL: AgentGoalPayload = {
++  ...GOAL,
++  inputTokens: 1_203_194,
++  cachedInputTokens: 1_108_328,
++};
++/** A goal whose log carried no input measurement at all. */
++const OUTPUT_ONLY_GOAL: AgentGoalPayload = { ...GOAL, inputTokens: undefined };
 +
 +const CLEARED_GOAL: AgentGoalPayload = { ...GOAL, status: "cleared", endedAt: ENDED_AT };
 +/** A goal whose create record carried no `time`, which the panel has to render without a start. */
@@ -160,7 +170,7 @@ index 000000000..413c80a5f
 +    mount(<GoalPill goal={GOAL} />);
 +
 +    expect(pill().textContent).toContain("目标进行中");
-+    expect(pill().textContent).toContain("· 7 回合 · 136K");
++    expect(pill().textContent).toContain("· 7 回合 · 136K · 入 6.4M");
 +    expect(pill().getAttribute("aria-expanded")).toBe("false");
 +    expect(element(PANEL)).toBeNull();
 +
@@ -173,9 +183,29 @@ index 000000000..413c80a5f
 +    expect(fieldText("turns")).toContain("Paseo 按会话日志统计");
 +    expect(fieldText("tokens")).toContain("136K tokens");
 +    expect(fieldText("tokens")).toContain("136,400");
++    expect(fieldText("input-tokens")).toContain("6.4M tokens");
++    expect(fieldText("input-tokens")).toContain("6,398,865");
 +    expect(fieldText("elapsed")).toBe("已跑1h");
 +    expect(fieldText("started")).not.toBeNull();
 +    expect(element(`${PANEL}-ended`)).toBeNull();
++  });
++
++  it("names the cache-read part of the input when the log reported one", () => {
++    mount(<GoalPill goal={CACHED_GOAL} />);
++    openPanel();
++
++    expect(fieldText("input-tokens")).toContain("1.2M tokens");
++    expect(fieldText("input-tokens")).toContain("其中缓存 1,108,328");
++  });
++
++  it("drops the input row when the log carried no input measurement", () => {
++    mount(<GoalPill goal={OUTPUT_ONLY_GOAL} />);
++
++    expect(pill().textContent).not.toContain("入 ");
++    openPanel();
++
++    expect(element(`${PANEL}-input-tokens`)).toBeNull();
++    expect(fieldText("tokens")).toContain("136K tokens");
 +  });
 +
 +  it("keeps a finished goal readable after it is cleared", () => {
@@ -204,15 +234,16 @@ index 000000000..413c80a5f
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..2b2217d8f
+index 000000000..a3832bc4a
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,110 @@
 +import { describe, expect, it } from "vitest";
 +import {
 +  formatCompactTokens,
 +  formatFullTokens,
 +  formatGoalElapsed,
++  formatGoalInputUsage,
 +  formatGoalUsageSuffix,
 +  resolveGoalStatusLabel,
 +} from "./goal-pill";
@@ -264,8 +295,40 @@ index 000000000..2b2217d8f
 +    expect(formatGoalUsageSuffix(0, 500)).toBe("· 500");
 +  });
 +
++  it("appends the input side when the log carried one", () => {
++    expect(formatGoalUsageSuffix(3, 12_300, 1_200_000)).toBe("· 3 回合 · 12.3K · 入 1.2M");
++  });
++
++  it("leaves the suffix alone when there is no input count", () => {
++    expect(formatGoalUsageSuffix(3, 12_300, 0)).toBe("· 3 回合 · 12.3K");
++  });
++
 +  it("returns null when the goal has no usage yet", () => {
 +    expect(formatGoalUsageSuffix(0, 0)).toBeNull();
++  });
++});
++
++describe("formatGoalInputUsage", () => {
++  it("shows the summed input with the exact count", () => {
++    const usage = formatGoalInputUsage(1_203_194, undefined);
++    expect(usage?.value).toBe("1.2M tokens");
++    expect(usage?.hint).toContain("1,203,194");
++    expect(usage?.hint).toContain("同一段上下文会重复计入");
++  });
++
++  it("names the cache-read part when there was one", () => {
++    const usage = formatGoalInputUsage(1_203_194, 1_108_328);
++    expect(usage?.hint).toContain("其中缓存 1,108,328");
++  });
++
++  it("omits the cache note when nothing was cached", () => {
++    const usage = formatGoalInputUsage(1_203_194, 0);
++    expect(usage?.hint).not.toContain("缓存");
++  });
++
++  it("has nothing to show without an input count", () => {
++    expect(formatGoalInputUsage(undefined, undefined)).toBeNull();
++    expect(formatGoalInputUsage(0, 0)).toBeNull();
 +  });
 +});
 +
@@ -287,10 +350,10 @@ index 000000000..2b2217d8f
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..bd71b7ff6
+index 000000000..3704ac3c1
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,360 @@
 +import { useCallback, type ReactElement } from "react";
 +import { Text, View } from "react-native";
 +import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
@@ -411,7 +474,8 @@ index 000000000..bd71b7ff6
 + * next to a token count reads as provider-reported.
 + */
 +const TURNS_HINT = "Paseo 按会话日志统计，Kimi 不提供这个数";
-+const TOKENS_HINT = "Kimi 报的累计输出 token，不含输入";
++const TOKENS_HINT = "Kimi 报的累计输出 token";
++const INPUT_TOKENS_HINT = "Paseo 按步骤累计的输入 token，同一段上下文会重复计入";
 +
 +export function resolveGoalStatusLabel(status: AgentGoalStatus): string {
 +  return GOAL_STATUS_LABELS[status];
@@ -434,16 +498,39 @@ index 000000000..bd71b7ff6
 +  return String(Math.round(tokens)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 +}
 +
-+function goalUsageParts(turnsUsed: number, tokensUsed: number): string[] {
++function goalUsageParts(turnsUsed: number, tokensUsed: number, inputTokens = 0): string[] {
 +  const parts: string[] = [];
 +  if (turnsUsed > 0) parts.push(`${Math.round(turnsUsed)} 回合`);
 +  if (tokensUsed > 0) parts.push(formatCompactTokens(tokensUsed));
++  if (inputTokens > 0) parts.push(`入 ${formatCompactTokens(inputTokens)}`);
 +  return parts;
 +}
 +
-+export function formatGoalUsageSuffix(turnsUsed: number, tokensUsed: number): string | null {
-+  const parts = goalUsageParts(turnsUsed, tokensUsed);
++export function formatGoalUsageSuffix(
++  turnsUsed: number,
++  tokensUsed: number,
++  inputTokens = 0,
++): string | null {
++  const parts = goalUsageParts(turnsUsed, tokensUsed, inputTokens);
 +  return parts.length > 0 ? `· ${parts.join(" · ")}` : null;
++}
++
++/**
++ * The input side of a goal's usage, as a line for the panel: the summed input, and the cache-read
++ * part of it when the provider reported any. Null when the log carried no input at all, because a
++ * row reading zero would claim the goal read nothing.
++ */
++export function formatGoalInputUsage(
++  inputTokens: number | undefined,
++  cachedInputTokens: number | undefined,
++): { value: string; hint: string } | null {
++  if (inputTokens === undefined || inputTokens <= 0) return null;
++  const cached = cachedInputTokens !== undefined && cachedInputTokens > 0 ? cachedInputTokens : 0;
++  const hint =
++    cached > 0
++      ? `${formatFullTokens(inputTokens)} · 其中缓存 ${formatFullTokens(cached)} · ${INPUT_TOKENS_HINT}`
++      : `${formatFullTokens(inputTokens)} · ${INPUT_TOKENS_HINT}`;
++  return { value: `${formatCompactTokens(inputTokens)} tokens`, hint };
 +}
 +
 +/**
@@ -513,8 +600,11 @@ index 000000000..bd71b7ff6
 +  );
 +  const label = resolveGoalStatusLabel(goal.status);
 +  const Glyph = GOAL_STATUS_GLYPHS[goal.status];
-+  const usageSuffix = formatGoalUsageSuffix(goal.turnsUsed, goal.tokensUsed);
-+  const accessibilityLabel = [label, ...goalUsageParts(goal.turnsUsed, goal.tokensUsed)].join("，");
++  const usageSuffix = formatGoalUsageSuffix(goal.turnsUsed, goal.tokensUsed, goal.inputTokens);
++  const accessibilityLabel = [
++    label,
++    ...goalUsageParts(goal.turnsUsed, goal.tokensUsed, goal.inputTokens),
++  ].join("，");
 +
 +  return (
 +    <MenuTrigger
@@ -543,6 +633,7 @@ index 000000000..bd71b7ff6
 +function GoalDetail({ goal }: { goal: AgentGoalPayload }): ReactElement {
 +  const elapsed = formatGoalElapsed(goal.startedAt, goal.endedAt, Date.now());
 +  const endedAt = goal.endedAt;
++  const inputUsage = formatGoalInputUsage(goal.inputTokens, goal.cachedInputTokens);
 +  return (
 +    <>
 +      <GoalDetailField
@@ -564,11 +655,19 @@ index 000000000..bd71b7ff6
 +        testID={`${DETAIL_PANEL_TEST_ID}-turns`}
 +      />
 +      <GoalDetailField
-+        label="用量"
++        label="输出"
 +        value={`${formatCompactTokens(goal.tokensUsed)} tokens`}
 +        hint={`${formatFullTokens(goal.tokensUsed)} · ${TOKENS_HINT}`}
 +        testID={`${DETAIL_PANEL_TEST_ID}-tokens`}
 +      />
++      {inputUsage === null ? null : (
++        <GoalDetailField
++          label="输入"
++          value={inputUsage.value}
++          hint={inputUsage.hint}
++          testID={`${DETAIL_PANEL_TEST_ID}-input-tokens`}
++        />
++      )}
 +      {goal.startedAt !== undefined ? (
 +        <GoalDetailField
 +          label="开始"
@@ -771,10 +870,10 @@ index c1c70c640..7a4c64310 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index db72cd3cb..2afa55652 100644
+index db72cd3cb..55e1598cf 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -806,6 +806,29 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -806,6 +806,31 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -793,6 +892,8 @@ index db72cd3cb..2afa55652 100644
 +  status: AgentGoalStatusSchema,
 +  turnsUsed: z.number(),
 +  tokensUsed: z.number(),
++  inputTokens: z.number().optional(),
++  cachedInputTokens: z.number().optional(),
 +  startedAt: z.number().optional(),
 +  endedAt: z.number().nullable().optional(),
 +  updatedAt: z.number(),
@@ -804,7 +905,7 @@ index db72cd3cb..2afa55652 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -827,6 +850,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -827,6 +852,7 @@ export const AgentSnapshotPayloadSchema = z.object({
    persistence: AgentPersistenceHandleSchema.nullable(),
    runtimeInfo: AgentRuntimeInfoSchema.optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -890,7 +991,7 @@ index 1f8c1374c..e89365af7 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 061c00e2c..2a19f7307 100644
+index 87d3b290a..d2e0d4379 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,7 @@ import {
@@ -909,7 +1010,7 @@ index 061c00e2c..2a19f7307 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -2447,7 +2449,7 @@ export class AgentManager {
+@@ -2448,7 +2450,7 @@ export class AgentManager {
          pendingRun.start = { status: "failed", error: error.message };
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -918,7 +1019,7 @@ index 061c00e2c..2a19f7307 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -2459,7 +2461,7 @@ export class AgentManager {
+@@ -2460,7 +2462,7 @@ export class AgentManager {
          error: errorMsg,
        });
        this.finalizeForegroundTurn(agent);
@@ -927,7 +1028,7 @@ index 061c00e2c..2a19f7307 100644
        throw error;
      }
    }
-@@ -2589,7 +2591,7 @@ export class AgentManager {
+@@ -2590,7 +2592,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -936,7 +1037,7 @@ index 061c00e2c..2a19f7307 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -2648,6 +2650,24 @@ export class AgentManager {
+@@ -2649,6 +2651,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -961,7 +1062,7 @@ index 061c00e2c..2a19f7307 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3050,7 +3070,7 @@ export class AgentManager {
+@@ -3051,7 +3071,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -970,7 +1071,7 @@ index 061c00e2c..2a19f7307 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -3188,7 +3208,7 @@ export class AgentManager {
+@@ -3189,7 +3209,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -979,7 +1080,7 @@ index 061c00e2c..2a19f7307 100644
      }
    }
  
-@@ -3773,9 +3793,28 @@ export class AgentManager {
+@@ -3774,9 +3794,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -1008,7 +1109,7 @@ index 061c00e2c..2a19f7307 100644
            return;
          }
          this.logger.trace(
-@@ -4299,6 +4338,13 @@ export class AgentManager {
+@@ -4300,6 +4339,13 @@ export class AgentManager {
          agent.lastUsage = event.usage;
          this.emitState(agent);
          return undefined;
@@ -1123,10 +1224,10 @@ index 41e2d5201..96d2683ae 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index e2fb9779b..a16e57a32 100644
+index e2fb9779b..2571603a5 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
-@@ -236,6 +236,27 @@ export interface AgentUsage {
+@@ -236,6 +236,35 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -1139,6 +1240,14 @@ index e2fb9779b..a16e57a32 100644
 +  status: AgentGoalStatus;
 +  turnsUsed: number;
 +  tokensUsed: number;
++  /**
++   * Input tokens the goal's steps read, summed by Paseo while the goal ran.
++   * Absent when the provider reports the input side itself or the log carried
++   * none; the meaning of `tokensUsed` is unchanged either way.
++   */
++  inputTokens?: number;
++  /** The cache-read part of `inputTokens`, when the provider reports cache hits. */
++  cachedInputTokens?: number;
 +  startedAt?: number;
 +  endedAt?: number | null;
 +  updatedAt: number;
@@ -1154,7 +1263,7 @@ index e2fb9779b..a16e57a32 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -421,6 +442,8 @@ export type AgentStreamEvent =
+@@ -421,6 +450,8 @@ export type AgentStreamEvent =
    | { type: "turn_started"; provider: AgentProvider; turnId?: string }
    | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
@@ -3801,11 +3910,18 @@ index 000000000..a0a1c7f23
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 000000000..1ec708a47
+index 000000000..b044bf0f2
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1280 @@
-+import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
+@@ -0,0 +1,1536 @@
++import {
++  appendFileSync,
++  mkdirSync,
++  mkdtempSync,
++  statSync,
++  utimesSync,
++  writeFileSync,
++} from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
 +import { afterEach, describe, expect, test } from "vitest";
@@ -3816,8 +3932,13 @@ index 000000000..1ec708a47
 +import {
 +  EMPTY_KIMI_SESSION_LOG_STATE,
 +  KimiSessionLog,
++  MAX_BYTES_PER_TICK,
++  alignRangeEndToNewline,
 +  loadKimiModelContextWindows,
++  mergePendingFragment,
++  nextPendingFragment,
 +  parseKimiSessionLogLines,
++  readLinesFromRange,
 +  resolveKimiWireLogPath,
 +} from "./session-log.js";
 +
@@ -4086,6 +4207,100 @@ index 000000000..1ec708a47
 +      updatedAt: 1790486852717,
 +    });
 +    expect(state.contextWindowUsedTokens).toBeNull();
++    expect(state.goalInputTokens).toBe(0);
++  });
++
++  test("sums the input side of the steps while the goal is live", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        usageRecordLine({ inputOther: 1000, inputCacheRead: 400, output: 10 }),
++        usageRecordLine({ inputOther: 2000, inputCacheRead: 0, output: 20 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goalInputTokens).toBe(3400);
++    expect(state.goalCachedInputTokens).toBe(400);
++  });
++
++  test("counts a step once, though the log writes it twice", () => {
++    const usage = { inputOther: 1000, inputCacheRead: 400, output: 10 };
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        usageRecordLine(usage),
++        loopEventLine("step.end", usage),
++        loopEventLine("step.start", usage),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    // `step.end` carries the same `usage` object as the `usage.record` beside it.
++    expect(state.goalInputTokens).toBe(1400);
++  });
++
++  test("skips session-scoped records, which are running totals", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        usageRecordLine({ inputOther: 1000, inputCacheRead: 0, output: 10 }),
++        JSON.stringify({
++          type: "usage.record",
++          agentId: "main",
++          usage: { inputOther: 500_000, inputCacheRead: 0, output: 900 },
++          usageScope: "session",
++          time: 1790486855291,
++        }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goalInputTokens).toBe(1000);
++  });
++
++  test("stops tallying once the goal settles", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        usageRecordLine({ inputOther: 1000, output: 10 }),
++        statusUpdateLine("complete"),
++        usageRecordLine({ inputOther: 99_999, output: 10 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.status).toBe("complete");
++    expect(state.goalInputTokens).toBe(1000);
++  });
++
++  test("starts the tally over for the next goal", () => {
++    const state = parseKimiSessionLogLines(
++      [
++        goalCreateLine(),
++        usageRecordLine({ inputOther: 1000, output: 10 }),
++        statusUpdateLine("complete"),
++        goalCreateLine({ goalId: "goal-2" }),
++        usageRecordLine({ inputOther: 7, output: 1 }),
++      ],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.goalId).toBe("goal-2");
++    expect(state.goalInputTokens).toBe(7);
++  });
++
++  test("carries the tally across an incremental replay", () => {
++    const first = parseKimiSessionLogLines(
++      [goalCreateLine(), usageRecordLine({ inputOther: 1000, output: 10 })],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines(
++      [usageRecordLine({ inputOther: 250, output: 5 })],
++      first,
++    );
++
++    expect(second.goalInputTokens).toBe(1250);
 +  });
 +
 +  test("counts one turn per tokensUsed update and keeps the last token count", () => {
@@ -4549,6 +4764,123 @@ index 000000000..1ec708a47
 +  });
 +});
 +
++/**
++ * Reads `file` the way a tailer does — `budget` bytes at a time, offset over
++ * bytes consumed — and returns every line that reached the parser. Mirrors
++ * `KimiSessionLog.readAppended`; `align: false` skips the newline alignment so
++ * the pending-fragment seam is exercised directly.
++ */
++async function readInPieces(file: string, budget: number, align = true): Promise<string[]> {
++  const size = statSync(file).size;
++  const parsed: string[] = [];
++  let offset = 0;
++  let pending = "";
++  let guard = 0;
++  while (offset < size) {
++    if (++guard > 10_000) {
++      throw new Error("readInPieces did not make progress");
++    }
++    const budgetEnd = Math.min(size, offset + budget);
++    const end =
++      !align || budgetEnd === size ? budgetEnd : alignRangeEndToNewline(file, budgetEnd, size);
++    const { lines, fragment } = await readLinesFromRange(file, offset, end);
++    offset = end;
++    parsed.push(...mergePendingFragment(pending, lines));
++    pending = nextPendingFragment(pending, lines, fragment);
++  }
++  return parsed;
++}
++
++describe("budgeted wire log reads", () => {
++  test("hands every line to the parser exactly once when the budget cuts mid-line", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-chunked-"));
++    const file = path.join(home, "wire.jsonl");
++    const lines = [goalCreateLine(), tokensUpdateLine(74), statusUpdateLine("complete")];
++    writeFileSync(file, `${lines.join("\n")}\n`);
++
++    // A budget far below one record, so every read stops inside the next one.
++    expect(await readInPieces(file, 40)).toEqual(lines);
++  });
++
++  test("loses nothing when the reads cannot be aligned to a line", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-chunked-"));
++    const file = path.join(home, "wire.jsonl");
++    // ASCII only: an unaligned read cannot round-trip a character split across
++    // two of them, and this test is about the byte accounting, not the text.
++    const lines = [
++      goalCreateLine({ objective: "ascii objective", completionCriterion: "ascii criterion" }),
++      tokensUpdateLine(74),
++      statusUpdateLine("complete"),
++    ];
++    writeFileSync(file, `${lines.join("\n")}\n`);
++
++    // Every read ends mid-record, so the seam is carried entirely by the held
++    // fragment — including a read that holds no complete line at all.
++    expect(await readInPieces(file, 40, false)).toEqual(lines);
++  });
++
++  test("threads a fragment onto the one already held while a record is unfinished", () => {
++    expect(nextPendingFragment("head", [], "tail")).toBe("headtail");
++    expect(nextPendingFragment("head", ["line"], "tail")).toBe("tail");
++    expect(nextPendingFragment("head", [], "")).toBe("");
++    expect(nextPendingFragment("", ["line"], "tail")).toBe("tail");
++  });
++
++  test("never cuts a range inside a multi-byte character", async () => {
++    const home = mkdtempSync(path.join(tmpdir(), "kimi-utf8-"));
++    const file = path.join(home, "wire.jsonl");
++    const objective = "在当前目录创建 goal-ok.txt 并写入 hello";
++    const line = goalCreateLine({ objective });
++    const prefix = "x".repeat(20);
++    const contents = `${prefix}\n${line}\n`;
++    writeFileSync(file, contents);
++
++    // Cut one byte into the objective's first character, which is three bytes
++    // wide, so the budget boundary lands inside it.
++    const objectiveStart = Buffer.from(contents, "utf8").indexOf(Buffer.from(objective, "utf8"));
++    const budget = objectiveStart + 1;
++
++    expect(await readInPieces(file, budget)).toEqual([prefix, line]);
++    // Without the alignment step the same read decodes the character as a
++    // replacement character on both sides of the cut, and the halves do not
++    // rejoin — the record survives but its text is silently corrupted.
++    expect((await readInPieces(file, budget, false)).join("\n")).toContain("\uFFFD");
++  });
++
++  test("derives the goal from a log larger than one tick's budget", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    const filler = Array.from({ length: 4_000 }, (_, index) =>
++      JSON.stringify({
++        type: "context.append_loop_event",
++        agentId: "main",
++        seq: index,
++        pad: "x".repeat(120),
++      }),
++    ).join("\n");
++    expect(Buffer.byteLength(filler)).toBeGreaterThan(MAX_BYTES_PER_TICK);
++
++    // The goal opens before the filler and its counter lands after it, so both
++    // sides of every chunk seam have to have been parsed.
++    appendFileSync(file, `${goalCreateLine()}\n${filler}\n${tokensUpdateLine(74)}\n`);
++
++    const log = new KimiSessionLog({
++      kimiSessionId: SESSION_ID,
++      kimiHome: home,
++      logger: createTestLogger(),
++      pollIntervalMs: 10,
++    });
++    log.start();
++    try {
++      await waitFor(() => log.getGoal()?.tokensUsed === 74);
++
++      expect(log.getGoal()?.goalId).toBe(GOAL_ID);
++      expect(log.isLive()).toBe(true);
++    } finally {
++      log.stop();
++    }
++  });
++});
++
 +describe("resolveKimiWireLogPath", () => {
 +  test("finds the wire log for the session under the Kimi home", () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
@@ -4678,6 +5010,39 @@ index 000000000..1ec708a47
 +    await waitFor(() => log.getGoal() !== null);
 +
 +    expect(log.getGoal()?.objective).toBe(OBJECTIVE);
++  });
++
++  test("reports the goal with its input tally to the goal listener", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${goalCreateLine()}\n${usageRecordLine({ inputOther: 1000, inputCacheRead: 400, output: 10 })}\n`,
++    );
++
++    const emitted: Array<AgentGoal | null> = [];
++    const log = createLog(home, { onGoal: (goal) => emitted.push(goal) });
++    log.start();
++    await waitFor(() => (emitted.at(-1)?.inputTokens ?? 0) > 0);
++
++    expect(emitted.at(-1)?.inputTokens).toBe(1400);
++    expect(emitted.at(-1)?.cachedInputTokens).toBe(400);
++    // The parsed goal keeps the provider's own number untouched.
++    expect(log.getGoal()?.tokensUsed).toBe(0);
++  });
++
++  test("emits a goal again when only its input tally moved", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${goalCreateLine()}\n`);
++
++    const emitted: Array<AgentGoal | null> = [];
++    const log = createLog(home, { onGoal: (goal) => emitted.push(goal) });
++    log.start();
++    await waitFor(() => emitted.length > 0);
++
++    appendFileSync(file, `${usageRecordLine({ inputOther: 1000, output: 10 })}\n`);
++    await waitFor(() => emitted.at(-1)?.inputTokens === 1000);
++
++    expect(emitted.at(-1)?.inputTokens).toBe(1000);
 +  });
 +
 +  test("emits usage with the model's context window once both are known", async () => {
@@ -5087,15 +5452,16 @@ index 000000000..1ec708a47
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 000000000..472c9d65e
+index 000000000..073558791
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1230 @@
+@@ -0,0 +1,1541 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
 +import path from "node:path";
 +import { createInterface } from "node:readline";
++import { setImmediate as waitForImmediate } from "node:timers/promises";
 +
 +import type { Logger } from "pino";
 +
@@ -5123,16 +5489,58 @@ index 000000000..472c9d65e
 + * derivable from the id the daemon already holds.
 + */
 +
-+const ACTIVE_POLL_INTERVAL_MS = 500;
++/**
++ * Polling cadences. The two fastest were slowed down after a hang where the
++ * daemon stopped answering on its port while the process stayed alive: each poll
++ * read and parsed everything appended since the last one, so the per-tick cost
++ * was unbounded and the main thread could be held for as long as the log had
++ * grown. The reads are now budgeted and the parse yields (see below); a slower
++ * cadence keeps the number of those bounded ticks down.
++ */
++const ACTIVE_POLL_INTERVAL_MS = 1_000;
 +const LIVE_POLL_INTERVAL_MS = 2_000;
 +const IDLE_POLL_INTERVAL_MS = 10_000;
-+const SETTLE_POLL_INTERVAL_MS = 250;
++const SETTLE_POLL_INTERVAL_MS = 1_000;
 +/** Unchanged goals are re-announced once per bucket so a late subscriber still sees them. */
 +const GOAL_REANNOUNCE_BUCKET_MS = 30_000;
 +const DEFAULT_KIMI_HOME = "~/.kimi-code";
 +const KIMI_CONFIG_FILENAME = "config.toml";
 +/** Reading every subagent log from byte 0 is unbounded; tail only the newest few. */
 +const TAILED_SUBAGENT_LIMIT = 8;
++/**
++ * Bytes one tick may read, so no single poll can monopolize the event loop.
++ * Measured on a real 82 MB wire log, streaming and parsing 512 KiB takes ~2.6ms,
++ * while a live session appends a few kilobytes per step — so this is orders of
++ * magnitude more than one cadence needs and the budget only binds while catching
++ * up on a long pre-existing log. The upper end of that range is the right one
++ * because the budget also sets catch-up throughput (budget per active cadence),
++ * and a cold replay starts at byte 0.
++ */
++export const MAX_BYTES_PER_TICK = 512 * 1024;
++/**
++ * Lines handed to the parser between two yields. Parsing is the expensive half
++ * of a tick, and this caps how long it can run before the loop gets a turn.
++ */
++export const PARSE_LINES_PER_CHUNK = 1_000;
++/**
++ * How far past the budget a read may look for a line terminator before giving up
++ * and cutting where it is. Real records run long — the longest line measured in
++ * a live wire log was 2.03 MB — so the window has to clear them comfortably, and
++ * the scan only runs at all while a log is being read in pieces.
++ */
++const ALIGN_SCAN_MAX_BYTES = 4 * 1024 * 1024;
++/** Slab the alignment scan reads at a time, so a miss does not allocate the window. */
++const ALIGN_SCAN_SLAB_BYTES = 4 * 1024;
++/**
++ * Cap on the unterminated trailing line held between reads. It has to clear the
++ * longest record a read can leave open, which is one budget plus one alignment
++ * window; past that the line is pathological, and holding it would make every
++ * later read copy it whole. Counted in string units, which is what the copy
++ * costs.
++ */
++const MAX_PENDING_FRAGMENT_CHARS = 8 * 1024 * 1024;
++/** Wall-clock budget a single tick may take before it is worth reporting. */
++const SLOW_TICK_WARN_MS = 250;
 +
 +/**
 + * Locate the wire log for a Kimi session. Returns null when the file does not
@@ -5190,6 +5598,14 @@ index 000000000..472c9d65e
 +  contextWindowUsedTokens: number | null;
 +  /** Model alias bound by the last `profile.bind` or `llm.request`; keys the config lookup. */
 +  modelAlias: string | null;
++  /**
++   * Input tokens read by the steps of the current goal. Kimi reports the output
++   * side of a goal itself (`goal.update.tokensUsed`) but never the input side,
++   * so this is summed here from the per-step records while the goal runs.
++   */
++  goalInputTokens: number | null;
++  /** The part of `goalInputTokens` that came from a cache read. */
++  goalCachedInputTokens: number | null;
 +  /** Subagents of the session, in spawn order. */
 +  subagents: KimiSubagentRecord[];
 +  /** Count of `agent.turn.started` records seen. */
@@ -5202,6 +5618,8 @@ index 000000000..472c9d65e
 +  goal: null,
 +  contextWindowUsedTokens: null,
 +  modelAlias: null,
++  goalInputTokens: null,
++  goalCachedInputTokens: null,
 +  subagents: [],
 +  turnGeneration: 0,
 +  settledThroughTurn: -1,
@@ -5224,6 +5642,12 @@ index 000000000..472c9d65e
 + *   context size of one step. `token_counting.turn_recorded` is deliberately not
 + *   read: its `tokens` measures something else and lands well below the real
 + *   context size.
++ * - The input side of those same step records is summed while the goal is
++ *   active, because Kimi reports nothing else about a goal's input tokens. Only
++ *   `usage.record` is read for it: the `step.end` copy of a step is byte-identical
++ *   in `usage`, so reading both would double every step. Records whose
++ *   `usageScope` is `session` are cumulative counters, not one step's usage, and
++ *   they land after the goal ended anyway; none of them are summed.
 + * - `subagent.spawned`, `subagent.started`, `subagent.completed` and
 + *   `subagent.cancelled` maintain the subagent registry. Only the lifecycle is
 + *   read here; each subagent's transcript lives in its own log.
@@ -5239,6 +5663,8 @@ index 000000000..472c9d65e
 +  let goal = previous.goal;
 +  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
 +  let modelAlias = previous.modelAlias;
++  let goalInputTokens = previous.goalInputTokens;
++  let goalCachedInputTokens = previous.goalCachedInputTokens;
 +  let turnGeneration = previous.turnGeneration;
 +  let settledThroughTurn = previous.settledThroughTurn;
 +  // Keyed by id, so a lifecycle record updates its entry in place and the
@@ -5260,6 +5686,10 @@ index 000000000..472c9d65e
 +    switch (entry.type) {
 +      case "goal.create":
 +        goal = createGoalFromRecord(entry);
++        // A new goal starts its own input tally; the previous goal's total is
++        // already on the goal the client is showing.
++        goalInputTokens = 0;
++        goalCachedInputTokens = 0;
 +        break;
 +      case "goal.update":
 +        goal = applyGoalUpdate(goal, entry);
@@ -5300,6 +5730,16 @@ index 000000000..472c9d65e
 +        break;
 +      default:
 +        contextWindowUsedTokens = nextContextUsage(entry, contextWindowUsedTokens);
++        // Only a running goal tallies input: once it settles the number is the
++        // one the goal finished with, and later steps belong to whatever the
++        // session does next rather than to this goal.
++        if (goal !== null && isAgentGoalLive(goal)) {
++          const stepInput = stepInputUsage(entry);
++          if (stepInput !== null) {
++            goalInputTokens = (goalInputTokens ?? 0) + stepInput.used;
++            goalCachedInputTokens = (goalCachedInputTokens ?? 0) + stepInput.cached;
++          }
++        }
 +        break;
 +    }
 +  }
@@ -5308,6 +5748,8 @@ index 000000000..472c9d65e
 +    goal,
 +    contextWindowUsedTokens,
 +    modelAlias,
++    goalInputTokens,
++    goalCachedInputTokens,
 +    subagents: [...subagents.values()],
 +    turnGeneration,
 +    settledThroughTurn,
@@ -5476,16 +5918,31 @@ index 000000000..472c9d65e
 +  return typeof value === "boolean" ? value : undefined;
 +}
 +
++/**
++ * What one tick's read consumed, for the tick's own telemetry and for choosing
++ * the next cadence.
++ */
++interface TickRead {
++  /** Bytes consumed from the log this tick. */
++  bytes: number;
++  /** Lines handed to the parser, the joined pending fragment included. */
++  lines: number;
++  /** Bytes left unread when the budget ran out; the next tick picks them up. */
++  backlogBytes: number;
++}
++
++const EMPTY_TICK_READ: TickRead = Object.freeze({ bytes: 0, lines: 0, backlogBytes: 0 });
++
 +export interface KimiSessionLogOptions {
 +  kimiSessionId: string;
 +  kimiHome?: string;
 +  logger: Logger;
 +  /**
-+   * Overrides all three cadences. Defaults to 500ms right after the log grew,
++   * Overrides all three cadences. Defaults to 1000ms right after the log grew,
 +   * 2000ms while a goal is live, and 10000ms otherwise.
 +   */
 +  pollIntervalMs?: number;
-+  /** Cadence used right after the log grew. Defaults to 500ms. */
++  /** Cadence used right after the log grew. Defaults to 1000ms. */
 +  activeIntervalMs?: number;
 +  onGoal?: (goal: AgentGoal | null) => void;
 +  onUsage?: (usage: AgentUsage) => void;
@@ -5499,6 +5956,12 @@ index 000000000..472c9d65e
 + * Reads incrementally by byte offset, so a long session is never re-read. A
 + * goal created before the tailer attached is still picked up because the first
 + * read starts at byte 0.
++ *
++ * One tick is bounded twice over: it reads at most `MAX_BYTES_PER_TICK` bytes,
++ * and it parses them in `PARSE_LINES_PER_CHUNK`-line chunks with an event-loop
++ * turn between chunks. Without both, a tick read and parsed everything appended
++ * since the last one — unbounded on a long replay, and enough to hold the main
++ * thread off the event loop for as long as the log had grown.
 + *
 + * Usage needs both numbers: the used side comes from the log, the max side from
 + * the model alias plus `<kimiHome>/config.toml`. While either is unknown nothing
@@ -5526,6 +5989,10 @@ index 000000000..472c9d65e
 +  private goal: AgentGoal | null = null;
 +  private contextWindowUsedTokens: number | null = null;
 +  private modelAlias: string | null = null;
++  /** Input tokens the current goal's steps read; null until its first step. */
++  private goalInputTokens: number | null = null;
++  /** Cache-read part of `goalInputTokens`. */
++  private goalCachedInputTokens: number | null = null;
 +  private subagents: KimiSubagentRecord[] = [];
 +  private turnGeneration = 0;
 +  private settledThroughTurn = -1;
@@ -5614,14 +6081,14 @@ index 000000000..472c9d65e
 +      return;
 +    }
 +    // Race the polling loop against the signal so an aborted turn is released
-+    // immediately instead of at the next 250ms check.
++    // immediately instead of at the next settle check.
 +    const abortPromise = new Promise<void>((resolve) => {
 +      signal.addEventListener("abort", () => resolve(), { once: true });
 +    });
 +    await Promise.race([abortPromise, this.pollUntilSettled(deadline, signal)]);
 +  }
 +
-+  /** Re-check the goal every 250ms until it settles, the deadline passes, or the signal aborts. */
++  /** Re-check the goal every second until it settles, the deadline passes, or the signal aborts. */
 +  private async pollUntilSettled(deadline: number, signal?: AbortSignal): Promise<void> {
 +    while (!this.stopped && this.isLive() && Date.now() < deadline) {
 +      if (signal?.aborted === true) {
@@ -5653,9 +6120,10 @@ index 000000000..472c9d65e
 +  }
 +
 +  private async tick(): Promise<void> {
-+    let readNewBytes = false;
++    const startedAt = Date.now();
++    let read = EMPTY_TICK_READ;
 +    try {
-+      readNewBytes = await this.readAppended();
++      read = await this.readAppended();
 +    } catch (error) {
 +      this.logger.warn(
 +        { err: error, sessionId: this.kimiSessionId },
@@ -5674,7 +6142,30 @@ index 000000000..472c9d65e
 +    if (this.stopped) {
 +      return;
 +    }
-+    this.scheduleTick(this.nextIntervalMs(readNewBytes));
++    this.reportSlowTick(startedAt, read);
++    this.scheduleTick(this.nextIntervalMs(read.bytes > 0));
++  }
++
++  /**
++   * A tick over its budget is the signal that this session is the one holding
++   * the event loop, so name it along with what it read. Reported after the work
++   * rather than during it, because the point is the whole tick's wall clock.
++   */
++  private reportSlowTick(startedAt: number, read: TickRead): void {
++    const durationMs = Date.now() - startedAt;
++    if (durationMs < SLOW_TICK_WARN_MS) {
++      return;
++    }
++    this.logger.warn(
++      {
++        sessionId: this.kimiSessionId,
++        durationMs,
++        bytesRead: read.bytes,
++        lines: read.lines,
++        backlogBytes: read.backlogBytes,
++      },
++      "Kimi session log tick exceeded its budget",
++    );
 +  }
 +
 +  /**
@@ -5688,11 +6179,18 @@ index 000000000..472c9d65e
 +    return this.isLive() ? this.liveIntervalMs : this.idleIntervalMs;
 +  }
 +
-+  /** Returns whether the file yielded bytes this tick. */
-+  private async readAppended(): Promise<boolean> {
++  /**
++   * Reads at most `MAX_BYTES_PER_TICK` bytes, aligned to a line boundary, and
++   * reports what it consumed. The offset advances only over bytes actually read,
++   * so an unread range is simply this tick's `backlogBytes` and the next tick
++   * resumes there; a range that still ends mid-line — only a record longer than
++   * the budget plus the alignment window — is held as `pending` and joined onto
++   * the next read.
++   */
++  private async readAppended(): Promise<TickRead> {
 +    const filePath = this.resolvePath();
 +    if (!filePath) {
-+      return false;
++      return EMPTY_TICK_READ;
 +    }
 +    let size: number;
 +    try {
@@ -5700,23 +6198,36 @@ index 000000000..472c9d65e
 +    } catch {
 +      // The file vanished; re-resolve on the next tick.
 +      this.resolvedPath = null;
-+      return false;
++      return EMPTY_TICK_READ;
 +    }
 +    if (size < this.offset) {
-+      // Truncated or replaced: rebuild from the beginning.
++      // Truncated or replaced: rebuild from the beginning. The rebuild is
++      // budgeted like any other read, so a large log replays over several ticks
++      // instead of one long block.
 +      this.offset = 0;
 +      this.pending = "";
 +      this.resetDerivedState();
 +    }
 +    if (size === this.offset) {
-+      return false;
++      return EMPTY_TICK_READ;
 +    }
-+    const { lines, fragment } = await readLinesFromRange(filePath, this.offset, size);
-+    this.offset = size;
++    const start = this.offset;
++    const budgetEnd = Math.min(size, start + MAX_BYTES_PER_TICK);
++    // Cut on a line boundary unless the file ends first, so a budget-sized read
++    // never splits a line — and so never splits a multi-byte character across
++    // two reads, which would put a replacement character in the middle of a
++    // record and corrupt its text.
++    const end = budgetEnd === size ? size : alignRangeEndToNewline(filePath, budgetEnd, size);
++    const { lines, fragment } = await readLinesFromRange(filePath, start, end);
++    this.offset = end;
 +    const merged = mergePendingFragment(this.pending, lines);
-+    this.pending = fragment;
-+    this.applyLines(merged);
-+    return true;
++    this.pending = capPendingFragment(
++      nextPendingFragment(this.pending, lines, fragment),
++      this.logger,
++      { sessionId: this.kimiSessionId },
++    );
++    await this.applyLines(merged);
++    return { bytes: end - start, lines: merged.length, backlogBytes: size - end };
 +  }
 +
 +  private resolvePath(): string | null {
@@ -5733,6 +6244,8 @@ index 000000000..472c9d65e
 +    this.goal = null;
 +    this.contextWindowUsedTokens = null;
 +    this.modelAlias = null;
++    this.goalInputTokens = null;
++    this.goalCachedInputTokens = null;
 +    this.subagents = [];
 +    this.turnGeneration = 0;
 +    this.settledThroughTurn = -1;
@@ -5743,25 +6256,40 @@ index 000000000..472c9d65e
 +    this.subagentIncarnations.clear();
 +  }
 +
-+  private applyLines(lines: string[]): void {
-+    const next = parseKimiSessionLogLines(lines, {
-+      goal: this.goal,
-+      contextWindowUsedTokens: this.contextWindowUsedTokens,
-+      modelAlias: this.modelAlias,
-+      subagents: this.subagents,
-+      turnGeneration: this.turnGeneration,
-+      settledThroughTurn: this.settledThroughTurn,
-+    });
-+    this.goal = next.goal;
-+    this.contextWindowUsedTokens = next.contextWindowUsedTokens;
-+    this.modelAlias = next.modelAlias;
-+    this.subagents = next.subagents;
-+    this.turnGeneration = next.turnGeneration;
-+    this.settledThroughTurn = next.settledThroughTurn;
++  /**
++   * Folds the lines onto the derived state in chunks, yielding to the event loop
++   * between them. `parseKimiSessionLogLines` is a pure fold over the threaded
++   * state, so chunking changes how long the main thread is held for and nothing
++   * about what is derived.
++   */
++  private async applyLines(lines: string[]): Promise<void> {
++    for (let index = 0; index < lines.length; index += PARSE_LINES_PER_CHUNK) {
++      if (index > 0) {
++        await yieldToEventLoop();
++      }
++      const next = parseKimiSessionLogLines(lines.slice(index, index + PARSE_LINES_PER_CHUNK), {
++        goal: this.goal,
++        contextWindowUsedTokens: this.contextWindowUsedTokens,
++        modelAlias: this.modelAlias,
++        goalInputTokens: this.goalInputTokens,
++        goalCachedInputTokens: this.goalCachedInputTokens,
++        subagents: this.subagents,
++        turnGeneration: this.turnGeneration,
++        settledThroughTurn: this.settledThroughTurn,
++      });
++      this.goal = next.goal;
++      this.contextWindowUsedTokens = next.contextWindowUsedTokens;
++      this.modelAlias = next.modelAlias;
++      this.goalInputTokens = next.goalInputTokens;
++      this.goalCachedInputTokens = next.goalCachedInputTokens;
++      this.subagents = next.subagents;
++      this.turnGeneration = next.turnGeneration;
++      this.settledThroughTurn = next.settledThroughTurn;
++    }
 +  }
 +
 +  private publishGoal(): void {
-+    const goal = this.goal;
++    const goal = this.goalForEmission();
 +    const signature = goalValueSignature(goal);
 +    const bucket = Math.floor(Date.now() / GOAL_REANNOUNCE_BUCKET_MS);
 +    if (signature === this.goalSignature && bucket === this.goalBucket) {
@@ -5785,6 +6313,28 @@ index 000000000..472c9d65e
 +        "Kimi session log goal listener failed",
 +      );
 +    }
++  }
++
++  /**
++   * The goal as the client sees it: the derived goal plus the input tally the
++   * log never states. Kept as a copy so the tally stays out of the parsed state,
++   * which is rebuilt from the log on every replay.
++   */
++  private goalForEmission(): AgentGoal | null {
++    const goal = this.goal;
++    if (goal === null) {
++      return null;
++    }
++    const input = this.goalInputTokens;
++    if (input === null) {
++      return goal;
++    }
++    const cached = this.goalCachedInputTokens;
++    return {
++      ...goal,
++      inputTokens: input,
++      ...(cached !== null && cached > 0 ? { cachedInputTokens: cached } : {}),
++    };
 +  }
 +
 +  private async publishUsage(): Promise<void> {
@@ -6032,6 +6582,54 @@ index 000000000..472c9d65e
 +}
 +
 +/**
++ * Move `end` forward to just past the next newline, so a budget-sized read stops
++ * on a record boundary. A range that ends inside a multi-byte UTF-8 sequence is
++ * decoded with a replacement character on both sides of the cut, and because the
++ * two halves are decoded separately they no longer rejoin into the original text
++ * — the record still parses, but its strings silently acquire garbage. Cutting on
++ * a newline avoids that, and `0x0a` never occurs inside a UTF-8 sequence, so the
++ * scan can work on raw bytes.
++ *
++ * Returns `end` unchanged when no newline turns up inside the window, which is
++ * the only case that leaves a read ending mid-line.
++ *
++ * Exported for the per-subagent tailer, which reads the same way.
++ */
++export function alignRangeEndToNewline(filePath: string, end: number, size: number): number {
++  const limit = Math.min(size, end + ALIGN_SCAN_MAX_BYTES);
++  if (limit <= end) {
++    return end;
++  }
++  let fd: number | null = null;
++  try {
++    fd = openSync(filePath, "r");
++    const slab = Buffer.alloc(Math.min(ALIGN_SCAN_SLAB_BYTES, limit - end));
++    for (let from = end; from < limit; from += slab.length) {
++      const read = readSync(fd, slab, 0, Math.min(slab.length, limit - from), from);
++      if (read <= 0) {
++        break;
++      }
++      const newline = slab.subarray(0, read).indexOf(0x0a);
++      if (newline !== -1) {
++        return from + newline + 1;
++      }
++    }
++    return end;
++  } catch {
++    // Unreadable: keep the unaligned cut, which the fragment handling covers.
++    return end;
++  } finally {
++    if (fd !== null) {
++      try {
++        closeSync(fd);
++      } catch {
++        // ignore
++      }
++    }
++  }
++}
++
++/**
 + * Join a line held back from the previous read onto the first line of this one.
 + * Exported for the per-subagent tailer, which reads the same way.
 + */
@@ -6041,6 +6639,54 @@ index 000000000..472c9d65e
 +    return lines;
 +  }
 +  return [pending + first, ...lines.slice(1)];
++}
++
++/**
++ * The fragment to hold for the next read. When the range held no complete line
++ * at all, the whole of it is one record still being written, so it threads onto
++ * the fragment already held; replacing the held fragment instead would drop
++ * every byte of it that no parse has seen yet, which is how a record appended in
++ * pieces loses its head.
++ *
++ * Exported for the per-subagent tailer, which reads the same way.
++ */
++export function nextPendingFragment(pending: string, lines: string[], fragment: string): string {
++  if (fragment.length === 0) {
++    return "";
++  }
++  return lines.length === 0 ? pending + fragment : fragment;
++}
++
++/**
++ * Drop a held fragment that has grown past `MAX_PENDING_FRAGMENT_CHARS`. The
++ * bytes are already counted in the offset, so the next read resumes after them;
++ * the line they belonged to no longer parses and is skipped like any other
++ * truncated record. Holding it instead would copy the whole line on every later
++ * read, which is the unbounded work the cap exists to prevent.
++ *
++ * Exported for the per-subagent tailer, which holds fragments the same way.
++ */
++export function capPendingFragment(
++  pending: string,
++  logger: Logger,
++  context: Record<string, unknown>,
++): string {
++  if (pending.length <= MAX_PENDING_FRAGMENT_CHARS) {
++    return pending;
++  }
++  logger.debug(
++    { ...context, pendingChars: pending.length },
++    "Kimi wire log line exceeded the fragment cap, dropping it",
++  );
++  return "";
++}
++
++/**
++ * Hand the event loop a turn between parse chunks. Exported for the per-subagent
++ * tailer, which parses in chunks the same way.
++ */
++export async function yieldToEventLoop(): Promise<void> {
++  await waitForImmediate();
 +}
 +
 +function createGoalFromRecord(entry: Record<string, unknown>): AgentGoal {
@@ -6142,6 +6788,8 @@ index 000000000..472c9d65e
 +    goal.status,
 +    goal.turnsUsed,
 +    goal.tokensUsed,
++    goal.inputTokens ?? 0,
++    goal.cachedInputTokens ?? 0,
 +    goal.completionCriterion ?? "",
 +    goal.terminalReason ?? "",
 +  ]);
@@ -6245,6 +6893,34 @@ index 000000000..472c9d65e
 +  return stepContextUsage(entry) ?? previous;
 +}
 +
++/**
++ * Input tokens one step read, or null when the record is not a step measurement.
++ *
++ * Only `usage.record` counts. The same step is also written to
++ * `context.append_loop_event` as `step.end`, carrying an identical `usage`
++ * object, so tallying both would double every step. A record scoped to the
++ * session reports a running total rather than one step, so it is skipped too.
++ */
++function stepInputUsage(
++  entry: Record<string, unknown>,
++): { used: number; cached: number } | null {
++  if (entry.type !== "usage.record") {
++    return null;
++  }
++  if (readString(entry.usageScope) === "session") {
++    return null;
++  }
++  const usage = asRecord(entry.usage);
++  if (usage === null) {
++    return null;
++  }
++  const other = positiveNumber(usage.inputOther);
++  const cached = positiveNumber(usage.inputCacheRead);
++  const created = positiveNumber(usage.inputCacheCreation);
++  const used = other + cached + created;
++  return used > 0 ? { used, cached } : null;
++}
++
 +interface ConfigWindowCacheEntry {
 +  mtimeMs: number;
 +  windows: Record<string, number>;
@@ -6323,16 +6999,17 @@ index 000000000..472c9d65e
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 000000000..355fc080e
+index 000000000..fc0af579c
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,304 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
 +import { describe, expect, test } from "vitest";
 +
 +import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import type { AgentTimelineItem } from "../../agent-sdk-types.js";
 +import {
 +  KimiSubagentLogTailer,
 +  mapKimiSubagentLogLines,
@@ -6611,20 +7288,49 @@ index 000000000..355fc080e
 +
 +    expect(await tailer.readAppended()).toEqual([]);
 +  });
++
++  test("reads a log larger than one tick's budget across calls without losing a record", async () => {
++    const { file } = createTailerHome();
++    const filler = Array.from({ length: 4_000 }, (_, index) =>
++      loopEventLine({ type: "noise", seq: index, pad: "x".repeat(120) }),
++    );
++    appendFileSync(file, `${filler.join("\n")}\n${textPartLine("tail")}\n`);
++    const tailer = createTailer(file);
++
++    const items: AgentTimelineItem[] = [];
++    // An empty batch means the budget ran out mid-log, not that the log is done,
++    // so the calls have to be driven to a fixed count rather than until empty.
++    for (let call = 0; call < 20; call++) {
++      items.push(...(await tailer.readAppended()));
++    }
++
++    expect(items).toEqual([{ type: "assistant_message", text: "tail" }]);
++  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 000000000..81fc17405
+index 000000000..63dc7f667
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
-@@ -0,0 +1,206 @@
+@@ -0,0 +1,241 @@
 +import { stat } from "node:fs/promises";
 +import path from "node:path";
 +
 +import type { Logger } from "pino";
 +
 +import type { AgentTimelineItem } from "../../agent-sdk-types.js";
-+import { asRecord, mergePendingFragment, readLinesFromRange, readString } from "./session-log.js";
++import {
++  MAX_BYTES_PER_TICK,
++  PARSE_LINES_PER_CHUNK,
++  alignRangeEndToNewline,
++  asRecord,
++  capPendingFragment,
++  mergePendingFragment,
++  nextPendingFragment,
++  readLinesFromRange,
++  readString,
++  yieldToEventLoop,
++} from "./session-log.js";
 +
 +/**
 + * Each subagent writes its own wire log next to the main one, in the same
@@ -6776,6 +7482,11 @@ index 000000000..81fc17405
 + * Reads incrementally by byte offset, but the first read starts at byte 0, so a
 + * subagent that finished before the tailer attached is replayed in full instead
 + * of showing up empty.
++ *
++ * One call is bounded the same way the main tailer's tick is: at most
++ * `MAX_BYTES_PER_TICK` bytes, parsed in `PARSE_LINES_PER_CHUNK`-line chunks with
++ * an event-loop turn between them. Subagent logs are read on the main tailer's
++ * tick, so an unbounded read here is an unbounded read there.
 + */
 +export class KimiSubagentLogTailer {
 +  private readonly subagentId: string;
@@ -6792,7 +7503,11 @@ index 000000000..81fc17405
 +    this.logger = options.logger;
 +  }
 +
-+  /** Returns the items produced by bytes appended since the previous call. */
++  /**
++   * Returns the items produced by bytes appended since the previous call, up to
++   * one tick's byte budget. What is left over is read by the next call, which
++   * resumes at the offset this one stopped at.
++   */
 +  async readAppended(): Promise<AgentTimelineItem[]> {
 +    const filePath = resolveKimiSubagentLogPath(this.sessionDir, this.subagentId);
 +    if (filePath === null) {
@@ -6817,11 +7532,26 @@ index 000000000..81fc17405
 +    if (size === this.offset) {
 +      return [];
 +    }
-+    const { lines, fragment } = await readLinesFromRange(filePath, this.offset, size);
-+    this.offset = size;
++    const start = this.offset;
++    const budgetEnd = Math.min(size, start + MAX_BYTES_PER_TICK);
++    const end = budgetEnd === size ? size : alignRangeEndToNewline(filePath, budgetEnd, size);
++    const { lines, fragment } = await readLinesFromRange(filePath, start, end);
++    this.offset = end;
 +    const merged = mergePendingFragment(this.pending, lines);
-+    this.pending = fragment;
-+    return mapKimiSubagentLogLines(merged, this.calls);
++    this.pending = capPendingFragment(
++      nextPendingFragment(this.pending, lines, fragment),
++      this.logger,
++      { subagentId: this.subagentId },
++    );
++    const items: AgentTimelineItem[] = [];
++    for (let index = 0; index < merged.length; index += PARSE_LINES_PER_CHUNK) {
++      if (index > 0) {
++        await yieldToEventLoop();
++      }
++      const chunk = merged.slice(index, index + PARSE_LINES_PER_CHUNK);
++      items.push(...mapKimiSubagentLogLines(chunk, this.calls));
++    }
++    return items;
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
