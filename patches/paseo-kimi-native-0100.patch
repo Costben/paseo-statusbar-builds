@@ -61,13 +61,15 @@ index 1bebc8a5a..82bfd2763 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..1e8901c84
+index 000000000..2b2217d8f
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,77 @@
 +import { describe, expect, it } from "vitest";
 +import {
 +  formatCompactTokens,
++  formatFullTokens,
++  formatGoalElapsed,
 +  formatGoalUsageSuffix,
 +  resolveGoalStatusLabel,
 +} from "./goal-pill";
@@ -78,12 +80,9 @@ index 000000000..1e8901c84
 +    ["paused", "目标已暂停"],
 +    ["blocked", "目标受阻"],
 +    ["complete", "目标已完成"],
++    ["cleared", "目标已清除"],
 +  ] as const)("labels %s", (status, label) => {
 +    expect(resolveGoalStatusLabel(status)).toBe(label);
-+  });
-+
-+  it("renders nothing for a cleared goal", () => {
-+    expect(resolveGoalStatusLabel("cleared")).toBeNull();
 +  });
 +});
 +
@@ -97,6 +96,18 @@ index 000000000..1e8901c84
 +    [1_234_567, "1.2M"],
 +  ] as const)("formats %i as %s", (tokens, expected) => {
 +    expect(formatCompactTokens(tokens)).toBe(expected);
++  });
++});
++
++describe("formatFullTokens", () => {
++  it.each([
++    [0, "0"],
++    [-1, "0"],
++    [999, "999"],
++    [12_300, "12,300"],
++    [1_234_567, "1,234,567"],
++  ] as const)("formats %i as %s", (tokens, expected) => {
++    expect(formatFullTokens(tokens)).toBe(expected);
 +  });
 +});
 +
@@ -114,29 +125,54 @@ index 000000000..1e8901c84
 +    expect(formatGoalUsageSuffix(0, 0)).toBeNull();
 +  });
 +});
++
++describe("formatGoalElapsed", () => {
++  const NOW = 1_790_500_000_000;
++
++  it("measures up to the end mark once the goal has ended", () => {
++    expect(formatGoalElapsed(NOW - 90_000, NOW - 30_000, NOW)).toBe("1m");
++  });
++
++  it("measures up to now while the goal is still running", () => {
++    expect(formatGoalElapsed(NOW - 45_000, null, NOW)).toBe("45s");
++    expect(formatGoalElapsed(NOW - 45_000, undefined, NOW)).toBe("45s");
++  });
++
++  it("has nothing to show without a start mark", () => {
++    expect(formatGoalElapsed(undefined, null, NOW)).toBeNull();
++  });
++});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..db8fd089d
+index 000000000..bd71b7ff6
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
-@@ -0,0 +1,147 @@
-+import { useCallback, useMemo, useState, type ReactElement } from "react";
-+import { Pressable, Text } from "react-native";
+@@ -0,0 +1,324 @@
++import { useCallback, type ReactElement } from "react";
++import { Text, View } from "react-native";
 +import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
 +import { StyleSheet, withUnistyles } from "react-native-unistyles";
 +import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import {
++  MenuRoot,
++  MenuSurface,
++  MenuTrigger,
++  menuRowContentInset,
++  type MenuTriggerState,
++} from "@/components/ui/menu";
 +import { composerPillStyles } from "@/composer/pill-styles";
++import { formatDuration, formatMessageTimestamp } from "@/utils/time";
 +import { ICON_SIZE, type Theme } from "@/styles/theme";
 +import { assertUnreachable } from "@/utils/exhaustive";
 +
 +export type AgentGoalStatus = AgentGoalPayload["status"];
 +
-+const GOAL_STATUS_LABELS: Record<AgentGoalStatus, string | null> = {
++const GOAL_STATUS_LABELS: Record<AgentGoalStatus, string> = {
 +  active: "目标进行中",
 +  paused: "目标已暂停",
 +  blocked: "目标受阻",
 +  complete: "目标已完成",
-+  cleared: null,
++  cleared: "目标已清除",
 +};
 +
 +const ThemedActiveGlyph = withUnistyles(CircleDot);
@@ -182,6 +218,34 @@ index 000000000..db8fd089d
 +  usage: {
 +    color: theme.colors.foregroundExtraMuted,
 +  },
++  // Detail rows sit on the same rail as a menu row's label, so the panel reads as one surface
++  // family whether its rows are pressable or plain.
++  field: {
++    flexDirection: "row",
++    alignItems: "flex-start",
++    gap: theme.spacing[2],
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[1],
++  },
++  fieldLabel: {
++    width: 56,
++    paddingTop: theme.spacing[1],
++    fontSize: theme.fontSize.sm,
++    color: theme.colors.foregroundMuted,
++  },
++  fieldBody: {
++    flex: 1,
++    gap: theme.spacing[1],
++  },
++  fieldValue: {
++    fontSize: theme.fontSize.sm,
++    lineHeight: theme.fontSize.sm * 1.5,
++    color: theme.colors.foreground,
++  },
++  fieldHint: {
++    fontSize: theme.fontSize.sm,
++    color: theme.colors.foregroundExtraMuted,
++  },
 +}));
 +
 +const COMPACT_TOKEN_UNITS = [
@@ -190,7 +254,23 @@ index 000000000..db8fd089d
 +  { threshold: 1_000, divisor: 1_000, suffix: "K" },
 +] as const;
 +
-+export function resolveGoalStatusLabel(status: AgentGoalStatus): string | null {
++const DETAIL_PANEL_TEST_ID = "composer-goal-pill-panel";
++const DETAIL_SHEET_TITLE = "目标";
++const PANEL_MIN_WIDTH = 280;
++const PANEL_MAX_WIDTH = 520;
++const PANEL_MAX_HEIGHT = 440;
++/** Gap between the pill and its panel. Matches the track pills parked over the composer. */
++const PANEL_OFFSET = 12;
++
++/**
++ * The turn count is derived, not reported: the daemon counts the goal's own updates, and Kimi
++ * never states how many turns a goal took. Say so where the number is read, because a bare count
++ * next to a token count reads as provider-reported.
++ */
++const TURNS_HINT = "Paseo 按会话日志统计，Kimi 不提供这个数";
++const TOKENS_HINT = "Kimi 报的累计输出 token，不含输入";
++
++export function resolveGoalStatusLabel(status: AgentGoalStatus): string {
 +  return GOAL_STATUS_LABELS[status];
 +}
 +
@@ -205,11 +285,37 @@ index 000000000..db8fd089d
 +  return String(Math.round(tokens));
 +}
 +
-+export function formatGoalUsageSuffix(turnsUsed: number, tokensUsed: number): string | null {
++/** Grouped digits, so the panel can show the exact count the compact form rounds off. */
++export function formatFullTokens(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
++  return String(Math.round(tokens)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
++}
++
++function goalUsageParts(turnsUsed: number, tokensUsed: number): string[] {
 +  const parts: string[] = [];
 +  if (turnsUsed > 0) parts.push(`${Math.round(turnsUsed)} 回合`);
 +  if (tokensUsed > 0) parts.push(formatCompactTokens(tokensUsed));
++  return parts;
++}
++
++export function formatGoalUsageSuffix(turnsUsed: number, tokensUsed: number): string | null {
++  const parts = goalUsageParts(turnsUsed, tokensUsed);
 +  return parts.length > 0 ? `· ${parts.join(" · ")}` : null;
++}
++
++/**
++ * How long the goal has been running: up to `endedAt` once it ended, up to `now` while it is
++ * still going. Null without a start mark, because a goal whose start the log never recorded has
++ * no elapsed time to show — inventing one from epoch zero would read as 56 years.
++ */
++export function formatGoalElapsed(
++  startedAt: number | undefined,
++  endedAt: number | null | undefined,
++  now: number,
++): string | null {
++  if (startedAt === undefined) return null;
++  const end = endedAt === undefined || endedAt === null ? now : endedAt;
++  return formatDuration(end - startedAt);
 +}
 +
 +function goalLabelStyle(status: AgentGoalStatus) {
@@ -233,27 +339,46 @@ index 000000000..db8fd089d
 +}
 +
 +export function GoalPill({ goal }: GoalPillProps): ReactElement | null {
-+  const [isHovered, setIsHovered] = useState(false);
-+  const handleHoverIn = useCallback(() => setIsHovered(true), []);
-+  const handleHoverOut = useCallback(() => setIsHovered(false), []);
-+  const bodyStyle = useMemo(
-+    () => [composerPillStyles.body, isHovered && composerPillStyles.bodyActive],
-+    [isHovered],
-+  );
-+
 +  if (!goal) return null;
-+  const label = resolveGoalStatusLabel(goal.status);
-+  if (!label) return null;
++  return (
++    <MenuRoot compactMode="sheet">
++      <GoalPillTrigger goal={goal} />
++      <MenuSurface
++        side="top"
++        align="start"
++        offset={PANEL_OFFSET}
++        sheetTitle={DETAIL_SHEET_TITLE}
++        minWidth={PANEL_MIN_WIDTH}
++        maxWidth={PANEL_MAX_WIDTH}
++        maxHeight={PANEL_MAX_HEIGHT}
++        scrollable
++        testID={DETAIL_PANEL_TEST_ID}
++      >
++        <GoalDetail goal={goal} />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
 +
++function GoalPillTrigger({ goal }: { goal: AgentGoalPayload }): ReactElement {
++  const pillStyle = useCallback(
++    ({ hovered, pressed, open }: MenuTriggerState) => [
++      composerPillStyles.body,
++      (hovered || pressed || open) && composerPillStyles.bodyActive,
++    ],
++    [],
++  );
++  const label = resolveGoalStatusLabel(goal.status);
 +  const Glyph = GOAL_STATUS_GLYPHS[goal.status];
 +  const usageSuffix = formatGoalUsageSuffix(goal.turnsUsed, goal.tokensUsed);
++  const accessibilityLabel = [label, ...goalUsageParts(goal.turnsUsed, goal.tokensUsed)].join("，");
 +
 +  return (
-+    <Pressable
++    <MenuTrigger
 +      testID="composer-goal-pill"
-+      onHoverIn={handleHoverIn}
-+      onHoverOut={handleHoverOut}
-+      style={bodyStyle}
++      accessibilityRole="button"
++      accessibilityLabel={`${accessibilityLabel}，查看目标详情`}
++      style={pillStyle}
 +    >
 +      <Glyph size={ICON_SIZE.sm} uniProps={GOAL_STATUS_COLOR_MAPPINGS[goal.status]} />
 +      <Text style={[composerPillStyles.label, goalLabelStyle(goal.status)]} numberOfLines={1}>
@@ -264,7 +389,87 @@ index 000000000..db8fd089d
 +          {usageSuffix}
 +        </Text>
 +      ) : null}
-+    </Pressable>
++    </MenuTrigger>
++  );
++}
++
++/**
++ * What the pill abbreviates. The goal text and the completion criterion are the two things the
++ * pill has no room for and the reader most often needs, so they lead.
++ */
++function GoalDetail({ goal }: { goal: AgentGoalPayload }): ReactElement {
++  const elapsed = formatGoalElapsed(goal.startedAt, goal.endedAt, Date.now());
++  const endedAt = goal.endedAt;
++  return (
++    <>
++      <GoalDetailField
++        label="目标"
++        value={goal.objective}
++        testID={`${DETAIL_PANEL_TEST_ID}-objective`}
++      />
++      {goal.completionCriterion ? (
++        <GoalDetailField
++          label="完成判据"
++          value={goal.completionCriterion}
++          testID={`${DETAIL_PANEL_TEST_ID}-criterion`}
++        />
++      ) : null}
++      <GoalDetailField
++        label="回合"
++        value={`${Math.round(goal.turnsUsed)} 回合`}
++        hint={TURNS_HINT}
++        testID={`${DETAIL_PANEL_TEST_ID}-turns`}
++      />
++      <GoalDetailField
++        label="用量"
++        value={`${formatCompactTokens(goal.tokensUsed)} tokens`}
++        hint={`${formatFullTokens(goal.tokensUsed)} · ${TOKENS_HINT}`}
++        testID={`${DETAIL_PANEL_TEST_ID}-tokens`}
++      />
++      {goal.startedAt !== undefined ? (
++        <GoalDetailField
++          label="开始"
++          value={formatMessageTimestamp(new Date(goal.startedAt))}
++          testID={`${DETAIL_PANEL_TEST_ID}-started`}
++        />
++      ) : null}
++      {elapsed !== null ? (
++        <GoalDetailField label="已跑" value={elapsed} testID={`${DETAIL_PANEL_TEST_ID}-elapsed`} />
++      ) : null}
++      {endedAt !== undefined && endedAt !== null ? (
++        <GoalDetailField
++          label="结束"
++          value={formatMessageTimestamp(new Date(endedAt))}
++          testID={`${DETAIL_PANEL_TEST_ID}-ended`}
++        />
++      ) : null}
++      {goal.terminalReason ? (
++        <GoalDetailField
++          label="原因"
++          value={goal.terminalReason}
++          testID={`${DETAIL_PANEL_TEST_ID}-reason`}
++        />
++      ) : null}
++    </>
++  );
++}
++
++interface GoalDetailFieldProps {
++  label: string;
++  value: string;
++  hint?: string;
++  testID: string;
++}
++
++function GoalDetailField({ label, value, hint, testID }: GoalDetailFieldProps): ReactElement {
++  return (
++    <View style={goalPillStyles.field} testID={testID}>
++      <Text style={goalPillStyles.fieldLabel}>{label}</Text>
++      <View style={goalPillStyles.fieldBody}>
++        <Text style={goalPillStyles.fieldValue}>{value}</Text>
++        {hint === undefined ? null : <Text style={goalPillStyles.fieldHint}>{hint}</Text>}
++      </View>
++    </View>
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
@@ -3453,10 +3658,10 @@ index 000000000..a0a1c7f23
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 000000000..fb0327add
+index 000000000..1ec708a47
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1233 @@
+@@ -0,0 +1,1280 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -3734,6 +3939,7 @@ index 000000000..fb0327add
 +      status: "active",
 +      turnsUsed: 0,
 +      tokensUsed: 0,
++      startedAt: 1790486852717,
 +      updatedAt: 1790486852717,
 +    });
 +    expect(state.contextWindowUsedTokens).toBeNull();
@@ -3769,14 +3975,26 @@ index 000000000..fb0327add
 +    expect(second.goal?.tokensUsed).toBe(369);
 +  });
 +
-+  test("a terminal status ends the goal", () => {
++  test("a terminal status ends the goal and stamps when it ended", () => {
 +    const state = parseKimiSessionLogLines(
-+      [goalCreateLine(), statusUpdateLine("complete")],
++      [goalCreateLine(), tokensUpdateLine(74), statusUpdateLine("complete")],
 +      EMPTY_KIMI_SESSION_LOG_STATE,
 +    );
 +
 +    expect(state.goal?.status).toBe("complete");
++    expect(state.goal?.startedAt).toBe(1790486852717);
++    expect(state.goal?.endedAt).toBe(1790486861722);
 +    expect(isAgentGoalLive(state.goal)).toBe(false);
++  });
++
++  test("a later terminal status does not move the end mark", () => {
++    const first = parseKimiSessionLogLines(
++      [goalCreateLine(), statusUpdateLine("complete", 1790486861722)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const second = parseKimiSessionLogLines([statusUpdateLine("complete", 1790486999999)], first);
++
++    expect(second.goal?.endedAt).toBe(1790486861722);
 +  });
 +
 +  test("an unknown status is reported as cleared rather than left live", () => {
@@ -3786,14 +4004,45 @@ index 000000000..fb0327add
 +    );
 +
 +    expect(state.goal?.status).toBe("cleared");
++    expect(state.goal?.endedAt).toBe(1790486861722);
 +    expect(isAgentGoalLive(state.goal)).toBe(false);
 +  });
 +
-+  test("goal.clear drops the goal", () => {
++  test("goal.clear keeps the finished goal and its counters", () => {
 +    const state = parseKimiSessionLogLines(
-+      [goalCreateLine(), clearLine()],
++      [
++        goalCreateLine(),
++        tokensUpdateLine(74),
++        tokensUpdateLine(189),
++        statusUpdateLine("complete"),
++        clearLine(),
++      ],
 +      EMPTY_KIMI_SESSION_LOG_STATE,
 +    );
++
++    expect(state.goal?.status).toBe("complete");
++    expect(state.goal?.objective).toBe(OBJECTIVE);
++    expect(state.goal?.turnsUsed).toBe(2);
++    expect(state.goal?.tokensUsed).toBe(189);
++    expect(state.goal?.startedAt).toBe(1790486852717);
++    expect(state.goal?.endedAt).toBe(1790486861722);
++  });
++
++  test("goal.clear on a goal still live retires it as cleared", () => {
++    const state = parseKimiSessionLogLines(
++      [goalCreateLine(), tokensUpdateLine(74), clearLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.goal?.status).toBe("cleared");
++    expect(state.goal?.objective).toBe(OBJECTIVE);
++    expect(state.goal?.turnsUsed).toBe(1);
++    expect(state.goal?.endedAt).toBe(1790486861722);
++    expect(isAgentGoalLive(state.goal)).toBe(false);
++  });
++
++  test("goal.clear without a goal is a no-op", () => {
++    const state = parseKimiSessionLogLines([clearLine()], EMPTY_KIMI_SESSION_LOG_STATE);
 +
 +    expect(state.goal).toBeNull();
 +  });
@@ -4375,7 +4624,7 @@ index 000000000..fb0327add
 +    });
 +  });
 +
-+  test("emits a null goal once the goal is cleared", async () => {
++  test("keeps reporting the goal after it is cleared", async () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
 +    appendFileSync(file, `${goalCreateLine()}\n`);
 +
@@ -4386,9 +4635,12 @@ index 000000000..fb0327add
 +    expect(emitted.at(-1)?.goalId).toBe(GOAL_ID);
 +
 +    appendFileSync(file, `${clearLine()}\n`);
-+    await waitFor(() => emitted.at(-1) === null);
++    await waitFor(() => log.getGoal()?.status === "cleared");
 +
-+    expect(log.getGoal()).toBeNull();
++    expect(log.getGoal()?.objective).toBe(OBJECTIVE);
++    expect(log.getGoal()?.endedAt).toBe(1790486861722);
++    expect(emitted.at(-1)?.status).toBe("cleared");
++    expect(log.isLive()).toBe(false);
 +  });
 +
 +  test("rebuilds after the log file is replaced with a shorter one", async () => {
@@ -4692,10 +4944,10 @@ index 000000000..fb0327add
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 000000000..61a0895ff
+index 000000000..472c9d65e
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1197 @@
+@@ -0,0 +1,1230 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -4817,9 +5069,12 @@ index 000000000..61a0895ff
 + * derivation rules are testable without a filesystem.
 + *
 + * Records the daemon relies on:
-+ * - `goal.create` sets the goal to `active` with zeroed counters.
-+ * - `goal.update` carries either `tokensUsed` (one per goal turn) or `status`.
-+ * - `goal.clear` drops the goal.
++ * - `goal.create` sets the goal to `active` with zeroed counters and stamps `startedAt`.
++ * - `goal.update` carries either `tokensUsed` (one per goal turn) or `status`; a
++ *   terminal status stamps `endedAt`.
++ * - `goal.clear` retires the goal without discarding it. Kimi emits it right
++ *   after the goal ends, so dropping the goal here would erase the only record
++ *   of what the session was asked to do, along with the final counters.
 + * - `profile.bind` and `llm.request` carry the bound model alias; the later
 + *   record wins, because the alias changes when the user switches model.
 + * - `usage.record` and `context.append_loop_event` of type `step.end` carry the
@@ -4867,7 +5122,7 @@ index 000000000..61a0895ff
 +        goal = applyGoalUpdate(goal, entry);
 +        break;
 +      case "goal.clear":
-+        goal = null;
++        goal = clearGoal(goal, readNumber(entry.time));
 +        break;
 +      case "profile.bind":
 +      case "llm.request": {
@@ -5647,13 +5902,15 @@ index 000000000..61a0895ff
 +
 +function createGoalFromRecord(entry: Record<string, unknown>): AgentGoal {
 +  const completionCriterion = readString(entry.completionCriterion);
++  const time = readNumber(entry.time);
 +  return {
 +    goalId: readString(entry.goalId) ?? "",
 +    objective: readString(entry.objective) ?? "",
 +    status: "active",
 +    turnsUsed: 0,
 +    tokensUsed: 0,
-+    updatedAt: readNumber(entry.time) ?? 0,
++    ...(time !== undefined ? { startedAt: time } : {}),
++    updatedAt: time ?? 0,
 +    ...(completionCriterion !== undefined ? { completionCriterion } : {}),
 +  };
 +}
@@ -5674,15 +5931,43 @@ index 000000000..61a0895ff
 +  const status = readString(entry.status);
 +  if (status !== undefined) {
 +    const reason = readString(entry.reason);
++    const mapped = mapGoalStatus(status);
 +    next = {
 +      ...next,
-+      status: mapGoalStatus(status),
++      status: mapped,
 +      updatedAt: time,
 +      ...(reason !== undefined ? { terminalReason: reason } : {}),
 +    };
++    // The first terminal status is the one that ended the goal; a later record
++    // must not move the mark.
++    const ended = next.endedAt;
++    if (isGoalTerminalStatus(mapped) && (ended === undefined || ended === null)) {
++      next = { ...next, endedAt: time };
++    }
 +  }
 +
 +  return next;
++}
++
++/**
++ * Retire a goal on `goal.clear`. Kimi writes this record immediately after the
++ * goal stops, so the goal itself is kept: the status and counters it reached
++ * are what the session did, and a pill that vanishes at the moment of
++ * completion hides exactly the outcome the reader came to see.
++ */
++function clearGoal(goal: AgentGoal | null, time: number | undefined): AgentGoal | null {
++  if (!goal) {
++    return null;
++  }
++  const at = time ?? goal.updatedAt;
++  if (isGoalTerminalStatus(goal.status)) {
++    return goal.endedAt === undefined || goal.endedAt === null ? { ...goal, endedAt: at } : goal;
++  }
++  return { ...goal, status: "cleared", endedAt: at, updatedAt: at };
++}
++
++function isGoalTerminalStatus(status: AgentGoalStatus): boolean {
++  return status === "complete" || status === "cleared";
 +}
 +
 +function mapGoalStatus(value: string): AgentGoalStatus {

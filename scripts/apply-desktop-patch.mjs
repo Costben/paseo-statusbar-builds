@@ -306,6 +306,21 @@ const MARKERS = [
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "function buildLatePermissionAnswer(",
   },
+  {
+    label: "Goal pill opens a detail panel",
+    path: "packages/app/src/composer/goal-pill.tsx",
+    needle: "composer-goal-pill-panel",
+  },
+  {
+    label: "A cleared goal is kept with its counters",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "function clearGoal(",
+  },
+  {
+    label: "A terminal goal is stamped with when it ended",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "next = { ...next, endedAt: time };",
+  },
 ];
 
 function fail(message) {
