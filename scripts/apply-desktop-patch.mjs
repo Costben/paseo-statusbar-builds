@@ -54,6 +54,10 @@
 //                           worker cannot allocate a visible console window that
 //                           takes the whole daemon down when closed. Inert on
 //                           macOS, so both platforms apply the same file.
+//   claude window           a Claude model the manifest does not know gets its
+//                           context window resolved the way Claude Code does,
+//                           so a fresh session's composer meter is not empty for
+//                           its whole first turn.
 //
 // - Idempotent: re-running on an already-patched tree is a no-op.
 // - Fails loudly: if upstream moved the code this series touches, exits non-zero
@@ -345,6 +349,21 @@ const MARKERS = [
     label: "Terminal output is trimmed in one pass",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "entry.outputBytes += Buffer.byteLength(chunk, \"utf8\");",
+  },
+  {
+    label: "A custom Claude model gets its context window up front",
+    path: "packages/server/src/server/agent/providers/claude/models.ts",
+    needle: "export function resolveClaudeContextWindowMaxTokens(",
+  },
+  {
+    label: "Claude settings env is read for that window",
+    path: "packages/server/src/server/agent/providers/claude/models.ts",
+    needle: "export function readClaudeSettingsEnvSync(",
+  },
+  {
+    label: "A Claude session seeds the window it resolved",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "private resolveContextWindowMaxTokens(modelId: string | null | undefined): number | undefined {",
   },
 ];
 

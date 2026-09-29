@@ -7759,3 +7759,239 @@ index 8fac115f0..689b91cfa 100644
  export async function execCommand(
    command: string,
    args: string[],
+diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
+index 04fef2b..92c0d67 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.ts
+@@ -33,6 +33,8 @@ import {
+   findClaudeModel,
+   getClaudeModelsWithSettings,
+   normalizeClaudeRuntimeModelId,
++  readClaudeSettingsEnvSync,
++  resolveClaudeContextWindowMaxTokens,
+   resolveConfiguredClaudeModel,
+ } from "./models.js";
+ import {
+@@ -2132,7 +2134,7 @@ class ClaudeAgentSession implements AgentSession {
+     this.resolveBinary = options.resolveBinary;
+     this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
+     this.contextUsage = new ClaudeContextUsageState(
+-      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
++      this.resolveContextWindowMaxTokens(this.config.model),
+     );
+     const handle = options.handle;
+ 
+@@ -2445,7 +2447,7 @@ class ClaudeAgentSession implements AgentSession {
+       await this.applyFastModeFeature(false, activeQuery);
+     }
+     this.contextUsage.setInitialContextWindowMaxTokens(
+-      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
++      this.resolveContextWindowMaxTokens(this.config.model),
+     );
+     this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
+     this.lastRuntimeModel = null;
+@@ -3252,6 +3254,24 @@ class ClaudeAgentSession implements AgentSession {
+     );
+   }
+ 
++  /**
++   * The context window to start this session with. Manifest models carry one; a gateway model the
++   * manifest does not know gets none until its first turn's result arrives, which leaves the
++   * composer meter empty for that entire turn — so derive it the way Claude Code does.
++   */
++  private resolveContextWindowMaxTokens(modelId: string | null | undefined): number | undefined {
++    const manifestModel = findClaudeModel(modelId);
++    if (manifestModel !== undefined) {
++      return manifestModel.contextWindowMaxTokens;
++    }
++
++    const env = this.buildSdkEnv();
++    return resolveClaudeContextWindowMaxTokens(modelId, {
++      ...env,
++      ...readClaudeSettingsEnvSync(path.join(claudeConfigDir(env), "settings.json")),
++    });
++  }
++
+   private buildSdkEnv(): NodeJS.ProcessEnv {
+     return createProviderEnv({
+       baseEnv: process.env,
+diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
+index 0e18773..25549ed 100644
+--- a/packages/server/src/server/agent/providers/claude/models.test.ts
++++ b/packages/server/src/server/agent/providers/claude/models.test.ts
+@@ -13,7 +13,13 @@ import {
+   parseClaudeCodeVersion,
+   resolveClaudeDisabledThinkingForModel,
+ } from "./model-manifest.js";
+-import { findClaudeModel, getClaudeModels, normalizeClaudeRuntimeModelId } from "./models.js";
++import {
++  findClaudeModel,
++  getClaudeModels,
++  normalizeClaudeRuntimeModelId,
++  readClaudeSettingsEnvSync,
++  resolveClaudeContextWindowMaxTokens,
++} from "./models.js";
+ 
+ const createdClaudeConfigDirs: string[] = [];
+ 
+@@ -669,3 +675,77 @@ describe("claudeManifestModelSupportsFastMode", () => {
+     expect(claudeManifestModelSupportsFastMode("claude-fable-5-1")).toBe(false);
+   });
+ });
++
++describe("resolveClaudeContextWindowMaxTokens", () => {
++  it("uses the manifest window for a model it knows", () => {
++    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8", undefined)).toBe(200_000);
++    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8[1m]", undefined)).toBe(1_000_000);
++  });
++
++  it("reads CLAUDE_CODE_MAX_CONTEXT_TOKENS for a model the manifest does not know", () => {
++    expect(
++      resolveClaudeContextWindowMaxTokens("deepseek-flash", {
++        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++      }),
++    ).toBe(300_000);
++  });
++
++  it("gives a [1m] id a 1M window even when the env names a smaller one", () => {
++    expect(
++      resolveClaudeContextWindowMaxTokens("deepseek-flash[1m]", {
++        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++      }),
++    ).toBe(1_000_000);
++  });
++
++  it("lets CLAUDE_CODE_DISABLE_1M_CONTEXT fall back to the env window", () => {
++    expect(
++      resolveClaudeContextWindowMaxTokens("deepseek-flash[1m]", {
++        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++        CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
++      }),
++    ).toBe(300_000);
++  });
++
++  it("reports nothing when neither the manifest nor the env names a window", () => {
++    expect(resolveClaudeContextWindowMaxTokens("deepseek-flash", undefined)).toBeUndefined();
++    expect(resolveClaudeContextWindowMaxTokens("deepseek-flash", {})).toBeUndefined();
++    expect(
++      resolveClaudeContextWindowMaxTokens("", { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000" }),
++    ).toBeUndefined();
++    expect(
++      resolveClaudeContextWindowMaxTokens(null, { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "1" }),
++    ).toBeUndefined();
++  });
++
++  it("ignores an env value that is not a positive number", () => {
++    for (const value of ["", "0", "-1", "abc", "Infinity"]) {
++      expect(
++        resolveClaudeContextWindowMaxTokens("deepseek-flash", {
++          CLAUDE_CODE_MAX_CONTEXT_TOKENS: value,
++        }),
++      ).toBeUndefined();
++    }
++  });
++});
++
++describe("readClaudeSettingsEnvSync", () => {
++  it("reads the string entries of settings.json's env block", async () => {
++    const configDir = await createClaudeConfigDir({
++      env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000", OTHER: 5 },
++    });
++
++    expect(readClaudeSettingsEnvSync(path.join(configDir, "settings.json"))).toEqual({
++      CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++    });
++  });
++
++  it("reports nothing for a missing file, bad JSON, or no env block", async () => {
++    const brokenDir = await createClaudeConfigDirWithRawSettings("{ nope");
++    const noEnvDir = await createClaudeConfigDir({ model: "deepseek-flash" });
++
++    expect(readClaudeSettingsEnvSync(path.join(brokenDir, "settings.json"))).toBeUndefined();
++    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "settings.json"))).toBeUndefined();
++    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "not-settings.json"))).toBeUndefined();
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
+index 6b341fa..da98226 100644
+--- a/packages/server/src/server/agent/providers/claude/models.ts
++++ b/packages/server/src/server/agent/providers/claude/models.ts
+@@ -1,3 +1,4 @@
++import { readFileSync } from "node:fs";
+ import * as fs from "node:fs/promises";
+ import * as path from "node:path";
+ import type { Logger } from "pino";
+@@ -48,6 +49,73 @@ export function findClaudeModel(
+   return getClaudeModels().find((model) => model.id === normalizedModelId);
+ }
+ 
++/** Claude Code reads a `[1m]` suffix on a model id as "this session runs with a 1M window". */
++const CLAUDE_LONG_CONTEXT_MODEL_ID_PATTERN = /\[1m\]/i;
++const CLAUDE_LONG_CONTEXT_WINDOW_TOKENS = 1_000_000;
++
++/**
++ * The context window Claude Code will use for a model id the manifest does not know.
++ *
++ * Claude Code reports the window only in a turn's result (`modelUsage`), so a fresh session with a
++ * gateway model — `deepseek-flash` behind `ANTHROPIC_BASE_URL`, say — has no window until its first
++ * turn ends, and the composer draws an empty meter for that whole turn. Claude Code computes the
++ * value itself from the model id and the environment, so the daemon can compute the same value up
++ * front instead of waiting to be told.
++ *
++ * `env` must be the environment the Claude Code process runs with, with settings.json's own `env`
++ * merged over it: Claude Code applies its settings over the process env, so a value written there
++ * wins over one the daemon passed.
++ */
++export function resolveClaudeContextWindowMaxTokens(
++  modelId: string | null | undefined,
++  env: Record<string, string | undefined> | undefined,
++): number | undefined {
++  const manifestWindow = findClaudeModel(modelId)?.contextWindowMaxTokens;
++  if (manifestWindow !== undefined) {
++    return manifestWindow;
++  }
++
++  const trimmed = typeof modelId === "string" ? modelId.trim() : "";
++  if (trimmed.length === 0) {
++    return undefined;
++  }
++
++  if (
++    !env?.["CLAUDE_CODE_DISABLE_1M_CONTEXT"] &&
++    CLAUDE_LONG_CONTEXT_MODEL_ID_PATTERN.test(trimmed)
++  ) {
++    return CLAUDE_LONG_CONTEXT_WINDOW_TOKENS;
++  }
++
++  const configured = Number(env?.["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
++  return Number.isFinite(configured) && configured > 0 ? Math.round(configured) : undefined;
++}
++
++/**
++ * Read settings.json's `env` block. Synchronous because the window above is resolved while a
++ * session is being constructed.
++ */
++export function readClaudeSettingsEnvSync(settingsPath: string): Record<string, string> | undefined {
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(readFileSync(settingsPath, "utf8"));
++  } catch {
++    return undefined;
++  }
++
++  if (!isRecord(parsed) || !isRecord(parsed.env)) {
++    return undefined;
++  }
++
++  const env: Record<string, string> = {};
++  for (const [key, value] of Object.entries(parsed.env)) {
++    if (typeof value === "string") {
++      env[key] = value;
++    }
++  }
++  return env;
++}
++
+ export async function getClaudeModelsWithSettings(
+   logger: Logger,
+   configDir: string,
