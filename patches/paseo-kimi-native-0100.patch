@@ -1,3 +1,15 @@
+diff --git a/packages/app/.gitignore b/packages/app/.gitignore
+index 4bc21fd9b..da4038a72 100644
+--- a/packages/app/.gitignore
++++ b/packages/app/.gitignore
+@@ -39,6 +39,7 @@ yarn-error.*
+ 
+ # vitest browser failure screenshots
+ .vitest-screenshots/
++.vitest-attachments/
+ 
+ app-example
+ 
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
 index 4f1302fd1..4a15f6b5e 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
@@ -59,6 +71,137 @@ index 1bebc8a5a..82bfd2763 100644
      color: theme.colors.foregroundExtraMuted,
      fontSize: theme.fontSize.base,
      fontWeight: theme.fontWeight.normal,
+diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
+new file mode 100644
+index 000000000..413c80a5f
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.browser.test.tsx
+@@ -0,0 +1,125 @@
++import React, { act, type ReactNode } from "react";
++import { createRoot, type Root } from "react-dom/client";
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
++import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import { GoalPill } from "./goal-pill";
++
++// App sources compile against the classic JSX runtime, which expects React on the global.
++beforeEach(() => vi.stubGlobal("React", React));
++
++/**
++ * The real menu engine in a real browser: the pill only becomes a trigger there, and the panel is
++ * a portal, so a jsdom run would prove neither.
++ */
++
++const PANEL = "composer-goal-pill-panel";
++const STARTED_AT = Date.now() - 3_600_000;
++const ENDED_AT = STARTED_AT + 900_000;
++
++const GOAL: AgentGoalPayload = {
++  goalId: "goal-1",
++  objective: "在当前目录创建 goal-ok.txt 并写入 hello",
++  completionCriterion: "goal-ok.txt 存在，且内容为 hello",
++  status: "active",
++  turnsUsed: 7,
++  tokensUsed: 136_400,
++  startedAt: STARTED_AT,
++  updatedAt: STARTED_AT + 60_000,
++};
++
++const CLEARED_GOAL: AgentGoalPayload = { ...GOAL, status: "cleared", endedAt: ENDED_AT };
++/** A goal whose create record carried no `time`, which the panel has to render without a start. */
++const UNSTARTED_GOAL: AgentGoalPayload = { ...GOAL, startedAt: undefined };
++
++interface Mounted {
++  root: Root;
++  container: HTMLDivElement;
++}
++
++const mounted: Mounted[] = [];
++
++function mount(node: ReactNode): void {
++  const container = document.createElement("div");
++  document.body.appendChild(container);
++  const root = createRoot(container);
++  act(() => root.render(node));
++  mounted.push({ root, container });
++}
++
++afterEach(() => {
++  for (const entry of mounted.splice(0)) {
++    act(() => entry.root.unmount());
++    entry.container.remove();
++  }
++});
++
++function element(testID: string): HTMLElement | null {
++  const found = document.querySelector(`[data-testid="${testID}"]`);
++  return found instanceof HTMLElement ? found : null;
++}
++
++function pill(): HTMLElement {
++  const trigger = element("composer-goal-pill");
++  if (trigger === null) {
++    throw new Error("goal pill did not render");
++  }
++  return trigger;
++}
++
++function openPanel(): void {
++  act(() => {
++    pill().click();
++  });
++}
++
++function fieldText(name: string): string | null {
++  return element(`${PANEL}-${name}`)?.textContent ?? null;
++}
++
++describe("goal pill detail panel", () => {
++  it("opens the details the pill has no room for", () => {
++    mount(<GoalPill goal={GOAL} />);
++
++    expect(pill().textContent).toContain("目标进行中");
++    expect(pill().textContent).toContain("· 7 回合 · 136K");
++    expect(pill().getAttribute("aria-expanded")).toBe("false");
++    expect(element(PANEL)).toBeNull();
++
++    openPanel();
++
++    expect(pill().getAttribute("aria-expanded")).toBe("true");
++    expect(fieldText("objective")).toContain("goal-ok.txt");
++    expect(fieldText("criterion")).toContain("内容为 hello");
++    expect(fieldText("turns")).toContain("7 回合");
++    expect(fieldText("turns")).toContain("Paseo 按会话日志统计");
++    expect(fieldText("tokens")).toContain("136K tokens");
++    expect(fieldText("tokens")).toContain("136,400");
++    expect(fieldText("elapsed")).toBe("已跑1h");
++    expect(fieldText("started")).not.toBeNull();
++    expect(element(`${PANEL}-ended`)).toBeNull();
++  });
++
++  it("keeps a finished goal readable after it is cleared", () => {
++    mount(<GoalPill goal={CLEARED_GOAL} />);
++
++    expect(pill().textContent).toContain("目标已清除");
++    openPanel();
++
++    expect(fieldText("elapsed")).toBe("已跑15m");
++    expect(fieldText("ended")).not.toBeNull();
++  });
++
++  it("drops the elapsed rows when the log never recorded a start", () => {
++    mount(<GoalPill goal={UNSTARTED_GOAL} />);
++    openPanel();
++
++    expect(element(`${PANEL}-started`)).toBeNull();
++    expect(element(`${PANEL}-elapsed`)).toBeNull();
++  });
++
++  it("renders nothing without a goal", () => {
++    mount(<GoalPill goal={null} />);
++
++    expect(element("composer-goal-pill")).toBeNull();
++  });
++});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
 index 000000000..2b2217d8f
