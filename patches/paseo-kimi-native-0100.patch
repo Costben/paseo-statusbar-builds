@@ -1,5 +1,5 @@
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 4f1302f..4a15f6b 100644
+index 4f1302fd1..4a15f6b5e 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -20,7 +20,7 @@ index 4f1302f..4a15f6b 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index ff32aaf..d329cdd 100644
+index ff32aaf4d..d329cdd36 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -46,7 +46,7 @@ index ff32aaf..d329cdd 100644
 +  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
  }
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 1bebc8a..82bfd27 100644
+index 1bebc8a5a..82bfd2763 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -412,7 +412,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -61,7 +61,7 @@ index 1bebc8a..82bfd27 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 0000000..1e8901c
+index 000000000..1e8901c84
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,49 @@
@@ -116,7 +116,7 @@ index 0000000..1e8901c
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 0000000..db8fd08
+index 000000000..db8fd089d
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,147 @@
@@ -268,7 +268,7 @@ index 0000000..db8fd08
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index a8bdec9..b93f0b5 100644
+index a8bdec9ed..b93f0b579 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,7 @@ import {
@@ -333,7 +333,7 @@ index a8bdec9..b93f0b5 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c8..69a9923 100644
+index 3ab03c877..69a992346 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -348,7 +348,7 @@ index 3ab03c8..69a9923 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index dd5469d..d3bee6e 100644
+index dd5469df2..d3bee6ef2 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -34,6 +34,7 @@ import type {
@@ -368,7 +368,7 @@ index dd5469d..d3bee6e 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f10..39dd7b6 100644
+index 4d14f101b..39dd7b68f 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,11 @@
@@ -403,7 +403,7 @@ index 4d14f10..39dd7b6 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c6..7a4c643 100644
+index c1c70c640..7a4c64310 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -423,7 +423,7 @@ index c1c70c6..7a4c643 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index db72cd3..2afa556 100644
+index db72cd3cb..2afa55652 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -806,6 +806,29 @@ const AgentActiveTurnPayloadSchema = z.object({
@@ -465,7 +465,7 @@ index db72cd3..2afa556 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eb..606e97b 100644
+index 0dd49eba0..606e97b7f 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -490,7 +490,7 @@ index 0dd49eb..606e97b 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe1..afe2cce 100644
+index 6930fe187..afe2ccefd 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
@@ -507,7 +507,7 @@ index 6930fe1..afe2cce 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 1f8c137..e89365a 100644
+index 1f8c1374c..e89365af7 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -542,7 +542,7 @@ index 1f8c137..e89365a 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 061c00e..2a19f73 100644
+index 061c00e2c..2a19f7307 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,7 @@ import {
@@ -675,7 +675,7 @@ index 061c00e..2a19f73 100644
          agent.currentModeId = event.currentModeId;
          agent.availableModes = event.availableModes;
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index f72bd84..9a5dda9 100644
+index f72bd84db..9a5dda96c 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
@@ -712,7 +712,7 @@ index f72bd84..9a5dda9 100644
      const features = [createFeature()];
      const agent = createManagedAgent({ features });
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 05f932a..bc5171d 100644
+index 05f932aea..bc5171de3 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
 @@ -146,6 +146,10 @@ export function toAgentPayload(
@@ -727,7 +727,7 @@ index 05f932a..bc5171d 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a..ff5f1b8 100644
+index 08bd66a79..ff5f1b8c6 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -264,6 +264,22 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
@@ -754,7 +754,7 @@ index 08bd66a..ff5f1b8 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 41e2d52..96d2683 100644
+index 41e2d5201..96d2683ae 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
 @@ -215,7 +215,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
@@ -775,7 +775,7 @@ index 41e2d52..96d2683 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index e2fb977..a16e57a 100644
+index e2fb9779b..a16e57a32 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -236,6 +236,27 @@ export interface AgentUsage {
@@ -816,7 +816,7 @@ index e2fb977..a16e57a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2..c5f4009 100644
+index 9d106a2c1..c5f4009c2 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -2046,7 +2046,7 @@ index 9d106a2..c5f4009 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index d2e0a1b..c5426a5 100644
+index d2e0a1beb..c5426a569 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -72,9 +72,11 @@ import {
@@ -3030,7 +3030,7 @@ index d2e0a1b..c5426a5 100644
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index c8f8960..4c9f1d5 100644
+index c8f8960ea..4c9f1d53b 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -10,6 +10,7 @@ import {
@@ -3071,7 +3071,7 @@ index c8f8960..4c9f1d5 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb..950dfa6 100644
+index b388fdb01..950dfa61c 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -3155,7 +3155,7 @@ index b388fdb..950dfa6 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 50effdf..c7ef9c5 100644
+index 50effdf33..c7ef9c57e 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -3347,7 +3347,7 @@ index 50effdf..c7ef9c5 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 0000000..a0a1c7f
+index 000000000..a0a1c7f23
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -0,0 +1,100 @@
@@ -3453,10 +3453,10 @@ index 0000000..a0a1c7f
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..aa91e18
+index 000000000..fb0327add
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1477 @@
+@@ -0,0 +1,1233 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -3486,11 +3486,6 @@ index 0000000..aa91e18
 +  "## Bottom line up front\n\nThe daemon derives the goal from the wire log.";
 +const CRITERION =
 +  "当前工作目录 D:\\Erl-Project\\AntiVIP\\.tmp\\goal-ws-test 下存在 goal-ok.txt，且其内容为 hello";
-+const TASK_ID = "bash-26twgst3";
-+const TASK_DESCRIPTION = "Wait for Windows and APK builds";
-+const TASK_STARTED_AT = 1_790_588_420_454;
-+const TASK_ENDED_AT = 1_790_588_485_479;
-+const TASK_PARENT_TOOL_CALL_ID = "call_00_hEwIDNG4ioifITVN3AVr1947";
 +
 +interface GoalCreateOverrides {
 +  goalId?: string;
@@ -3674,95 +3669,6 @@ index 0000000..aa91e18
 +  mkdirSync(path.dirname(file), { recursive: true });
 +  writeFileSync(file, contents);
 +  return file;
-+}
-+
-+interface TaskOverrides {
-+  description?: string;
-+  status?: string;
-+  startedAt?: number;
-+  /** Null omits the field, which is how a task that has not ended looks. */
-+  endedAt?: number | null;
-+  /** Null omits the field, which is how a task that has not exited looks. */
-+  exitCode?: number | null;
-+  parentToolCallId?: string | null;
-+}
-+
-+function taskJson(overrides: TaskOverrides = {}): string {
-+  const record: Record<string, unknown> = {
-+    taskId: TASK_ID,
-+    description: overrides.description ?? TASK_DESCRIPTION,
-+    status: overrides.status ?? "completed",
-+    detached: true,
-+    startedAt: overrides.startedAt ?? TASK_STARTED_AT,
-+    timeoutMs: 600_000,
-+    kind: "process",
-+    command: "npm run build",
-+    pid: 0,
-+    parentToolCallId: overrides.parentToolCallId ?? TASK_PARENT_TOOL_CALL_ID,
-+  };
-+  if (overrides.endedAt !== null) {
-+    record.endedAt = overrides.endedAt ?? TASK_ENDED_AT;
-+  }
-+  if (overrides.exitCode !== null) {
-+    record.exitCode = overrides.exitCode ?? 0;
-+  }
-+  return JSON.stringify(record);
-+}
-+
-+function taskFilePath(sessionDir: string, taskId: string): string {
-+  return path.join(sessionDir, "agents", "main", "tasks", `${taskId}.json`);
-+}
-+
-+function writeTaskFile(sessionDir: string, taskId: string, contents: string): string {
-+  const file = taskFilePath(sessionDir, taskId);
-+  mkdirSync(path.dirname(file), { recursive: true });
-+  writeFileSync(file, contents);
-+  return file;
-+}
-+
-+function writeTask(sessionDir: string, taskId: string, overrides: TaskOverrides = {}): string {
-+  return writeTaskFile(sessionDir, taskId, taskJson(overrides));
-+}
-+
-+function writeTaskOutput(sessionDir: string, taskId: string, contents: string): string {
-+  const file = path.join(sessionDir, "agents", "main", "tasks", taskId, "output.log");
-+  mkdirSync(path.dirname(file), { recursive: true });
-+  writeFileSync(file, contents);
-+  return file;
-+}
-+
-+function appendTaskOutput(sessionDir: string, taskId: string, contents: string): void {
-+  const file = path.join(sessionDir, "agents", "main", "tasks", taskId, "output.log");
-+  mkdirSync(path.dirname(file), { recursive: true });
-+  appendFileSync(file, contents);
-+}
-+
-+function taskUpsertStatuses(events: ProviderSubagentInputEvent[]): Map<string, string> {
-+  const statuses = new Map<string, string>();
-+  for (const event of events) {
-+    if (event.type === "upsert" && event.id.startsWith("task:") && event.status !== undefined) {
-+      statuses.set(event.id, event.status);
-+    }
-+  }
-+  return statuses;
-+}
-+
-+function taskTimelineTexts(events: ProviderSubagentInputEvent[], taskId: string): string[] {
-+  const texts: string[] = [];
-+  for (const event of events) {
-+    if (
-+      event.type === "timeline" &&
-+      event.id === `task:${taskId}` &&
-+      event.item.type === "assistant_message"
-+    ) {
-+      texts.push(event.item.text);
-+    }
-+  }
-+  return texts;
-+}
-+
-+function hasTaskRemoval(events: ProviderSubagentInputEvent[], taskId: string): boolean {
-+  return events.some((event) => event.type === "remove" && event.id === `task:${taskId}`);
 +}
 +
 +function hasSubagentTimeline(events: ProviderSubagentInputEvent[]): boolean {
@@ -4753,156 +4659,6 @@ index 0000000..aa91e18
 +
 +    expect(assistantTimelineTexts(events)).toEqual(["First run report", "Second run done"]);
 +  });
-+
-+  test("surfaces a running background task with its output", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTask(sessionDir, TASK_ID, { status: "running", endedAt: null, exitCode: null });
-+    writeTaskOutput(sessionDir, TASK_ID, "build started\n");
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => taskTimelineTexts(events, TASK_ID).length > 0);
-+
-+    expect(events.find((event) => event.type === "upsert")).toMatchObject({
-+      type: "upsert",
-+      id: `task:${TASK_ID}`,
-+      title: TASK_DESCRIPTION,
-+      toolCallId: TASK_PARENT_TOOL_CALL_ID,
-+      status: "running",
-+      timestamp: new Date(TASK_STARTED_AT).toISOString(),
-+    });
-+    expect(taskTimelineTexts(events, TASK_ID)).toEqual(["build started\n"]);
-+  });
-+
-+  test("maps every task status onto the subagent vocabulary", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTask(sessionDir, "bash-done", { status: "completed", exitCode: 0 });
-+    writeTask(sessionDir, "bash-killed", {
-+      status: "killed",
-+      exitCode: 1,
-+      startedAt: TASK_STARTED_AT + 1,
-+    });
-+    writeTask(sessionDir, "bash-lost", {
-+      status: "lost",
-+      endedAt: null,
-+      exitCode: null,
-+      startedAt: TASK_STARTED_AT + 2,
-+    });
-+    writeTask(sessionDir, "bash-timeout", {
-+      status: "timed_out",
-+      exitCode: 1,
-+      startedAt: TASK_STARTED_AT + 3,
-+    });
-+    writeTask(sessionDir, "bash-failed", {
-+      status: "completed",
-+      exitCode: 2,
-+      startedAt: TASK_STARTED_AT + 4,
-+    });
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => taskUpsertStatuses(events).size === 5);
-+
-+    expect(taskUpsertStatuses(events)).toEqual(
-+      new Map([
-+        ["task:bash-done", "completed"],
-+        ["task:bash-killed", "canceled"],
-+        ["task:bash-lost", "canceled"],
-+        ["task:bash-timeout", "failed"],
-+        ["task:bash-failed", "failed"],
-+      ]),
-+    );
-+  });
-+
-+  test("appends a task's output to its timeline as it arrives", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTask(sessionDir, TASK_ID, { status: "running", endedAt: null, exitCode: null });
-+    writeTaskOutput(sessionDir, TASK_ID, "line one\n");
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => taskTimelineTexts(events, TASK_ID).length === 1);
-+
-+    appendTaskOutput(sessionDir, TASK_ID, "line two\n");
-+    await waitFor(() => taskTimelineTexts(events, TASK_ID).length === 2);
-+
-+    expect(taskTimelineTexts(events, TASK_ID)).toEqual(["line one\n", "line two\n"]);
-+  });
-+
-+  test("removes a task that ages out of the visible window", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTask(sessionDir, "bash-oldest", { status: "completed", exitCode: 0 });
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => taskUpsertStatuses(events).has("task:bash-oldest"));
-+
-+    for (let index = 0; index < 8; index++) {
-+      writeTask(sessionDir, `bash-newer-${index}`, {
-+        status: "completed",
-+        exitCode: 0,
-+        startedAt: TASK_STARTED_AT + index + 1,
-+      });
-+    }
-+    await waitFor(() => hasTaskRemoval(events, "bash-oldest"));
-+
-+    expect(taskUpsertStatuses(events).size).toBe(9);
-+    expect(events.find((event) => event.type === "remove")).toEqual({
-+      type: "remove",
-+      id: "task:bash-oldest",
-+    });
-+  });
-+
-+  test("keeps polling after a malformed task record", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTaskFile(sessionDir, "bash-broken", "{ this is not json");
-+    writeTask(sessionDir, TASK_ID, { status: "running", endedAt: null, exitCode: null });
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => taskUpsertStatuses(events).has(`task:${TASK_ID}`));
-+
-+    writeTask(sessionDir, "bash-later", { status: "completed", startedAt: TASK_STARTED_AT + 1 });
-+    await waitFor(() => taskUpsertStatuses(events).has("task:bash-later"));
-+
-+    expect(events.some((event) => event.type === "upsert" && event.id === "task:bash-broken")).toBe(
-+      false,
-+    );
-+  });
-+
-+  test("ignores a task file whose id could walk out of the tasks directory", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTaskFile(sessionDir, "..evil", taskJson({ status: "running" }));
-+    writeTask(sessionDir, TASK_ID, { status: "running", endedAt: null, exitCode: null });
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => taskUpsertStatuses(events).has(`task:${TASK_ID}`));
-+    await delay(80);
-+
-+    expect(events.some((event) => event.type === "upsert" && event.id === "task:..evil")).toBe(
-+      false,
-+    );
-+  });
-+
-+  test("does not repeat an unchanged task upsert", async () => {
-+    const { home, sessionDir } = createSessionHome(SESSION_ID);
-+    writeTask(sessionDir, TASK_ID, { status: "completed", exitCode: 0 });
-+
-+    const events: ProviderSubagentInputEvent[] = [];
-+    const log = createLog(home, { onSubagent: (event) => events.push(event) });
-+    log.start();
-+    await waitFor(() => events.length > 0);
-+    await delay(80);
-+
-+    expect(events).toHaveLength(1);
-+  });
 +});
 +
 +function createSessionHome(sessionId: string): {
@@ -4936,10 +4692,10 @@ index 0000000..aa91e18
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..4cda374
+index 000000000..61a0895ff
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1344 @@
+@@ -0,0 +1,1197 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -4957,13 +4713,6 @@ index 0000000..4cda374
 +} from "../../agent-sdk-types.js";
 +import type { ProviderSubagentInputEvent } from "../../provider-subagents/store.js";
 +import { KimiSubagentLogTailer } from "./subagent-log.js";
-+import {
-+  KimiTaskOutputTailer,
-+  mapKimiTaskStatus,
-+  readKimiTasks,
-+  resolveKimiTasksDir,
-+  type KimiTaskRecord,
-+} from "./task-log.js";
 +
 +/**
 + * Kimi Code writes one JSON object per line to
@@ -4989,8 +4738,6 @@ index 0000000..4cda374
 +const KIMI_CONFIG_FILENAME = "config.toml";
 +/** Reading every subagent log from byte 0 is unbounded; tail only the newest few. */
 +const TAILED_SUBAGENT_LIMIT = 8;
-+/** A session accumulates finished background tasks; surface the newest few plus every running one. */
-+const VISIBLE_TASK_LIMIT = 8;
 +
 +/**
 + * Locate the wire log for a Kimi session. Returns null when the file does not
@@ -5360,9 +5107,8 @@ index 0000000..4cda374
 + * is reported, because the client renders a context ring only for a full pair.
 + *
 + * Subagent transcripts are not in this log. Only their lifecycle is, and each
-+ * one is tailed from its own `agents/<subagentId>/wire.jsonl`. Background tasks
-+ * are not in it at all: they live under `agents/main/tasks/`, so they are
-+ * surfaced on the same track from their own files.
++ * one is tailed from its own `agents/<subagentId>/wire.jsonl`; the only
++ * subagents surfaced here are the ones an `Agent` tool call spawned.
 + */
 +export class KimiSessionLog {
 +  private readonly kimiSessionId: string;
@@ -5405,9 +5151,6 @@ index 0000000..4cda374
 +   * is how a recycled id is told apart from a repeated record.
 +   */
 +  private readonly subagentIncarnations = new Map<string, string | null>();
-+  private readonly taskTailers = new Map<string, KimiTaskOutputTailer>();
-+  /** Value signature of the last upsert emitted per background task. */
-+  private readonly taskSignatures = new Map<string, string>();
 +
 +  private timer: ReturnType<typeof setTimeout> | null = null;
 +  private started = false;
@@ -5533,10 +5276,6 @@ index 0000000..4cda374
 +    if (this.stopped) {
 +      return;
 +    }
-+    await this.publishTasks();
-+    if (this.stopped) {
-+      return;
-+    }
 +    this.scheduleTick(this.nextIntervalMs(readNewBytes));
 +  }
 +
@@ -5604,8 +5343,6 @@ index 0000000..4cda374
 +    this.subagentsWithText.clear();
 +    this.summarisedSubagents.clear();
 +    this.subagentIncarnations.clear();
-+    this.taskTailers.clear();
-+    this.taskSignatures.clear();
 +  }
 +
 +  private applyLines(lines: string[]): void {
@@ -5783,97 +5520,6 @@ index 0000000..4cda374
 +        item: { type: "assistant_message", text: summary },
 +      });
 +    }
-+  }
-+
-+  /**
-+   * Reports background tasks on the same subagent track, then tails the output
-+   * of the visible ones.
-+   *
-+   * Only running tasks and the newest few are surfaced: a session collects
-+   * dozens of finished tasks, and showing them all would bury the live ones.
-+   * An entry that leaves that window is removed, because this path has no
-+   * lifecycle record of its own to retract it.
-+   */
-+  private async publishTasks(): Promise<void> {
-+    const sessionDir = this.resolveSessionDir();
-+    if (sessionDir === null) {
-+      return;
-+    }
-+    let tasks: KimiTaskRecord[];
-+    try {
-+      tasks = await readKimiTasks(resolveKimiTasksDir(sessionDir));
-+    } catch (error) {
-+      this.logger.warn(
-+        { err: error, sessionId: this.kimiSessionId },
-+        "Kimi task directory read failed",
-+      );
-+      return;
-+    }
-+
-+    const visible = selectVisibleTasks(tasks);
-+    const visibleIds = new Set(visible.map((task) => task.taskId));
-+    // Deleting from a Map while iterating its keys is well defined: the removed
-+    // entry is simply skipped.
-+    for (const taskId of this.taskSignatures.keys()) {
-+      if (visibleIds.has(taskId)) {
-+        continue;
-+      }
-+      this.taskSignatures.delete(taskId);
-+      this.taskTailers.delete(taskId);
-+      this.emitSubagent({ type: "remove", id: taskSubagentId(taskId) });
-+    }
-+
-+    for (const task of visible) {
-+      this.publishTaskUpsert(task);
-+    }
-+
-+    for (const task of visible) {
-+      const tailer = this.attachTaskTailer(task.taskId, sessionDir);
-+      let items: AgentTimelineItem[];
-+      try {
-+        items = await tailer.readAppended();
-+      } catch (error) {
-+        this.logger.warn(
-+          { err: error, sessionId: this.kimiSessionId, taskId: task.taskId },
-+          "Kimi task output poll failed",
-+        );
-+        continue;
-+      }
-+      for (const item of items) {
-+        this.emitSubagent({ type: "timeline", id: taskSubagentId(task.taskId), item });
-+      }
-+    }
-+  }
-+
-+  private publishTaskUpsert(task: KimiTaskRecord): void {
-+    const signature = taskValueSignature(task);
-+    const first = !this.taskSignatures.has(task.taskId);
-+    if (!first && this.taskSignatures.get(task.taskId) === signature) {
-+      return;
-+    }
-+    this.taskSignatures.set(task.taskId, signature);
-+    this.emitSubagent({
-+      type: "upsert",
-+      id: taskSubagentId(task.taskId),
-+      title: task.description,
-+      toolCallId: task.parentToolCallId,
-+      status: mapKimiTaskStatus(task.status, task.exitCode),
-+      // The store takes `createdAt` from the first upsert's timestamp, so that
-+      // one carries the task's start; later ones carry when it last changed.
-+      timestamp: new Date(
-+        first ? (task.startedAt ?? Date.now()) : (task.endedAt ?? Date.now()),
-+      ).toISOString(),
-+    });
-+  }
-+
-+  private attachTaskTailer(taskId: string, sessionDir: string): KimiTaskOutputTailer {
-+    const existing = this.taskTailers.get(taskId);
-+    if (existing !== undefined) {
-+      return existing;
-+    }
-+    const tailer = new KimiTaskOutputTailer({ taskId, sessionDir, logger: this.logger });
-+    this.taskTailers.set(taskId, tailer);
-+    return tailer;
 +  }
 +
 +  /**
@@ -6092,43 +5738,6 @@ index 0000000..4cda374
 +  return byRecency.slice(0, TAILED_SUBAGENT_LIMIT);
 +}
 +
-+/**
-+ * Tasks worth surfacing: every running one, plus the newest few by start time.
-+ * Running tasks are never dropped by the limit, because one that started long
-+ * ago is exactly the one the user cannot see anywhere else.
-+ */
-+function selectVisibleTasks(tasks: KimiTaskRecord[]): KimiTaskRecord[] {
-+  const byRecency = [...tasks].sort(
-+    (left, right) =>
-+      (right.startedAt ?? 0) - (left.startedAt ?? 0) || left.taskId.localeCompare(right.taskId),
-+  );
-+  const visibleIds = new Set(byRecency.slice(0, VISIBLE_TASK_LIMIT).map((task) => task.taskId));
-+  for (const task of tasks) {
-+    if (mapKimiTaskStatus(task.status, task.exitCode) === "running") {
-+      visibleIds.add(task.taskId);
-+    }
-+  }
-+  return byRecency.filter((task) => visibleIds.has(task.taskId));
-+}
-+
-+/**
-+ * Change detector for task upserts, covering what the client renders. The
-+ * timestamps are excluded for the same reason as in the subagent signature.
-+ */
-+function taskValueSignature(task: KimiTaskRecord): string {
-+  return JSON.stringify([
-+    mapKimiTaskStatus(task.status, task.exitCode),
-+    task.description,
-+    task.parentToolCallId,
-+    task.endedAt,
-+  ]);
-+}
-+
-+/** Namespaced so a task id can never collide with a subagent id under one parent. */
-+function taskSubagentId(taskId: string): string {
-+  return `task:${taskId}`;
-+}
-+
 +function resolveKimiHome(kimiHome?: string): string {
 +  const raw =
 +    firstNonEmpty(kimiHome, process.env.KIMI_HOME, process.env.KIMI_CODE_HOME) ?? DEFAULT_KIMI_HOME;
@@ -6286,7 +5895,7 @@ index 0000000..4cda374
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 0000000..355fc08
+index 000000000..355fc080e
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,285 @@
@@ -6577,7 +6186,7 @@ index 0000000..355fc08
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 0000000..81fc174
+index 000000000..81fc17405
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,206 @@
@@ -6787,536 +6396,8 @@ index 0000000..81fc174
 +    return mapKimiSubagentLogLines(merged, this.calls);
 +  }
 +}
-diff --git a/packages/server/src/server/agent/providers/kimi/task-log.test.ts b/packages/server/src/server/agent/providers/kimi/task-log.test.ts
-new file mode 100644
-index 0000000..a245a8f
---- /dev/null
-+++ b/packages/server/src/server/agent/providers/kimi/task-log.test.ts
-@@ -0,0 +1,262 @@
-+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-+import { tmpdir } from "node:os";
-+import path from "node:path";
-+import { describe, expect, test } from "vitest";
-+
-+import { createTestLogger } from "../../../../test-utils/test-logger.js";
-+import {
-+  KimiTaskOutputTailer,
-+  mapKimiTaskStatus,
-+  readKimiTasks,
-+  resolveKimiTaskOutputPath,
-+  resolveKimiTasksDir,
-+} from "./task-log.js";
-+
-+const TASK_ID = "bash-26twgst3";
-+const STARTED_AT = 1_790_588_420_454;
-+const ENDED_AT = 1_790_588_485_479;
-+const PARENT_TOOL_CALL_ID = "call_00_hEwIDNG4ioifITVN3AVr1947";
-+const CHUNK_BYTES = 8 * 1024;
-+
-+interface TaskOverrides {
-+  taskId?: string;
-+  description?: string;
-+  status?: string;
-+  startedAt?: number;
-+  /** Null omits the field, which is how a task that has not ended looks. */
-+  endedAt?: number | null;
-+  /** Null omits the field, which is how a task that has not exited looks. */
-+  exitCode?: number | null;
-+  parentToolCallId?: string | null;
-+}
-+
-+function taskRecord(overrides: TaskOverrides = {}): Record<string, unknown> {
-+  const record: Record<string, unknown> = {
-+    taskId: overrides.taskId ?? TASK_ID,
-+    description: overrides.description ?? "Wait for Windows and APK builds",
-+    status: overrides.status ?? "completed",
-+    detached: true,
-+    startedAt: overrides.startedAt ?? STARTED_AT,
-+    timeoutMs: 600_000,
-+    kind: "process",
-+    command: "npm run build",
-+    pid: 0,
-+    parentToolCallId: overrides.parentToolCallId ?? PARENT_TOOL_CALL_ID,
-+  };
-+  if (overrides.endedAt !== null) {
-+    record.endedAt = overrides.endedAt ?? ENDED_AT;
-+  }
-+  if (overrides.exitCode !== null) {
-+    record.exitCode = overrides.exitCode ?? 0;
-+  }
-+  return record;
-+}
-+
-+function createTasksHome(): { sessionDir: string; tasksDir: string } {
-+  const sessionDir = mkdtempSync(path.join(tmpdir(), "kimi-task-log-"));
-+  const tasksDir = resolveKimiTasksDir(sessionDir);
-+  mkdirSync(tasksDir, { recursive: true });
-+  return { sessionDir, tasksDir };
-+}
-+
-+function writeTaskFile(tasksDir: string, taskId: string, contents: string): string {
-+  const file = path.join(tasksDir, `${taskId}.json`);
-+  writeFileSync(file, contents);
-+  return file;
-+}
-+
-+function writeTaskOutput(sessionDir: string, taskId: string, contents: string): string {
-+  const file = resolveKimiTaskOutputPath(sessionDir, taskId);
-+  if (file === null) {
-+    throw new Error(`unsafe task id: ${taskId}`);
-+  }
-+  mkdirSync(path.dirname(file), { recursive: true });
-+  writeFileSync(file, contents);
-+  return file;
-+}
-+
-+function assistantTexts(
-+  items: Awaited<ReturnType<KimiTaskOutputTailer["readAppended"]>>,
-+): string[] {
-+  return items.map((item) => (item.type === "assistant_message" ? item.text : ""));
-+}
-+
-+describe("resolveKimiTasksDir", () => {
-+  test("points at the main agent's tasks directory", () => {
-+    expect(resolveKimiTasksDir("/sessions/x")).toBe(
-+      path.join("/sessions/x", "agents", "main", "tasks"),
-+    );
-+  });
-+});
-+
-+describe("resolveKimiTaskOutputPath", () => {
-+  test("points at the task's own output log", () => {
-+    expect(resolveKimiTaskOutputPath("/sessions/x", TASK_ID)).toBe(
-+      path.join("/sessions/x", "agents", "main", "tasks", TASK_ID, "output.log"),
-+    );
-+  });
-+
-+  test("rejects ids that could walk out of the session directory", () => {
-+    expect(resolveKimiTaskOutputPath("/sessions/x", "../main")).toBeNull();
-+    expect(resolveKimiTaskOutputPath("/sessions/x", "a/b")).toBeNull();
-+    expect(resolveKimiTaskOutputPath("/sessions/x", "a\\b")).toBeNull();
-+    expect(resolveKimiTaskOutputPath("/sessions/x", "")).toBeNull();
-+  });
-+});
-+
-+describe("readKimiTasks", () => {
-+  test("reads a task record", async () => {
-+    const { tasksDir } = createTasksHome();
-+    writeTaskFile(tasksDir, TASK_ID, JSON.stringify(taskRecord()));
-+
-+    expect(await readKimiTasks(tasksDir)).toEqual([
-+      {
-+        taskId: TASK_ID,
-+        description: "Wait for Windows and APK builds",
-+        status: "completed",
-+        startedAt: STARTED_AT,
-+        endedAt: ENDED_AT,
-+        exitCode: 0,
-+        parentToolCallId: PARENT_TOOL_CALL_ID,
-+      },
-+    ]);
-+  });
-+
-+  test("reads a task that has not ended yet", async () => {
-+    const { tasksDir } = createTasksHome();
-+    writeTaskFile(
-+      tasksDir,
-+      TASK_ID,
-+      JSON.stringify(taskRecord({ status: "running", endedAt: null, exitCode: null })),
-+    );
-+
-+    const [task] = await readKimiTasks(tasksDir);
-+
-+    expect(task).toMatchObject({
-+      taskId: TASK_ID,
-+      status: "running",
-+      endedAt: null,
-+      exitCode: null,
-+    });
-+  });
-+
-+  test("skips a malformed record without dropping its siblings", async () => {
-+    const { tasksDir } = createTasksHome();
-+    writeTaskFile(tasksDir, "broken", "{ this is not json");
-+    writeTaskFile(tasksDir, TASK_ID, JSON.stringify(taskRecord()));
-+
-+    expect((await readKimiTasks(tasksDir)).map((task) => task.taskId)).toEqual([TASK_ID]);
-+  });
-+
-+  test("ignores files that are not task records", async () => {
-+    const { tasksDir } = createTasksHome();
-+    writeFileSync(path.join(tasksDir, "notes.txt"), "not a task");
-+
-+    expect(await readKimiTasks(tasksDir)).toEqual([]);
-+  });
-+
-+  test("rejects a task id that could walk out of the directory", async () => {
-+    const { tasksDir } = createTasksHome();
-+    writeTaskFile(tasksDir, "..evil", JSON.stringify(taskRecord()));
-+
-+    expect(await readKimiTasks(tasksDir)).toEqual([]);
-+  });
-+
-+  test("returns nothing for a missing directory", async () => {
-+    const { sessionDir } = createTasksHome();
-+
-+    expect(await readKimiTasks(path.join(sessionDir, "absent"))).toEqual([]);
-+  });
-+});
-+
-+describe("mapKimiTaskStatus", () => {
-+  test("maps each recorded status onto the subagent vocabulary", () => {
-+    expect(mapKimiTaskStatus("running", null)).toBe("running");
-+    expect(mapKimiTaskStatus("completed", 0)).toBe("completed");
-+    expect(mapKimiTaskStatus("failed", 1)).toBe("failed");
-+    expect(mapKimiTaskStatus("timed_out", 1)).toBe("failed");
-+    expect(mapKimiTaskStatus("lost", null)).toBe("canceled");
-+  });
-+
-+  test("treats a completed task with a non-zero exit code as failed", () => {
-+    expect(mapKimiTaskStatus("completed", 1)).toBe("failed");
-+  });
-+
-+  test("keeps a killed task canceled despite its non-zero exit code", () => {
-+    // Kimi records every killed task with exit code 1, so letting the exit code
-+    // win would report a user cancellation as a failure.
-+    expect(mapKimiTaskStatus("killed", 1)).toBe("canceled");
-+  });
-+
-+  test("treats a task with no recorded status as still running", () => {
-+    expect(mapKimiTaskStatus(null, null)).toBe("running");
-+  });
-+});
-+
-+describe("KimiTaskOutputTailer", () => {
-+  function createTailer(sessionDir: string, taskId = TASK_ID): KimiTaskOutputTailer {
-+    return new KimiTaskOutputTailer({ taskId, sessionDir, logger: createTestLogger() });
-+  }
-+
-+  test("returns only the output appended since the previous read", async () => {
-+    const { sessionDir } = createTasksHome();
-+    writeTaskOutput(sessionDir, TASK_ID, "first line\n");
-+    const tailer = createTailer(sessionDir);
-+
-+    expect(assistantTexts(await tailer.readAppended())).toEqual(["first line\n"]);
-+
-+    appendFileSync(path.join(resolveKimiTasksDir(sessionDir), TASK_ID, "output.log"), "second\n");
-+
-+    expect(assistantTexts(await tailer.readAppended())).toEqual(["second\n"]);
-+    expect(await tailer.readAppended()).toEqual([]);
-+  });
-+
-+  test("replays an output log that was already complete when the tailer attached", async () => {
-+    const { sessionDir } = createTasksHome();
-+    writeTaskOutput(sessionDir, TASK_ID, "finished before attach\n");
-+
-+    expect(assistantTexts(await createTailer(sessionDir).readAppended())).toEqual([
-+      "finished before attach\n",
-+    ]);
-+  });
-+
-+  test("splits a large log into chunks of at most 8 KiB", async () => {
-+    const { sessionDir } = createTasksHome();
-+    writeTaskOutput(sessionDir, TASK_ID, "a".repeat(20_000));
-+
-+    const texts = assistantTexts(await createTailer(sessionDir).readAppended());
-+
-+    expect(texts.map((text) => text.length)).toEqual([CHUNK_BYTES, CHUNK_BYTES, 3_616]);
-+    expect(texts.join("")).toHaveLength(20_000);
-+  });
-+
-+  test("never splits a multi-byte character across chunks", async () => {
-+    const { sessionDir } = createTasksHome();
-+    writeTaskOutput(sessionDir, TASK_ID, "中".repeat(3_000));
-+
-+    const texts = assistantTexts(await createTailer(sessionDir).readAppended());
-+
-+    expect(texts.map((text) => text.length)).toEqual([2_730, 270]);
-+    expect(texts.join("")).toBe("中".repeat(3_000));
-+    for (const text of texts) {
-+      expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(CHUNK_BYTES);
-+    }
-+  });
-+
-+  test("replays from the start after the log is replaced with a shorter one", async () => {
-+    const { sessionDir } = createTasksHome();
-+    const file = writeTaskOutput(sessionDir, TASK_ID, "the old output that was longer\n");
-+    const tailer = createTailer(sessionDir);
-+    await tailer.readAppended();
-+
-+    writeFileSync(file, "fresh\n");
-+
-+    expect(assistantTexts(await tailer.readAppended())).toEqual(["fresh\n"]);
-+  });
-+
-+  test("returns nothing while the output log does not exist", async () => {
-+    const { sessionDir } = createTasksHome();
-+
-+    expect(await createTailer(sessionDir, "bash_missing").readAppended()).toEqual([]);
-+  });
-+});
-diff --git a/packages/server/src/server/agent/providers/kimi/task-log.ts b/packages/server/src/server/agent/providers/kimi/task-log.ts
-new file mode 100644
-index 0000000..01d9879
---- /dev/null
-+++ b/packages/server/src/server/agent/providers/kimi/task-log.ts
-@@ -0,0 +1,254 @@
-+import type { Dirent } from "node:fs";
-+import { open, readdir, readFile, stat } from "node:fs/promises";
-+import path from "node:path";
-+import { StringDecoder } from "node:string_decoder";
-+
-+import type { Logger } from "pino";
-+
-+import type { AgentTimelineItem } from "../../agent-sdk-types.js";
-+import type { ProviderSubagentStatus } from "../../provider-subagents/store.js";
-+import { asRecord, readString } from "./session-log.js";
-+
-+/**
-+ * Kimi Code writes one JSON per background task to
-+ * `<sessionDir>/agents/main/tasks/<taskId>.json` and the task's stdout to
-+ * `<taskId>/output.log`. A task outlives the tool call that started it, so the
-+ * log is the only place its progress can be read from.
-+ */
-+
-+const TASK_FILE_SUFFIX = ".json";
-+const TASK_OUTPUT_FILENAME = "output.log";
-+/**
-+ * `assistant_message` text is not length-limited on the way to the client, so a
-+ * whole log in one item would put an unbounded string on the wire.
-+ */
-+const TASK_OUTPUT_CHUNK_BYTES = 8 * 1024;
-+
-+export function resolveKimiTasksDir(sessionDir: string): string {
-+  return path.join(sessionDir, "agents", "main", "tasks");
-+}
-+
-+/**
-+ * Returns null for an id that could walk out of the tasks directory, so a
-+ * crafted filename cannot direct a read at an arbitrary file.
-+ */
-+export function resolveKimiTaskOutputPath(sessionDir: string, taskId: string): string | null {
-+  if (!isSafeTaskId(taskId)) {
-+    return null;
-+  }
-+  return path.join(resolveKimiTasksDir(sessionDir), taskId, TASK_OUTPUT_FILENAME);
-+}
-+
-+function isSafeTaskId(taskId: string): boolean {
-+  return (
-+    taskId.length > 0 && !taskId.includes("/") && !taskId.includes("\\") && !taskId.includes("..")
-+  );
-+}
-+
-+/** Metadata of one background task, as recorded by Kimi. */
-+export interface KimiTaskRecord {
-+  taskId: string;
-+  description: string | null;
-+  status: string | null;
-+  startedAt: number | null;
-+  endedAt: number | null;
-+  exitCode: number | null;
-+  parentToolCallId: string | null;
-+}
-+
-+/**
-+ * Maps a task's recorded status onto the subagent vocabulary. A non-zero exit
-+ * code marks a task that reported success as failed; a canceled task keeps its
-+ * canceled status, because its exit code is an artifact of the kill rather than
-+ * a failure of its own.
-+ */
-+export function mapKimiTaskStatus(
-+  status: string | null,
-+  exitCode: number | null,
-+): ProviderSubagentStatus {
-+  if (exitCode !== null && exitCode !== 0 && status !== "killed" && status !== "lost") {
-+    return "failed";
-+  }
-+  switch (status) {
-+    case "running":
-+      return "running";
-+    case "completed":
-+      return "completed";
-+    case "failed":
-+    case "timed_out":
-+      return "failed";
-+    case "killed":
-+    case "lost":
-+      return "canceled";
-+    default:
-+      // An unknown status means the task is not known to be over.
-+      return "running";
-+  }
-+}
-+
-+/**
-+ * Reads every task record in a tasks directory. A missing directory is normal
-+ * (the session has not run a background task yet) and a malformed record must
-+ * not hide its siblings, so both are skipped.
-+ */
-+export async function readKimiTasks(tasksDir: string): Promise<KimiTaskRecord[]> {
-+  let entries: Dirent[];
-+  try {
-+    entries = await readdir(tasksDir, { withFileTypes: true });
-+  } catch {
-+    return [];
-+  }
-+  const tasks: KimiTaskRecord[] = [];
-+  for (const entry of entries) {
-+    if (!entry.isFile() || !entry.name.endsWith(TASK_FILE_SUFFIX)) {
-+      continue;
-+    }
-+    const taskId = entry.name.slice(0, -TASK_FILE_SUFFIX.length);
-+    if (!isSafeTaskId(taskId)) {
-+      continue;
-+    }
-+    const task = await readKimiTaskFile(path.join(tasksDir, entry.name), taskId);
-+    if (task !== null) {
-+      tasks.push(task);
-+    }
-+  }
-+  return tasks;
-+}
-+
-+async function readKimiTaskFile(filePath: string, taskId: string): Promise<KimiTaskRecord | null> {
-+  let text: string;
-+  try {
-+    text = await readFile(filePath, "utf8");
-+  } catch {
-+    return null;
-+  }
-+  let parsed: unknown;
-+  try {
-+    parsed = JSON.parse(text);
-+  } catch {
-+    return null;
-+  }
-+  const record = asRecord(parsed);
-+  if (record === null) {
-+    return null;
-+  }
-+  return {
-+    taskId,
-+    description: readString(record.description) ?? null,
-+    status: readString(record.status) ?? null,
-+    startedAt: readFiniteNumber(record.startedAt),
-+    endedAt: readFiniteNumber(record.endedAt),
-+    exitCode: readFiniteNumber(record.exitCode),
-+    parentToolCallId: readString(record.parentToolCallId) ?? null,
-+  };
-+}
-+
-+function readFiniteNumber(value: unknown): number | null {
-+  return typeof value === "number" && Number.isFinite(value) ? value : null;
-+}
-+
-+export interface KimiTaskOutputTailerOptions {
-+  taskId: string;
-+  /** The `<sessionId>` directory, parent of the per-agent `agents/` directory. */
-+  sessionDir: string;
-+  logger: Logger;
-+}
-+
-+/**
-+ * Tails one task's output log.
-+ *
-+ * Reads incrementally by byte offset, but the first read starts at byte 0, so a
-+ * task that finished before the tailer attached is replayed in full instead of
-+ * showing up empty.
-+ */
-+export class KimiTaskOutputTailer {
-+  private readonly taskId: string;
-+  private readonly sessionDir: string;
-+  private readonly logger: Logger;
-+  private offset = 0;
-+  /**
-+   * Decodes the byte ranges rather than the file, so a multi-byte character
-+   * split across two reads is held until its remaining bytes arrive.
-+   */
-+  private decoder = new StringDecoder("utf8");
-+
-+  constructor(options: KimiTaskOutputTailerOptions) {
-+    this.taskId = options.taskId;
-+    this.sessionDir = options.sessionDir;
-+    this.logger = options.logger;
-+  }
-+
-+  /** Returns the items produced by bytes appended since the previous call. */
-+  async readAppended(): Promise<AgentTimelineItem[]> {
-+    const filePath = resolveKimiTaskOutputPath(this.sessionDir, this.taskId);
-+    if (filePath === null) {
-+      return [];
-+    }
-+    let size: number;
-+    try {
-+      size = (await stat(filePath)).size;
-+    } catch {
-+      // The task may not have written any output yet; the caller re-checks.
-+      return [];
-+    }
-+    if (size < this.offset) {
-+      // Truncated or replaced: rebuild from the beginning.
-+      this.logger.debug(
-+        { taskId: this.taskId },
-+        "Kimi task output shrank, replaying from the start",
-+      );
-+      this.offset = 0;
-+      this.decoder = new StringDecoder("utf8");
-+    }
-+    if (size === this.offset) {
-+      return [];
-+    }
-+    const bytes = await readBytesFromRange(filePath, this.offset, size);
-+    this.offset += bytes.length;
-+    const text = this.decoder.write(bytes);
-+    if (text.length === 0) {
-+      return [];
-+    }
-+    return chunkTaskOutputText(text).map((chunk) => ({ type: "assistant_message", text: chunk }));
-+  }
-+}
-+
-+async function readBytesFromRange(filePath: string, start: number, end: number): Promise<Buffer> {
-+  const length = Math.max(0, end - start);
-+  const handle = await open(filePath, "r");
-+  try {
-+    const buffer = Buffer.allocUnsafe(length);
-+    let read = 0;
-+    while (read < length) {
-+      const { bytesRead } = await handle.read(buffer, read, length - read, start + read);
-+      if (bytesRead === 0) {
-+        break;
-+      }
-+      read += bytesRead;
-+    }
-+    return buffer.subarray(0, read);
-+  } finally {
-+    await handle.close();
-+  }
-+}
-+
-+/** Splits text on code-point boundaries so a chunk never exceeds `maxBytes` of UTF-8. */
-+function chunkTaskOutputText(text: string, maxBytes = TASK_OUTPUT_CHUNK_BYTES): string[] {
-+  const chunks: string[] = [];
-+  let current = "";
-+  let currentBytes = 0;
-+  for (const char of text) {
-+    const charBytes = Buffer.byteLength(char, "utf8");
-+    if (currentBytes > 0 && currentBytes + charBytes > maxBytes) {
-+      chunks.push(current);
-+      current = "";
-+      currentBytes = 0;
-+    }
-+    current += char;
-+    currentBytes += charBytes;
-+  }
-+  if (current.length > 0) {
-+    chunks.push(current);
-+  }
-+  return chunks;
-+}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 473cc6f..dfece89 100644
+index 473cc6f35..dfece89c1 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -1,6 +1,6 @@
@@ -7337,7 +6418,7 @@ index 473cc6f..dfece89 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96..7136338 100644
+index 1f0fa96b9..7136338b7 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -7356,7 +6437,7 @@ index 1f0fa96..7136338 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index 0f0243d..ad6243f 100644
+index 0f0243d7a..ad6243ff1 100644
 --- a/packages/server/src/terminal/worker-terminal-manager.ts
 +++ b/packages/server/src/terminal/worker-terminal-manager.ts
 @@ -1,6 +1,6 @@
@@ -7377,7 +6458,7 @@ index 0f0243d..ad6243f 100644
      serialization: "advanced",
      stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index 8fac115..689b91c 100644
+index 8fac115f0..689b91cfa 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,11 @@
