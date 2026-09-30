@@ -45,7 +45,11 @@
 //   goal pill               packages/app/src/composer/goal-pill.tsx.
 //   claude goal             Claude Code reports its own goal on the SDK message
 //                           stream. That frame is mapped into the same goal
-//                           state, so the pill covers Claude too.
+//                           state, so the pill covers Claude too. The frame only
+//                           arrives at the first evaluation, so the command's
+//                           own `goal_status` record is read from the session
+//                           transcript as well: that is what puts the pill up
+//                           the moment `/goal` is set, before the turn ends.
 //   kimi cut-in             a message sent while the Kimi runtime is still
 //                           working replaces the turn instead of queueing
 //                           behind it. Without this the runtime answered the
@@ -387,6 +391,21 @@ const MARKERS = [
     label: "Claude's own goal drives the composer pill",
     path: "packages/server/src/server/agent/providers/claude/agent.ts",
     needle: 'message.type !== "active_goal"',
+  },
+  {
+    label: "A goal the Claude CLI set is read from the session transcript",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "function readClaudeTranscriptGoalStatus(historyPath: string): ClaudeTranscriptGoalStatus | null {",
+  },
+  {
+    label: "That goal is reported before the first evaluation",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "private appendTranscriptGoalEvents(message: unknown, events: AgentStreamEvent[]): void {",
+  },
+  {
+    label: "A Claude goal set is tested to reach the pill before the turn ends",
+    path: "packages/server/src/server/agent/providers/claude/agent.test.ts",
+    needle: 'test("a goal the CLI set is reported before the first evaluation", async () => {',
   },
   {
     label: "A Kimi turn the runtime has not ended counts as running",

@@ -3864,10 +3864,10 @@ index d2e0a1b..cdae2e0 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index e30ba29..2be5ff7 100644
+index e30ba29..d7309df 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -3249,6 +3249,111 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -3249,6 +3249,403 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -3974,13 +3974,305 @@ index e30ba29..2be5ff7 100644
 +
 +    expect(events.some((event) => event.type === "turn_completed")).toBe(true);
 +  });
++
++  // The CLI runs `/goal` itself, so the SDK stream carries the command's render and never
++  // the condition. What it does carry is the `goal_status` attachment it wrote into the
++  // transcript, which is what these exercise.
++  const goalStatusEntry = (
++    uuid: string,
++    condition: string,
++    options: { met: boolean; timestamp: string },
++  ): Record<string, unknown> => ({
++    parentUuid: null,
++    isSidechain: false,
++    type: "attachment",
++    uuid,
++    timestamp: options.timestamp,
++    attachment: { type: "goal_status", met: options.met, sentinel: true, condition },
++    sessionId: "session-1",
++    version: "2.1.282",
++  });
++
++  function syntheticCommandOutputFrame(text: string, uuid: string): SDKMessage {
++    return {
++      type: "assistant",
++      message: {
++        id: "synthetic-command-output",
++        type: "message",
++        role: "assistant",
++        model: "<synthetic>",
++        stop_reason: "end_turn",
++        content: [{ type: "text", text }],
++        usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 },
++      },
++      parent_tool_use_id: null,
++      session_id: "session-1",
++      uuid,
++      timestamp: "2026-09-30T12:04:35.838Z",
++    } as unknown as SDKMessage;
++  }
++
++  function goalEvents(events: AgentStreamEvent[]): AgentStreamEvent[] {
++    return events.filter((event) => event.type === "goal_updated");
++  }
++
++  const goalSession = (() => {
++    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
++    const directories: string[] = [];
++    afterEach(async () => {
++      if (previousConfigDir === undefined) {
++        delete process.env.CLAUDE_CONFIG_DIR;
++      } else {
++        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
++      }
++      await Promise.all(
++        directories
++          .splice(0)
++          .map((directory) => fs.rm(directory, { recursive: true, force: true })),
++      );
++    });
++
++    return async (): Promise<{
++      session: TestClaudeSession;
++      writeTranscript: (entries: Record<string, unknown>[]) => Promise<void>;
++    }> => {
++      const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "claude-goal-cwd-"));
++      const configDir = await fs.mkdtemp(path.join(os.tmpdir(), "claude-goal-home-"));
++      directories.push(cwd, configDir);
++      process.env.CLAUDE_CONFIG_DIR = configDir;
++
++      const client = new ClaudeAgentClient({
++        logger,
++        resolveBinary: async () => "/test/claude/bin",
++      });
++      const session = (await client.createSession({
++        provider: "claude",
++        cwd,
++      })) as unknown as TestClaudeSession;
++      // Announce the thread so the session knows the transcript it writes to.
++      session.translateMessageToEvents(activeGoalFrame(null, "warmup"));
++
++      const transcriptPath = path.join(claudeProjectDirSync(cwd, { configDir }), "session-1.jsonl");
++      return {
++        session,
++        writeTranscript: async (entries) => {
++          await fs.mkdir(path.dirname(transcriptPath), { recursive: true });
++          await fs.writeFile(
++            transcriptPath,
++            `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`,
++            "utf8",
++          );
++        },
++      };
++    };
++  })();
++
++  test("a goal the CLI set is reported before the first evaluation", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++
++    // Only the command's own render arrives here. No evaluation has run, so no `active_goal`
++    // frame has been seen and the goal must still reach the client.
++    const events = session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: "claude:session-1:goal-set-1",
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 0,
++          tokensUsed: 0,
++          startedAt: Date.parse("2026-09-30T12:04:35.837Z"),
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
++
++  test("the same goal record is reported once however often the command renders", async () => {
++    const { session, writeTranscript } = await goalSession();
++    const entry = goalStatusEntry("goal-set-1", "the test suite passes", {
++      met: false,
++      timestamp: "2026-09-30T12:04:35.837Z",
++    });
++    await writeTranscript([entry]);
++
++    const first = session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++    // The transcript grows between the two renders, so the second look is a real re-read.
++    await writeTranscript([entry, { type: "user", uuid: "later", sessionId: "session-1" }]);
++    const second = session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-2"),
++    );
++
++    expect(goalEvents(first)).toHaveLength(1);
++    expect(goalEvents(second)).toEqual([]);
++  });
++
++  test("a second goal replaces the first", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++      goalStatusEntry("goal-set-2", "the README is rewritten", {
++        met: false,
++        timestamp: "2026-09-30T12:09:00.000Z",
++      }),
++    ]);
++    const events = session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the README is rewritten", "command-output-2"),
++    );
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: "claude:session-1:goal-set-2",
++          objective: "the README is rewritten",
++          status: "active",
++          turnsUsed: 0,
++          tokensUsed: 0,
++          startedAt: Date.parse("2026-09-30T12:09:00.000Z"),
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
++
++  test("clearing the goal early drops it", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++      goalStatusEntry("goal-clear-1", "the test suite passes", {
++        met: true,
++        timestamp: "2026-09-30T12:05:00.000Z",
++      }),
++    ]);
++    const events = session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal cleared: the test suite passes", "command-output-2"),
++    );
++
++    expect(goalEvents(events)).toEqual([{ type: "goal_updated", provider: "claude", goal: null }]);
++  });
++
++  test("an evaluation record leaves the goal's counters to the active_goal frame", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    // What a Stop-hook evaluation writes: no sentinel flag, and the frame that follows it is
++    // the one allowed to carry the iteration count.
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++      {
++        type: "attachment",
++        uuid: "goal-evaluation-1",
++        timestamp: "2026-09-30T12:06:00.000Z",
++        attachment: {
++          type: "goal_status",
++          met: false,
++          condition: "the test suite passes",
++          reason: "two failures left",
++        },
++        sessionId: "session-1",
++      },
++    ]);
++    const events = session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal active: the test suite passes", "command-output-2"),
++    );
++
++    expect(goalEvents(events)).toEqual([]);
++  });
++
++  test("an active_goal frame still updates the goal the command set", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    const events = session.translateMessageToEvents(
++      activeGoalFrame(
++        { condition: "the test suite passes", iterations: 2, set_at: 1_700_000_000_000 },
++        "goal-1",
++      ),
++    );
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: expect.any(String),
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 2,
++          tokensUsed: 0,
++          startedAt: 1_700_000_000_000,
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
 +});
 +
  describe("toClaudeSdkMcpConfig", () => {
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 04fef2b..016460c 100644
+index 04fef2b..e447aaf 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -33,6 +33,8 @@ import {
@@ -3992,7 +4284,18 @@ index 04fef2b..016460c 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -2132,7 +2134,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2065,6 +2067,10 @@ class ClaudeAgentSession implements AgentSession {
+   /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
+   private readonly permissionClearingSteerUuids = new Set<string>();
+   private claudeSessionId: string | null;
++  /** Transcript state the goal record was last read from, so an unchanged file is not re-read. */
++  private transcriptGoalStamp: string | null = null;
++  /** Goal record already reported, so repeated command results never re-state the goal. */
++  private transcriptGoalKey: string | null = null;
+   private persistence: AgentPersistenceHandle | null;
+   private currentMode: PermissionMode;
+   private planResumeMode: PermissionMode | null = null;
+@@ -2132,7 +2138,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -4001,7 +4304,7 @@ index 04fef2b..016460c 100644
      );
      const handle = options.handle;
  
-@@ -2445,7 +2447,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2445,7 +2451,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -4010,7 +4313,7 @@ index 04fef2b..016460c 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3252,6 +3254,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3252,6 +3258,24 @@ class ClaudeAgentSession implements AgentSession {
      );
    }
  
@@ -4035,7 +4338,7 @@ index 04fef2b..016460c 100644
    private buildSdkEnv(): NodeJS.ProcessEnv {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4119,6 +4139,10 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4119,6 +4143,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetReadSteer(message);
  
@@ -4043,10 +4346,12 @@ index 04fef2b..016460c 100644
 +      return events;
 +    }
 +
++    this.appendTranscriptGoalEvents(message, events);
++
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4151,6 +4175,49 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4151,6 +4181,97 @@ class ClaudeAgentSession implements AgentSession {
      return events;
    }
  
@@ -4093,9 +4398,130 @@ index 04fef2b..016460c 100644
 +    return true;
 +  }
 +
++  /**
++   * The goal a `/goal` command just set, read from the session transcript.
++   *
++   * The command runs inside the CLI, so the SDK stream carries only its render and never the
++   * condition: a `goal_status` attachment is not an SDK message. The CLI does write that
++   * attachment into the transcript next to the render, which is where this reads it, and the
++   * `active_goal` frame takes over from the first evaluation onward.
++   */
++  private appendTranscriptGoalEvents(message: unknown, events: AgentStreamEvent[]): void {
++    if (!isClaudeGoalStatusCheckpoint(message)) return;
++    const sessionId = this.claudeSessionId;
++    if (!sessionId) return;
++    const historyPath = this.resolveHistoryPath(sessionId);
++    if (!historyPath) return;
++    let stamp: string;
++    try {
++      const stat = fs.statSync(historyPath);
++      stamp = `${stat.mtimeMs}:${stat.size}`;
++    } catch {
++      return;
++    }
++    if (stamp === this.transcriptGoalStamp) return;
++    this.transcriptGoalStamp = stamp;
++    const status = readClaudeTranscriptGoalStatus(historyPath);
++    if (!status || status.key === this.transcriptGoalKey) return;
++    this.transcriptGoalKey = status.key;
++    if (status.cleared) {
++      // `/goal clear` writes the same record with `met`, and no frame reports it: the CLI
++      // fires `active_goal` for an evaluation, not for the user ending the goal early.
++      events.push({ type: "goal_updated", provider: "claude", goal: null });
++      return;
++    }
++    const now = Date.now();
++    events.push({
++      type: "goal_updated",
++      provider: "claude",
++      goal: {
++        goalId: `claude:${sessionId}:${status.key}`,
++        objective: status.condition,
++        status: "active",
++        turnsUsed: 0,
++        tokensUsed: 0,
++        startedAt: status.setAt ?? now,
++        updatedAt: now,
++      },
++    });
++  }
++
    /** Once Claude has read a steer there is nothing left to discard on interrupt. */
    private forgetReadSteer(message: unknown): void {
      const lifecycle = readClaudeCommandLifecycle(message);
+@@ -5807,6 +5928,72 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+   };
+ }
+ 
++interface ClaudeTranscriptGoalStatus {
++  /** Identity of the record, so the same one is never reported twice. */
++  key: string;
++  condition: string;
++  /** When the CLI wrote the record, when it carried a usable timestamp. */
++  setAt: number | null;
++  cleared: boolean;
++}
++
++/**
++ * The newest goal record in a Claude session transcript.
++ *
++ * `/goal <condition>` writes `{type:"goal_status", met:false, sentinel:true, condition}`
++ * into the transcript, and `/goal clear` writes the same shape with `met:true`. Neither
++ * reaches the SDK stream, which only carries the command's own render, so the transcript
++ * is the only place the goal exists before the first Stop-hook evaluation.
++ *
++ * Records an evaluation writes carry no `sentinel` flag and are skipped: those arrive as
++ * `active_goal` frames already, and reporting one here would reset its iteration count.
++ */
++function readClaudeTranscriptGoalStatus(historyPath: string): ClaudeTranscriptGoalStatus | null {
++  let raw: string;
++  try {
++    raw = fs.readFileSync(historyPath, "utf8");
++  } catch {
++    return null;
++  }
++  let newest: ClaudeTranscriptGoalStatus | null = null;
++  for (const line of raw.split("\n")) {
++    if (!line.includes('"goal_status"')) continue;
++    let entry: unknown;
++    try {
++      entry = JSON.parse(line);
++    } catch {
++      continue;
++    }
++    const record = toObjectRecord(entry);
++    const attachment = toObjectRecord(record?.attachment);
++    if (attachment?.type !== "goal_status" || attachment.sentinel !== true) continue;
++    const condition = typeof attachment.condition === "string" ? attachment.condition.trim() : "";
++    if (condition.length === 0) continue;
++    const uuid = typeof record?.uuid === "string" && record.uuid.length > 0 ? record.uuid : null;
++    const parsed = Date.parse(typeof record?.timestamp === "string" ? record.timestamp : "");
++    newest = {
++      key: uuid ?? condition,
++      condition,
++      setAt: Number.isNaN(parsed) ? null : parsed,
++      cleared: attachment.met === true,
++    };
++  }
++  return newest;
++}
++
++/**
++ * A message that can carry the result of a `/goal` command. The CLI renders local command
++ * output as a synthetic assistant message; system frames arrive alongside it. Either one is
++ * only a cue to read the transcript, which is where the goal itself lives.
++ */
++function isClaudeGoalStatusCheckpoint(message: unknown): boolean {
++  if (!isMetadata(message)) return false;
++  if (message.type === "system") return true;
++  if (message.type !== "assistant") return false;
++  const inner = message.message;
++  return isMetadata(inner) && inner.model === "<synthetic>";
++}
++
+ interface ClaudeSidechainHistory {
+   contents: string[];
+   workflowContents: string[];
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
 index 0e18773..25549ed 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
