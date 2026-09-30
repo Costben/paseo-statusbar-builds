@@ -4729,10 +4729,10 @@ index 0000000..e5ff95c
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..03bcec4
+index 0000000..96e4dba
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1582 @@
+@@ -0,0 +1,1735 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -5538,6 +5538,28 @@ index 0000000..03bcec4
 +    expect(state.subagents[0]?.status).toBe("running");
 +  });
 +
++  test("tracks runInBackground tasks separately and keeps them running after the turn ends", () => {
++    const state = parseKimiSessionLogLines(
++      [subagentSpawnedLine({ runInBackground: true }), subagentStartedLine(), turnEndedLine()],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++
++    expect(state.subagents[0]?.status).toBe("running");
++    expect(state.backgroundTasks).toMatchObject([
++      { id: SUBAGENT_ID, status: "running", title: "explore" },
++    ]);
++  });
++
++  test("settles a tracked background task on its explicit completion record", () => {
++    const first = parseKimiSessionLogLines(
++      [subagentSpawnedLine({ runInBackground: true })],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const state = parseKimiSessionLogLines([subagentCompletedLine()], first);
++
++    expect(state.backgroundTasks[0]?.status).toBe("completed");
++  });
++
 +  test("treats a spawn that never recorded runInBackground as foreground", () => {
 +    const state = parseKimiSessionLogLines(
 +      [subagentSpawnedLine({ runInBackground: null }), turnStartedLine()],
@@ -6139,6 +6161,137 @@ index 0000000..03bcec4
 +    expect(events).toHaveLength(1);
 +  });
 +
++  test("publishes a background task once, under its own id", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine({ runInBackground: true })}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++    await delay(80);
++
++    expect(countUpserts(events)).toBe(1);
++    expect(events[0]).toMatchObject({
++      type: "upsert",
++      id: `background:${SUBAGENT_ID}`,
++      title: "explore",
++      description: "Explore Paseo daemon goal model",
++      status: "running",
++      subtitle: "后台任务",
++    });
++    expect(events.some((event) => event.id === SUBAGENT_ID)).toBe(false);
++  });
++
++  test("publishes a background task and a foreground subagent as two rows", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${subagentSpawnedLine({ runInBackground: true })}\n${subagentSpawnedLine({
++        subagentId: "agent-1",
++        time: SUBAGENT_TIME + 1,
++      })}\n`,
++    );
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => countUpserts(events) >= 2);
++    await delay(80);
++
++    const upsertIds = events
++      .filter((event) => event.type === "upsert")
++      .map((event) => event.id)
++      .sort();
++    expect(upsertIds).toEqual([`background:${SUBAGENT_ID}`, "agent-1"].sort());
++  });
++
++  test("settles a background task on its own id and never under the subagent id", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${subagentSpawnedLine({ runInBackground: true })}\n${subagentStartedLine()}\n${turnEndedLine()}\n`,
++    );
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++    await delay(80);
++
++    appendFileSync(file, `${subagentCompletedLine()}\n`);
++    await waitFor(() => hasCompletedUpsert(events));
++    await delay(80);
++
++    const upserts = events.filter((event) => event.type === "upsert");
++    expect([...new Set(upserts.map((event) => event.id))]).toEqual([`background:${SUBAGENT_ID}`]);
++    expect(upserts.findLast((event) => event.status === "completed")).toMatchObject({
++      id: `background:${SUBAGENT_ID}`,
++      status: "completed",
++      subtitle: "后台任务",
++    });
++  });
++
++  test("keeps a background task's transcript on its own row", async () => {
++    const { home, file, sessionDir } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine({ runInBackground: true })}\n`);
++    writeSubagentLog(sessionDir, SUBAGENT_ID, `${subagentTextLine("Watching the build")}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => hasAssistantTimeline(events));
++    await delay(80);
++
++    expect(
++      events.find((event) => event.type === "timeline" && event.item.type === "assistant_message"),
++    ).toMatchObject({
++      id: `background:${SUBAGENT_ID}`,
++      item: { type: "assistant_message", text: "Watching the build" },
++    });
++    expect(new Set(events.map((event) => event.id))).toEqual(
++      new Set([`background:${SUBAGENT_ID}`]),
++    );
++  });
++
++  test("keeps a background task's summary on its own row", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${subagentSpawnedLine({ runInBackground: true })}\n${subagentStartedLine()}\n${turnEndedLine()}\n`,
++    );
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++    await delay(80);
++
++    appendFileSync(file, `${subagentCompletedLine({ resultSummary: "Build is green." })}\n`);
++    await waitFor(
++      () =>
++        events.filter(
++          (event) => event.type === "timeline" && event.item.type === "assistant_message",
++        ).length > 0,
++    );
++    await delay(80);
++
++    expect(
++      events.find((event) => event.type === "timeline" && event.item.type === "assistant_message"),
++    ).toMatchObject({
++      id: `background:${SUBAGENT_ID}`,
++      item: { type: "assistant_message", text: "Build is green." },
++    });
++    expect(new Set(events.map((event) => event.id))).toEqual(
++      new Set([`background:${SUBAGENT_ID}`]),
++    );
++    expect(events.findLast((event) => event.type === "upsert")).toMatchObject({
++      id: `background:${SUBAGENT_ID}`,
++      status: "completed",
++      subtitle: "后台任务",
++    });
++  });
++
 +  test("reports a completion and falls back to the result summary without a log", async () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
 +    appendFileSync(file, `${subagentSpawnedLine()}\n`);
@@ -6317,10 +6470,10 @@ index 0000000..03bcec4
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..d2687a5
+index 0000000..851aec8
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1578 @@
+@@ -0,0 +1,1660 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -6457,6 +6610,16 @@ index 0000000..d2687a5
 +  runInBackground: boolean | null;
 +}
 +
++/** A provider-owned task that intentionally outlives the ACP turn. */
++export interface KimiBackgroundTaskRecord {
++  id: string;
++  title: string | null;
++  description: string | null;
++  status: KimiSubagentStatus;
++  createdAt: number;
++  updatedAt: number;
++}
++
 +/** Derived state of a session log after replaying a batch of lines. */
 +export interface KimiSessionLogState {
 +  goal: AgentGoal | null;
@@ -6473,6 +6636,7 @@ index 0000000..d2687a5
 +  goalCachedInputTokens: number | null;
 +  /** Subagents of the session, in spawn order. */
 +  subagents: KimiSubagentRecord[];
++  backgroundTasks: KimiBackgroundTaskRecord[];
 +  /** Count of `agent.turn.started` records seen. */
 +  turnGeneration: number;
 +  /** Highest turn known to be over. Starts at -1 so no boundary is assumed before one is seen. */
@@ -6486,6 +6650,7 @@ index 0000000..d2687a5
 +  goalInputTokens: null,
 +  goalCachedInputTokens: null,
 +  subagents: [],
++  backgroundTasks: [],
 +  turnGeneration: 0,
 +  settledThroughTurn: -1,
 +});
@@ -6538,6 +6703,8 @@ index 0000000..d2687a5
 +  for (const subagent of previous.subagents) {
 +    subagents.set(subagent.id, subagent);
 +  }
++  const backgroundTasks = new Map<string, KimiBackgroundTaskRecord>();
++  for (const task of previous.backgroundTasks) backgroundTasks.set(task.id, task);
 +
 +  for (const raw of lines) {
 +    const line = raw.trim();
@@ -6583,15 +6750,32 @@ index 0000000..d2687a5
 +        break;
 +      case "subagent.spawned":
 +        applySubagentSpawn(subagents, entry, turnGeneration);
++        if (readBoolean(entry.runInBackground) === true) {
++          const id = readString(entry.subagentId);
++          if (id) {
++            const time = readNumber(entry.time) ?? 0;
++            const previousTask = backgroundTasks.get(id);
++            backgroundTasks.set(id, {
++              id,
++              title: readString(entry.subagentName) ?? previousTask?.title ?? null,
++              description: readString(entry.description) ?? previousTask?.description ?? null,
++              status: previousTask?.status === "completed" ? previousTask.status : "running",
++              createdAt: previousTask?.createdAt ?? time,
++              updatedAt: time,
++            });
++          }
++        }
 +        break;
 +      case "subagent.started":
 +        applySubagentStarted(subagents, entry, turnGeneration);
 +        break;
 +      case "subagent.completed":
 +        applySubagentTerminal(subagents, entry, "completed", turnGeneration);
++        updateBackgroundTask(backgroundTasks, entry, "completed");
 +        break;
 +      case "subagent.cancelled":
 +        applySubagentTerminal(subagents, entry, "canceled", turnGeneration);
++        updateBackgroundTask(backgroundTasks, entry, "canceled");
 +        break;
 +      default:
 +        contextWindowUsedTokens = nextContextUsage(entry, contextWindowUsedTokens);
@@ -6616,6 +6800,7 @@ index 0000000..d2687a5
 +    goalInputTokens,
 +    goalCachedInputTokens,
 +    subagents: [...subagents.values()],
++    backgroundTasks: [...backgroundTasks.values()],
 +    turnGeneration,
 +    settledThroughTurn,
 +  };
@@ -6708,6 +6893,19 @@ index 0000000..d2687a5
 +      turn: existing?.turn ?? turn,
 +    }),
 +  );
++}
++
++function updateBackgroundTask(
++  tasks: Map<string, KimiBackgroundTaskRecord>,
++  entry: Record<string, unknown>,
++  status: KimiSubagentStatus,
++): void {
++  const id = readString(entry.subagentId);
++  if (!id) return;
++  const previous = tasks.get(id);
++  if (!previous) return;
++  const time = readNumber(entry.time) ?? previous.updatedAt;
++  tasks.set(id, { ...previous, status, updatedAt: time });
 +}
 +
 +/** Fields a lifecycle record changes. Anything absent keeps the previous value. */
@@ -6859,6 +7057,7 @@ index 0000000..d2687a5
 +  /** Cache-read part of `goalInputTokens`. */
 +  private goalCachedInputTokens: number | null = null;
 +  private subagents: KimiSubagentRecord[] = [];
++  private backgroundTasks: KimiBackgroundTaskRecord[] = [];
 +  private turnGeneration = 0;
 +  private settledThroughTurn = -1;
 +  /** Value signature of the last goal considered; null means "nothing considered yet". */
@@ -6869,6 +7068,7 @@ index 0000000..d2687a5
 +  private readonly subagentTailers = new Map<string, KimiSubagentLogTailer>();
 +  /** Value signature of the last upsert emitted per subagent. */
 +  private readonly subagentSignatures = new Map<string, string>();
++  private readonly backgroundTaskSignatures = new Map<string, string>();
 +  /**
 +   * Subagents whose own log has yielded assistant text. Kept past the tailer,
 +   * because a subagent can fall out of the tailer cap before it finishes.
@@ -7151,10 +7351,12 @@ index 0000000..d2687a5
 +    this.goalInputTokens = null;
 +    this.goalCachedInputTokens = null;
 +    this.subagents = [];
++    this.backgroundTasks = [];
 +    this.turnGeneration = 0;
 +    this.settledThroughTurn = -1;
 +    this.subagentTailers.clear();
 +    this.subagentSignatures.clear();
++    this.backgroundTaskSignatures.clear();
 +    this.subagentsWithText.clear();
 +    this.summarisedSubagents.clear();
 +    this.subagentIncarnations.clear();
@@ -7178,6 +7380,7 @@ index 0000000..d2687a5
 +        goalInputTokens: this.goalInputTokens,
 +        goalCachedInputTokens: this.goalCachedInputTokens,
 +        subagents: this.subagents,
++        backgroundTasks: this.backgroundTasks,
 +        turnGeneration: this.turnGeneration,
 +        settledThroughTurn: this.settledThroughTurn,
 +      });
@@ -7187,6 +7390,7 @@ index 0000000..d2687a5
 +      this.goalInputTokens = next.goalInputTokens;
 +      this.goalCachedInputTokens = next.goalCachedInputTokens;
 +      this.subagents = next.subagents;
++      this.backgroundTasks = next.backgroundTasks;
 +      this.turnGeneration = next.turnGeneration;
 +      this.settledThroughTurn = next.settledThroughTurn;
 +    }
@@ -7283,6 +7487,19 @@ index 0000000..d2687a5
 +   * recently spawned are tailed; the rest keep a lifecycle row and no timeline.
 +   */
 +  private async publishSubagents(): Promise<void> {
++    for (const task of this.backgroundTasks) {
++      const signature = JSON.stringify([task.status, task.title, task.description]);
++      if (this.backgroundTaskSignatures.get(task.id) === signature) continue;
++      this.backgroundTaskSignatures.set(task.id, signature);
++      this.emitSubagent({
++        type: "upsert",
++        id: `background:${task.id}`,
++        title: task.title,
++        description: task.description,
++        status: task.status,
++        subtitle: "后台任务",
++      });
++    }
 +    for (const subagent of this.subagents) {
 +      if (this.incarnationChanged(subagent)) {
 +        // The latches describe the previous run of a recycled id, and would
@@ -7291,6 +7508,11 @@ index 0000000..d2687a5
 +        this.summarisedSubagents.delete(subagent.id);
 +      }
 +      this.subagentIncarnations.set(subagent.id, subagent.toolCallId);
++
++      // A background task already has its row, announced above under its own
++      // `background:` id. Upserting it again under its subagent id would put a
++      // second row on the track for one task.
++      if (subagent.runInBackground === true) continue;
 +
 +      const signature = subagentValueSignature(subagent);
 +      if (this.subagentSignatures.get(subagent.id) === signature) {
@@ -7332,7 +7554,7 @@ index 0000000..d2687a5
 +          continue;
 +        }
 +        for (const item of items) {
-+          this.emitSubagent({ type: "timeline", id: subagent.id, item });
++          this.emitSubagent({ type: "timeline", id: subagentRowId(subagent), item });
 +        }
 +        // Read the latch off this batch rather than the tailer's sticky flag: a
 +        // recycled id shares one log, so the previous run's text must not carry
@@ -7343,7 +7565,7 @@ index 0000000..d2687a5
 +      }
 +    }
 +
-+    this.publishSubagentSummaries();
++    this.publishSubagentSummaries(this.subagents);
 +  }
 +
 +  /**
@@ -7352,9 +7574,12 @@ index 0000000..d2687a5
 +   * unconditionally would duplicate it. The summary is the only copy left when
 +   * the log could not be read, which happens for a subagent over the tailer cap
 +   * or one whose file is gone.
++   *
++   * The summary lands on the row the subagent was announced under, which is
++   * `background:<id>` for a background task, rather than on its subagent id.
 +   */
-+  private publishSubagentSummaries(): void {
-+    for (const subagent of this.subagents) {
++  private publishSubagentSummaries(subagents: KimiSubagentRecord[]): void {
++    for (const subagent of subagents) {
 +      if (subagent.status === "running" || this.summarisedSubagents.has(subagent.id)) {
 +        continue;
 +      }
@@ -7368,7 +7593,7 @@ index 0000000..d2687a5
 +      this.summarisedSubagents.add(subagent.id);
 +      this.emitSubagent({
 +        type: "timeline",
-+        id: subagent.id,
++        id: subagentRowId(subagent),
 +        item: { type: "assistant_message", text: summary },
 +      });
 +    }
@@ -7711,6 +7936,16 @@ index 0000000..d2687a5
 +    subagent.toolCallId,
 +    subagent.resultSummary !== null,
 +  ]);
++}
++
++/**
++ * The row a subagent's own events belong to. A background task is announced
++ * under `background:<id>` so it stays distinct from the subagents, and its
++ * transcript and its summary have to land on that row instead of making a
++ * second one.
++ */
++function subagentRowId(subagent: KimiSubagentRecord): string {
++  return subagent.runInBackground === true ? `background:${subagent.id}` : subagent.id;
 +}
 +
 +function selectTailedSubagents(subagents: KimiSubagentRecord[]): KimiSubagentRecord[] {

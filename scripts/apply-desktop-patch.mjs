@@ -403,6 +403,36 @@ const MARKERS = [
     path: "packages/server/src/server/agent/agent-manager.ts",
     needle: "supportsSteering: session.steerActiveTurn !== undefined,",
   },
+  {
+    label: "Kimi background task record",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "export interface KimiBackgroundTaskRecord {",
+  },
+  {
+    label: "Kimi background tasks settle with the session log",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: 'updateBackgroundTask(backgroundTasks, entry, "completed");',
+  },
+  {
+    label: "Kimi background tasks are published under their own id",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "id: `background:${task.id}`,",
+  },
+  {
+    label: "Kimi background tasks carry the 后台任务 caption",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: 'subtitle: "后台任务",',
+  },
+  {
+    label: "A Kimi background task is not upserted a second time as a subagent",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "if (subagent.runInBackground === true) continue;",
+  },
+  {
+    label: "A Kimi background task's transcript and summary land on its own row",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "function subagentRowId(",
+  },
 ];
 
 function fail(message) {
