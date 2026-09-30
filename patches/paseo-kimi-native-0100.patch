@@ -73,10 +73,10 @@ index 1bebc8a..82bfd27 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 0000000..2272776
+index 0000000..f1220fd
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,168 @@
 +import React, { act, type ReactNode } from "react";
 +import { createRoot, type Root } from "react-dom/client";
 +import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -167,7 +167,7 @@ index 0000000..2272776
 +
 +describe("goal pill detail panel", () => {
 +  it("opens the details the pill has no room for", () => {
-+    mount(<GoalPill goal={GOAL} />);
++    mount(<GoalPill goal={GOAL} provider="kimi" />);
 +
 +    expect(pill().textContent).toContain("目标进行中");
 +    expect(pill().textContent).toContain("· 7 回合 · 136K · 入 6.4M");
@@ -227,17 +227,30 @@ index 0000000..2272776
 +  });
 +
 +  it("renders nothing without a goal", () => {
-+    mount(<GoalPill goal={null} />);
++    mount(<GoalPill goal={null} provider="claude" />);
 +
 +    expect(element("composer-goal-pill")).toBeNull();
++  });
++
++  it("describes a Claude goal in Claude's terms, not Kimi's", () => {
++    mount(<GoalPill goal={GOAL} provider="claude" />);
++    openPanel();
++
++    expect(fieldText("turns")).toContain("7 回合");
++    expect(fieldText("turns")).toContain("Claude 只在评估目标时报自己的计数");
++    expect(fieldText("tokens")).toContain("Paseo 按回合累计的输出 token");
++    // Kimi's wording belongs to Kimi: it says Kimi reports the number, which is
++    // the opposite of what a Claude goal is.
++    expect(fieldText("turns")).not.toContain("Kimi");
++    expect(fieldText("tokens")).not.toContain("Kimi");
 +  });
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 0000000..a3832bc
+index 0000000..df6dca0
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,137 @@
 +import { describe, expect, it } from "vitest";
 +import {
 +  formatCompactTokens,
@@ -246,7 +259,34 @@ index 0000000..a3832bc
 +  formatGoalInputUsage,
 +  formatGoalUsageSuffix,
 +  resolveGoalStatusLabel,
++  resolveGoalUsageHints,
 +} from "./goal-pill";
++
++describe("resolveGoalUsageHints", () => {
++  it("says Kimi does not report a goal's turn count", () => {
++    expect(resolveGoalUsageHints("kimi").turns).toContain("Kimi 不提供这个数");
++  });
++
++  it("does not describe a Claude goal with Kimi's wording", () => {
++    const hints = resolveGoalUsageHints("claude");
++
++    expect(hints.turns).not.toContain("Kimi");
++    expect(hints.tokens).not.toContain("Kimi");
++    expect(hints.turns).toContain("Claude 只在评估目标时报自己的计数");
++  });
++
++  it("has wording for a provider it does not know", () => {
++    const hints = resolveGoalUsageHints("codex");
++
++    expect(hints.turns.length).toBeGreaterThan(0);
++    expect(hints.tokens.length).toBeGreaterThan(0);
++    expect(hints.turns).not.toContain("Kimi");
++  });
++
++  it("has wording for a goal with no provider at all", () => {
++    expect(resolveGoalUsageHints(undefined).turns).not.toContain("Kimi");
++  });
++});
 +
 +describe("resolveGoalStatusLabel", () => {
 +  it.each([
@@ -350,15 +390,16 @@ index 0000000..a3832bc
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 0000000..3704ac3
+index 0000000..fb2a6c8
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
-@@ -0,0 +1,360 @@
+@@ -0,0 +1,399 @@
 +import { useCallback, type ReactElement } from "react";
 +import { Text, View } from "react-native";
 +import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
 +import { StyleSheet, withUnistyles } from "react-native-unistyles";
 +import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import type { AgentProvider } from "@getpaseo/protocol/agent-types";
 +import {
 +  MenuRoot,
 +  MenuSurface,
@@ -469,12 +510,41 @@ index 0000000..3704ac3
 +const PANEL_OFFSET = 12;
 +
 +/**
-+ * The turn count is derived, not reported: the daemon counts the goal's own updates, and Kimi
-+ * never states how many turns a goal took. Say so where the number is read, because a bare count
-+ * next to a token count reads as provider-reported.
++ * What the panel says about a count the provider did not state itself. A bare count next to a
++ * token count reads as provider-reported, so the reader is told which is which — and that differs
++ * per provider: Kimi never reports how many turns a goal took, while Claude reports its own count
++ * only when the Stop hook evaluates the goal, which can be long after it was set.
 + */
-+const TURNS_HINT = "Paseo 按会话日志统计，Kimi 不提供这个数";
-+const TOKENS_HINT = "Kimi 报的累计输出 token";
++interface GoalUsageHints {
++  turns: string;
++  tokens: string;
++}
++
++const KIMI_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 按会话日志统计，Kimi 不提供这个数",
++  tokens: "Kimi 报的累计输出 token",
++};
++
++const CLAUDE_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 按回合统计，Claude 只在评估目标时报自己的计数",
++  tokens: "Paseo 按回合累计的输出 token",
++};
++
++const DEFAULT_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 统计的回合数",
++  tokens: "Paseo 累计的输出 token",
++};
++
++export function resolveGoalUsageHints(provider: AgentProvider | null | undefined): GoalUsageHints {
++  if (provider === "kimi") {
++    return KIMI_GOAL_USAGE_HINTS;
++  }
++  if (provider === "claude") {
++    return CLAUDE_GOAL_USAGE_HINTS;
++  }
++  return DEFAULT_GOAL_USAGE_HINTS;
++}
++
 +const INPUT_TOKENS_HINT = "Paseo 按步骤累计的输入 token，同一段上下文会重复计入";
 +
 +export function resolveGoalStatusLabel(status: AgentGoalStatus): string {
@@ -566,9 +636,11 @@ index 0000000..3704ac3
 +
 +interface GoalPillProps {
 +  goal: AgentGoalPayload | null | undefined;
++  /** Whose goal this is; decides what the panel says about the counters. */
++  provider?: AgentProvider | null;
 +}
 +
-+export function GoalPill({ goal }: GoalPillProps): ReactElement | null {
++export function GoalPill({ goal, provider }: GoalPillProps): ReactElement | null {
 +  if (!goal) return null;
 +  return (
 +    <MenuRoot compactMode="sheet">
@@ -584,7 +656,7 @@ index 0000000..3704ac3
 +        scrollable
 +        testID={DETAIL_PANEL_TEST_ID}
 +      >
-+        <GoalDetail goal={goal} />
++        <GoalDetail goal={goal} provider={provider} />
 +      </MenuSurface>
 +    </MenuRoot>
 +  );
@@ -630,10 +702,17 @@ index 0000000..3704ac3
 + * What the pill abbreviates. The goal text and the completion criterion are the two things the
 + * pill has no room for and the reader most often needs, so they lead.
 + */
-+function GoalDetail({ goal }: { goal: AgentGoalPayload }): ReactElement {
++function GoalDetail({
++  goal,
++  provider,
++}: {
++  goal: AgentGoalPayload;
++  provider?: AgentProvider | null;
++}): ReactElement {
 +  const elapsed = formatGoalElapsed(goal.startedAt, goal.endedAt, Date.now());
 +  const endedAt = goal.endedAt;
 +  const inputUsage = formatGoalInputUsage(goal.inputTokens, goal.cachedInputTokens);
++  const hints = resolveGoalUsageHints(provider);
 +  return (
 +    <>
 +      <GoalDetailField
@@ -651,13 +730,13 @@ index 0000000..3704ac3
 +      <GoalDetailField
 +        label="回合"
 +        value={`${Math.round(goal.turnsUsed)} 回合`}
-+        hint={TURNS_HINT}
++        hint={hints.turns}
 +        testID={`${DETAIL_PANEL_TEST_ID}-turns`}
 +      />
 +      <GoalDetailField
 +        label="输出"
 +        value={`${formatCompactTokens(goal.tokensUsed)} tokens`}
-+        hint={`${formatFullTokens(goal.tokensUsed)} · ${TOKENS_HINT}`}
++        hint={`${formatFullTokens(goal.tokensUsed)} · ${hints.tokens}`}
 +        testID={`${DETAIL_PANEL_TEST_ID}-tokens`}
 +      />
 +      {inputUsage === null ? null : (
@@ -715,7 +794,7 @@ index 0000000..3704ac3
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index a8bdec9..4193717 100644
+index a8bdec9..60ee40e 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,7 @@ import {
@@ -756,14 +835,12 @@ index a8bdec9..4193717 100644
  }
  
  interface RenderLeftContentArgs {
-@@ -1548,10 +1560,12 @@ function ComposerContentImpl({
+@@ -1548,10 +1560,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
 -        appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
-+        appSettings.sendBehavior === "steer" && agentState.supportsSteering
-+          ? "steer"
-+          : "interrupt",
++        appSettings.sendBehavior === "steer" && agentState.supportsSteering ? "steer" : "interrupt",
        );
      },
 -    [appSettings.sendBehavior, cwd, onMessageSent, t],
@@ -771,7 +848,7 @@ index a8bdec9..4193717 100644
    );
  
    useEffect(() => {
-@@ -1615,6 +1629,7 @@ function ComposerContentImpl({
+@@ -1615,6 +1627,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -779,11 +856,14 @@ index a8bdec9..4193717 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2100,9 +2115,10 @@ function ComposerContentImpl({
+@@ -2100,9 +2113,13 @@ function ComposerContentImpl({
        contextWindowMeterGlyphSize,
      ],
    );
-+  const goalPill = useMemo(() => <GoalPill goal={agentState.goal} />, [agentState.goal]);
++  const goalPill = useMemo(
++    () => <GoalPill goal={agentState.goal} provider={agentState.provider} />,
++    [agentState.goal, agentState.provider],
++  );
    const beforeVoiceContent = useMemo(
 -    () => resolveContextWindowPlacement(contextWindowMeter, hasAgent),
 -    [contextWindowMeter, hasAgent],
@@ -792,7 +872,7 @@ index a8bdec9..4193717 100644
    );
  
    const hasGithubAttachment = useMemo(
-@@ -2568,6 +2584,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2568,6 +2585,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: theme.spacing[1],
    },
@@ -3864,10 +3944,10 @@ index d2e0a1b..cdae2e0 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index e30ba29..d7309df 100644
+index e30ba29..94b16c6 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -3249,6 +3249,403 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -3249,6 +3249,562 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -4266,13 +4346,172 @@ index e30ba29..d7309df 100644
 +      },
 +    ]);
 +  });
++
++  function assistantUsageFrame(
++    usage: { input: number; cached: number; output: number },
++    uuid: string,
++  ): SDKMessage {
++    return {
++      type: "assistant",
++      message: {
++        id: `msg-${uuid}`,
++        type: "message",
++        role: "assistant",
++        model: "claude-sonnet-4-6",
++        stop_reason: "end_turn",
++        content: [{ type: "text", text: "working" }],
++        usage: {
++          input_tokens: usage.input,
++          cache_creation_input_tokens: 0,
++          cache_read_input_tokens: usage.cached,
++          output_tokens: usage.output,
++        },
++      },
++      parent_tool_use_id: null,
++      session_id: "session-1",
++      uuid,
++      timestamp: "2026-09-30T12:05:00.000Z",
++    } as unknown as SDKMessage;
++  }
++
++  function turnResultFrame(uuid: string): SDKMessage {
++    return {
++      type: "result",
++      subtype: "success",
++      duration_ms: 10,
++      duration_api_ms: 8,
++      is_error: false,
++      num_turns: 1,
++      result: "done",
++      stop_reason: null,
++      total_cost_usd: 0,
++      usage: {},
++      permission_denials: [],
++      uuid,
++      session_id: "session-1",
++    } as unknown as SDKMessage;
++  }
++
++  test("a running goal reports the tokens it has spent so far", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    // The CLI reports the usage of every API response it makes, and a goal that
++    // runs for an hour makes many of them. The panel cannot sit at zero for all
++    // of it just because no Stop-hook evaluation has run yet.
++    session.translateMessageToEvents(
++      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "assistant-1"),
++    );
++    const events = session.translateMessageToEvents(
++      assistantUsageFrame({ input: 2_000, cached: 900, output: 120 }, "assistant-2"),
++    );
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: "claude:session-1:goal-set-1",
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 0,
++          tokensUsed: 170,
++          inputTokens: 4_300,
++          cachedInputTokens: 1_300,
++          startedAt: Date.parse("2026-09-30T12:04:35.837Z"),
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
++
++  test("a finished turn advances the goal's turn count", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    session.translateMessageToEvents(turnResultFrame("turn-1"));
++    const events = session.translateMessageToEvents(turnResultFrame("turn-2"));
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: "claude:session-1:goal-set-1",
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 2,
++          tokensUsed: 0,
++          startedAt: Date.parse("2026-09-30T12:04:35.837Z"),
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
++
++  test("the count the CLI reports wins over the one Paseo kept", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++    session.translateMessageToEvents(turnResultFrame("turn-1"));
++    session.translateMessageToEvents(
++      assistantUsageFrame({ input: 10, cached: 0, output: 5 }, "assistant-1"),
++    );
++
++    const events = session.translateMessageToEvents(
++      activeGoalFrame(
++        { condition: "the test suite passes", iterations: 4, set_at: 1_700_000_000_000 },
++        "goal-1",
++      ),
++    );
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: expect.any(String),
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 4,
++          tokensUsed: 5,
++          inputTokens: 10,
++          startedAt: 1_700_000_000_000,
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
 +});
 +
  describe("toClaudeSdkMcpConfig", () => {
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 04fef2b..e447aaf 100644
+index 04fef2b..4519aeb 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -33,6 +33,8 @@ import {
@@ -4284,7 +4523,15 @@ index 04fef2b..e447aaf 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -2065,6 +2067,10 @@ class ClaudeAgentSession implements AgentSession {
+@@ -114,6 +116,7 @@ import {
+   type AgentSession,
+   type AgentSessionConfig,
+   type AgentSlashCommand,
++  type AgentGoal,
+   type SteerActiveTurnOptions,
+   type SteerResult,
+   type AgentStreamEvent,
+@@ -2065,6 +2068,23 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -4292,10 +4539,23 @@ index 04fef2b..e447aaf 100644
 +  private transcriptGoalStamp: string | null = null;
 +  /** Goal record already reported, so repeated command results never re-state the goal. */
 +  private transcriptGoalKey: string | null = null;
++  /**
++   * The goal the CLI is working on, as the provider last described it. Kept so a
++   * turn that reports usage can republish the goal without waiting for the next
++   * evaluation to say anything about it.
++   */
++  private currentGoal: AgentGoal | null = null;
++  /**
++   * What that goal has spent so far. The CLI's `active_goal` frame carries a
++   * token counter taken when the goal was set, not a running total, and it only
++   * arrives at an evaluation — which can be an hour after `/goal`. The tally is
++   * therefore summed here from the usage each response reports.
++   */
++  private goalTally: ClaudeGoalTally = EMPTY_CLAUDE_GOAL_TALLY;
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2132,7 +2138,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2132,7 +2152,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -4304,7 +4564,7 @@ index 04fef2b..e447aaf 100644
      );
      const handle = options.handle;
  
-@@ -2445,7 +2451,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2445,7 +2465,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -4313,7 +4573,7 @@ index 04fef2b..e447aaf 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3252,6 +3258,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3252,6 +3272,24 @@ class ClaudeAgentSession implements AgentSession {
      );
    }
  
@@ -4338,7 +4598,7 @@ index 04fef2b..e447aaf 100644
    private buildSdkEnv(): NodeJS.ProcessEnv {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4119,6 +4143,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4119,6 +4157,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetReadSteer(message);
  
@@ -4351,7 +4611,15 @@ index 04fef2b..e447aaf 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4151,6 +4181,97 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4136,6 +4180,7 @@ class ClaudeAgentSession implements AgentSession {
+           events.push({ type: "timeline", item, provider: "claude" });
+         }
+         this.appendSidechainResultEvents(message, events);
++        this.accumulateGoalUsage(message.message.usage, events);
+         break;
+       }
+       case "stream_event":
+@@ -4151,6 +4196,173 @@ class ClaudeAgentSession implements AgentSession {
      return events;
    }
  
@@ -4376,16 +4644,14 @@ index 04fef2b..e447aaf 100644
 +      // A null value means the goal is over. Claude fires the same frame whether
 +      // the condition was met or the user cleared it, so the goal is dropped
 +      // rather than reported as met.
-+      events.push({ type: "goal_updated", provider: "claude", goal: null });
++      this.publishGoal(null, events);
 +      return true;
 +    }
 +    const iterations =
 +      isMetadata(value) && typeof value.iterations === "number" ? value.iterations : 0;
 +    const setAt = isMetadata(value) && typeof value.set_at === "number" ? value.set_at : 0;
-+    events.push({
-+      type: "goal_updated",
-+      provider: "claude",
-+      goal: {
++    this.publishGoal(
++      {
 +        goalId: `claude:${this.claudeSessionId ?? this.agentId ?? "session"}:${setAt}`,
 +        objective: condition,
 +        status: "active",
@@ -4394,8 +4660,88 @@ index 04fef2b..e447aaf 100644
 +        startedAt: setAt,
 +        updatedAt: Date.now(),
 +      },
-+    });
++      events,
++    );
 +    return true;
++  }
++
++  /**
++   * Report a goal, carrying the tokens and turns this session has counted for it.
++   *
++   * Every path that describes a goal goes through here: the CLI's `active_goal`
++   * frame, the transcript record that follows `/goal`, and the usage of each
++   * response. Two of those three know nothing about tokens, and the frame's turn
++   * count only moves at an evaluation, so the tally is merged in rather than
++   * taken from whichever source happened to speak.
++   *
++   * A count the provider states is preferred over the one counted here: it is the
++   * same quantity measured from the other side, and the provider's is the one the
++   * user sees in Claude Code itself.
++   */
++  private publishGoal(goal: AgentGoal | null, events: AgentStreamEvent[]): void {
++    if (goal === null) {
++      this.currentGoal = null;
++      this.goalTally = EMPTY_CLAUDE_GOAL_TALLY;
++      events.push({ type: "goal_updated", provider: "claude", goal: null });
++      return;
++    }
++    if (this.currentGoal === null || this.currentGoal.objective !== goal.objective) {
++      // A different goal is what the tally was never about.
++      this.goalTally = EMPTY_CLAUDE_GOAL_TALLY;
++    }
++    const tally = this.goalTally;
++    const merged: AgentGoal = {
++      ...goal,
++      turnsUsed: Math.max(goal.turnsUsed, tally.turns),
++      tokensUsed: Math.max(goal.tokensUsed, tally.output),
++      ...(tally.input > 0 ? { inputTokens: tally.input } : {}),
++      ...(tally.cachedInput > 0 ? { cachedInputTokens: tally.cachedInput } : {}),
++      updatedAt: Date.now(),
++    };
++    this.currentGoal = merged;
++    events.push({ type: "goal_updated", provider: "claude", goal: merged });
++  }
++
++  /**
++   * Add one response's usage to the goal's tally and report the goal again.
++   *
++   * Claude states nothing about a goal's tokens until the Stop hook evaluates
++   * it, so a goal that runs for an hour would show zero for all of it. The
++   * responses are the same measurement the CLI's own counter adds up.
++   */
++  private accumulateGoalUsage(usage: unknown, events: AgentStreamEvent[]): void {
++    const goal = this.currentGoal;
++    if (goal === null) {
++      this.goalTally = EMPTY_CLAUDE_GOAL_TALLY;
++      return;
++    }
++    const tokens = readResponseUsageTokens(usage);
++    if (tokens === null) {
++      return;
++    }
++    const tally = this.goalTally;
++    this.goalTally = {
++      turns: tally.turns,
++      output: tally.output + tokens.output,
++      input: tally.input + tokens.input,
++      cachedInput: tally.cachedInput + tokens.cachedInput,
++    };
++    this.publishGoal(goal, events);
++  }
++
++  /**
++   * Count a finished turn against the goal and report it again.
++   *
++   * `result` closes exactly one turn, which is the unit the CLI's own
++   * `iterations` counts, so the two stay comparable.
++   */
++  private countGoalTurn(events: AgentStreamEvent[]): void {
++    const goal = this.currentGoal;
++    if (goal === null) {
++      return;
++    }
++    this.goalTally = { ...this.goalTally, turns: this.goalTally.turns + 1 };
++    this.publishGoal(goal, events);
 +  }
 +
 +  /**
@@ -4427,32 +4773,78 @@ index 04fef2b..e447aaf 100644
 +    if (status.cleared) {
 +      // `/goal clear` writes the same record with `met`, and no frame reports it: the CLI
 +      // fires `active_goal` for an evaluation, not for the user ending the goal early.
-+      events.push({ type: "goal_updated", provider: "claude", goal: null });
++      this.publishGoal(null, events);
 +      return;
 +    }
-+    const now = Date.now();
-+    events.push({
-+      type: "goal_updated",
-+      provider: "claude",
-+      goal: {
++    this.publishGoal(
++      {
 +        goalId: `claude:${sessionId}:${status.key}`,
 +        objective: status.condition,
 +        status: "active",
 +        turnsUsed: 0,
 +        tokensUsed: 0,
-+        startedAt: status.setAt ?? now,
-+        updatedAt: now,
++        startedAt: status.setAt ?? Date.now(),
++        updatedAt: Date.now(),
 +      },
-+    });
++      events,
++    );
 +  }
 +
    /** Once Claude has read a steer there is nothing left to discard on interrupt. */
    private forgetReadSteer(message: unknown): void {
      const lifecycle = readClaudeCommandLifecycle(message);
-@@ -5807,6 +5928,72 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -4476,6 +4688,7 @@ class ClaudeAgentSession implements AgentSession {
+     message: Extract<SDKMessage, { type: "result" }>,
+     events: AgentStreamEvent[],
+   ): void {
++    this.countGoalTurn(events);
+     const usage = this.convertUsage(message, message.modelUsage);
+     if (message.subtype === "success") {
+       events.push(...this.sidechainTracker.finishAll("completed"));
+@@ -5807,6 +6020,112 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
++interface ClaudeGoalTally {
++  /** Turns the goal has finished since it was set. */
++  turns: number;
++  /** Output tokens every response of those turns produced. */
++  output: number;
++  /** Input tokens those responses read, cache reads included. */
++  input: number;
++  /** The cache-read part of `input`. */
++  cachedInput: number;
++}
++
++const EMPTY_CLAUDE_GOAL_TALLY: ClaudeGoalTally = Object.freeze({
++  turns: 0,
++  output: 0,
++  input: 0,
++  cachedInput: 0,
++});
++
++/**
++ * What one response reported it read and wrote, or null when it reported
++ * nothing. The cache-read and cache-creation counts are part of the input side:
++ * `inputTokens` is the whole of it, `cachedInput` the part that came from cache.
++ */
++function readResponseUsageTokens(
++  usage: unknown,
++): { input: number; cachedInput: number; output: number } | null {
++  const record = toObjectRecord(usage);
++  if (!record) {
++    return null;
++  }
++  const read = (key: string): number => {
++    const value = record[key];
++    return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
++  };
++  const cachedInput = read("cache_read_input_tokens");
++  const input = read("input_tokens") + cachedInput + read("cache_creation_input_tokens");
++  const output = read("output_tokens");
++  return input > 0 || output > 0 ? { input, cachedInput, output } : null;
++}
++
 +interface ClaudeTranscriptGoalStatus {
 +  /** Identity of the record, so the same one is never reported twice. */
 +  key: string;

@@ -295,7 +295,7 @@ const MARKERS = [
   {
     label: "Goal pill mounted in the composer",
     path: "packages/app/src/composer/index.tsx",
-    needle: "<GoalPill goal={agentState.goal} />",
+    needle: "<GoalPill goal={agentState.goal} provider={agentState.provider} />",
   },
   {
     label: "forkProcess helper",
@@ -406,6 +406,37 @@ const MARKERS = [
     label: "A Claude goal set is tested to reach the pill before the turn ends",
     path: "packages/server/src/server/agent/providers/claude/agent.test.ts",
     needle: 'test("a goal the CLI set is reported before the first evaluation", async () => {',
+  },
+  {
+    label: "A Claude goal carries the tokens its responses reported",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "private accumulateGoalUsage(usage: unknown, events: AgentStreamEvent[]): void {",
+  },
+  {
+    label: "A finished Claude turn advances its goal's turn count",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "private countGoalTurn(events: AgentStreamEvent[]): void {",
+  },
+  {
+    label: "Every Claude goal report goes through the tally",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "private publishGoal(goal: AgentGoal | null, events: AgentStreamEvent[]): void {",
+  },
+  {
+    label: "A running Claude goal is tested to report what it spent",
+    path: "packages/server/src/server/agent/providers/claude/agent.test.ts",
+    needle: 'test("a running goal reports the tokens it has spent so far", async () => {',
+  },
+  {
+    label: "The goal panel words its counters per provider",
+    path: "packages/app/src/composer/goal-pill.tsx",
+    needle:
+      "export function resolveGoalUsageHints(provider: AgentProvider | null | undefined): GoalUsageHints {",
+  },
+  {
+    label: "A Claude goal is tested not to read as a Kimi one",
+    path: "packages/app/src/composer/goal-pill.browser.test.tsx",
+    needle: 'it("describes a Claude goal in Claude\'s terms, not Kimi\'s", () => {',
   },
   {
     label: "A Kimi turn the runtime has not ended counts as running",
