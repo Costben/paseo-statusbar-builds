@@ -52,6 +52,15 @@
 //                           prompt with an immediate end_turn, the turn looked
 //                           finished while the work was not, and the next
 //                           message queued instead of interrupting.
+//   kimi send behavior      steering means putting a message into the turn that
+//                           is already running, which the ACP channel Kimi Code
+//                           speaks cannot do. The daemon used to accept the
+//                           request and quietly fall through to an interrupt, so
+//                           the composer offered a third option that could never
+//                           be honoured. The session now reports whether it can
+//                           be steered, the daemon dispatches a steer as an
+//                           interrupt when it cannot, and the composer shows
+//                           queue / interrupt only.
 //   reliability             Kimi ACP capability descriptors, log instead of
 //                           silently dropping session/staged events, and flag
 //                           Kimi turns that complete with no assistant output.
@@ -383,6 +392,16 @@ const MARKERS = [
     label: "A Kimi turn the runtime has not ended counts as running",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
     needle: "isTurnInProgress(): boolean",
+  },
+  {
+    label: "A steer request is dispatched as an interrupt for an agent that cannot steer",
+    path: "packages/server/src/server/agent/agent-prompt.ts",
+    needle: "capabilities.supportsSteering === false",
+  },
+  {
+    label: "The agent snapshot reports whether the agent can be steered",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: "supportsSteering: session.steerActiveTurn !== undefined,",
   },
 ];
 

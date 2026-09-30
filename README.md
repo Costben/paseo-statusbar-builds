@@ -202,6 +202,12 @@ shared-code change: mirror the hunk into `paseo-app-composer-badges.patch`, and
 red instead of shipping. A plain status-bar change (`app.config.js`,
 `_layout.tsx`) is Android-only — the desktop patch does not apply it.
 
+`paseo-app-composer-badges.patch` currently carries two such mirrors: the composer
+badge styling, and the send-behavior change that makes the composer show queue /
+interrupt for an agent that cannot be steered (see the Kimi send behavior row
+below). The protocol hunk travels with it, because the app resolves
+`@getpaseo/protocol/*` through that package's `dist`.
+
 ### Triggering a patch-only rebuild
 
 A downstream `workflow_run` is dispatched with no inputs, so `force` is empty on
@@ -249,6 +255,7 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 
 | Claude goal | Claude Code keeps a goal of its own (`/goal <condition>`, re-checked after every turn) and reports it on the same SDK message stream the daemon already reads. Map that frame into the goal state the Kimi side already produces, so the composer pill covers Claude sessions too |
 | Kimi cut-in | a message sent while the Kimi runtime is still working replaces the turn instead of queueing behind it. Kimi answers a prompt it has only queued with an immediate end of turn, so Paseo marked the turn finished and went idle, the next message queued instead of interrupting, and the turn failed 30 s later with `kimi_timeline_missing` |
+| Kimi send behavior | steering means injecting a message into the turn that is already running, which the ACP channel Kimi Code speaks cannot do. The daemon accepted the request anyway and fell through to an interrupt, so the composer offered an option that could never be honoured. The session now reports whether it can be steered, a steer aimed at one that cannot is dispatched as an interrupt, and the composer shows queue / interrupt only |
 
 One series rather than a list because the pieces depend on each other: the session
 log tailer is what feeds the goal state, the goal pill is what reads it, and the

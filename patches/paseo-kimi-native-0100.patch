@@ -715,7 +715,7 @@ index 0000000..3704ac3
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index a8bdec9..b93f0b5 100644
+index a8bdec9..4193717 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,7 @@ import {
@@ -726,15 +726,18 @@ index a8bdec9..b93f0b5 100644
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
  import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
  import { useFilePicker } from "@/hooks/use-file-picker";
-@@ -275,6 +276,7 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
+@@ -275,6 +276,10 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
        totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
        model: agent?.model ?? null,
        provider: agent?.provider ?? null,
 +      goal: agent?.goal ?? null,
++      // A daemon that predates the flag leaves it undefined. Assume the agent can
++      // steer then, so nothing changes for the providers that always could.
++      supportsSteering: agent?.capabilities?.supportsSteering !== false,
      };
    };
  }
-@@ -308,10 +310,17 @@ function renderContextWindowMeter(
+@@ -308,10 +313,17 @@ function renderContextWindowMeter(
  }
  
  function resolveContextWindowPlacement(
@@ -753,7 +756,30 @@ index a8bdec9..b93f0b5 100644
  }
  
  interface RenderLeftContentArgs {
-@@ -2100,9 +2109,10 @@ function ComposerContentImpl({
+@@ -1548,10 +1560,12 @@ function ComposerContentImpl({
+         agentIdRef.current,
+         text,
+         submitAttachments,
+-        appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
++        appSettings.sendBehavior === "steer" && agentState.supportsSteering
++          ? "steer"
++          : "interrupt",
+       );
+     },
+-    [appSettings.sendBehavior, cwd, onMessageSent, t],
++    [agentState.supportsSteering, appSettings.sendBehavior, cwd, onMessageSent, t],
+   );
+ 
+   useEffect(() => {
+@@ -1615,6 +1629,7 @@ function ComposerContentImpl({
+   const activeSendBehavior = resolveActiveSendBehavior(
+     appSettings.sendBehavior,
+     hasPendingPermission,
++    agentState.supportsSteering,
+   );
+   const hasAgent = agentState.status !== null;
+ 
+@@ -2100,9 +2115,10 @@ function ComposerContentImpl({
        contextWindowMeterGlyphSize,
      ],
    );
@@ -766,7 +792,7 @@ index a8bdec9..b93f0b5 100644
    );
  
    const hasGithubAttachment = useMemo(
-@@ -2568,6 +2578,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2568,6 +2584,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: theme.spacing[1],
    },
@@ -779,6 +805,49 @@ index a8bdec9..b93f0b5 100644
    contextWindowMeterSlot: {
      width: 28,
      height: 28,
+diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
+index 5503ea1..7ec4799 100644
+--- a/packages/app/src/composer/input/state.test.ts
++++ b/packages/app/src/composer/input/state.test.ts
+@@ -190,9 +190,15 @@ describe("dictation transcript behavior", () => {
+ 
+ describe("composer send behavior", () => {
+   it("sends immediately when queue mode cannot advance past a permission", () => {
+-    expect(resolveActiveSendBehavior("queue", true)).toBe("interrupt");
+-    expect(resolveActiveSendBehavior("queue", false)).toBe("queue");
+-    expect(resolveActiveSendBehavior("steer", true)).toBe("steer");
++    expect(resolveActiveSendBehavior("queue", true, true)).toBe("interrupt");
++    expect(resolveActiveSendBehavior("queue", false, true)).toBe("queue");
++    expect(resolveActiveSendBehavior("steer", true, true)).toBe("steer");
++  });
++
++  it("reports a steer as an interrupt for an agent that cannot be steered", () => {
++    expect(resolveActiveSendBehavior("steer", false, false)).toBe("interrupt");
++    expect(resolveActiveSendBehavior("interrupt", false, false)).toBe("interrupt");
++    expect(resolveActiveSendBehavior("queue", false, false)).toBe("queue");
+   });
+ 
+   function actions() {
+diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
+index a63aeb0..8c20c16 100644
+--- a/packages/app/src/composer/input/state.ts
++++ b/packages/app/src/composer/input/state.ts
+@@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
+ export function resolveActiveSendBehavior(
+   sendBehavior: SendBehavior,
+   hasPendingPermission: boolean,
++  supportsSteering: boolean,
+ ): SendBehavior {
+-  return sendBehavior === "queue" && hasPendingPermission ? "interrupt" : sendBehavior;
++  if (sendBehavior === "queue" && hasPendingPermission) return "interrupt";
++  // Steering a provider that cannot take a message into its running turn is not a
++  // third option: the daemon downgrades that request to an interrupt, so the
++  // composer says interrupt rather than promising a steer that never happens.
++  if (sendBehavior === "steer" && !supportsSteering) return "interrupt";
++  return sendBehavior;
+ }
+ 
+ interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
 index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
@@ -870,10 +939,19 @@ index c1c70c6..7a4c643 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index db72cd3..55e1598 100644
+index db72cd3..553dbbd 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -806,6 +806,31 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -377,6 +377,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+     supportsRewindFiles: z.boolean().optional().default(false),
+     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+     supportsRewindBoth: z.boolean().optional().default(false),
++    // COMPAT(steering): added in v0.10.2, drop when floor >= v0.10.2.
++    supportsSteering: z.boolean().optional(),
+   })
+   .catchall(z.boolean());
+ 
+@@ -806,6 +808,31 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -905,7 +983,7 @@ index db72cd3..55e1598 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -827,6 +852,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -827,6 +854,7 @@ export const AgentSnapshotPayloadSchema = z.object({
    persistence: AgentPersistenceHandleSchema.nullable(),
    runtimeInfo: AgentRuntimeInfoSchema.optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -991,7 +1069,7 @@ index 1f8c137..e89365a 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 87d3b29..d2e0d43 100644
+index 87d3b29..f85ca3c 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,7 @@ import {
@@ -1080,7 +1158,21 @@ index 87d3b29..d2e0d43 100644
      }
    }
  
-@@ -3774,9 +3794,28 @@ export class AgentManager {
+@@ -3645,7 +3665,12 @@ export class AgentManager {
+       workspaceId: options?.workspaceId,
+       owner: options?.owner,
+       session,
+-      capabilities: session.capabilities,
++      capabilities: {
++        ...session.capabilities,
++        // The session is the only thing that knows whether it can take a message
++        // into the turn it is already running. ACP cannot, so Kimi Code cannot.
++        supportsSteering: session.steerActiveTurn !== undefined,
++      },
+       config,
+       runtimeInfo: undefined,
+       lifecycle: "initializing",
+@@ -3774,9 +3799,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -1109,7 +1201,7 @@ index 87d3b29..d2e0d43 100644
            return;
          }
          this.logger.trace(
-@@ -4300,6 +4339,13 @@ export class AgentManager {
+@@ -4300,6 +4344,13 @@ export class AgentManager {
          agent.lastUsage = event.usage;
          this.emitState(agent);
          return undefined;
@@ -1176,13 +1268,81 @@ index 05f932a..bc5171d 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a..ff5f1b8 100644
+index 08bd66a..140c677 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
-@@ -264,6 +264,22 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
+@@ -12,6 +12,8 @@ import {
+   formatSystemNotificationPrompt,
+   isSystemInjectedEnvelope,
+   setupFinishNotification,
++  startAgentRun,
++  type AgentRunController,
+   waitForAgentRunStartWithTimeout,
+ } from "./agent-prompt.js";
+ import type { AgentManagerEvent, ManagedAgent } from "./agent-manager.js";
+@@ -264,6 +266,81 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
    expect(isSystemInjectedEnvelope("hello world")).toBe(false);
  });
  
++function createRunController(capabilities: Record<string, boolean | undefined>) {
++  const calls: string[] = [];
++  const controller: AgentRunController = {
++    getAgent: () => ({ capabilities }) as unknown as ReturnType<AgentRunController["getAgent"]>,
++    tryRunOutOfBand: () => false,
++    hasInFlightRun: () => true,
++    replaceAgentRun: async () => {
++      calls.push("replace");
++      return (async function* empty() {})();
++    },
++    steerOrReplaceActiveTurn: async () => {
++      calls.push("steer");
++      return { status: "inactive" };
++    },
++    streamAgent: () => {
++      calls.push("stream");
++      return (async function* empty() {})();
++    },
++    reloadAgentSession: async () => undefined,
++  };
++  return { controller, calls };
++}
++
++test("a steer is dispatched as an interrupt for an agent that cannot steer", async () => {
++  const { controller, calls } = createRunController({ supportsSteering: false });
++  await startAgentRun(controller, "agent-1", "hello", createTestLogger(), {
++    replaceRunning: true,
++    activeTurnBehavior: "steer",
++  });
++  expect(calls).toEqual(["replace"]);
++});
++
++test("a steer still reaches the steer path for an agent that can steer", async () => {
++  const { controller, calls } = createRunController({ supportsSteering: true });
++  await startAgentRun(controller, "agent-1", "hello", createTestLogger(), {
++    replaceRunning: true,
++    activeTurnBehavior: "steer",
++  });
++  expect(calls).toEqual(["steer", "replace"]);
++});
++
++test("a steer still reaches the steer path when the capability was never reported", async () => {
++  const { controller, calls } = createRunController({});
++  await startAgentRun(controller, "agent-1", "hello", createTestLogger(), {
++    replaceRunning: true,
++    activeTurnBehavior: "steer",
++  });
++  expect(calls).toEqual(["steer", "replace"]);
++});
++
++test("an interrupt never consults the steer path", async () => {
++  const { controller, calls } = createRunController({ supportsSteering: true });
++  await startAgentRun(controller, "agent-1", "hello", createTestLogger(), {
++    replaceRunning: true,
++    activeTurnBehavior: "interrupt",
++  });
++  expect(calls).toEqual(["replace"]);
++});
++
 +test("isSystemInjectedEnvelope matches a harness reminder that is the whole message", () => {
 +  expect(
 +    isSystemInjectedEnvelope(
@@ -1203,10 +1363,24 @@ index 08bd66a..ff5f1b8 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 41e2d52..96d2683 100644
+index 41e2d52..4a6b291 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
-@@ -215,7 +215,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+@@ -52,6 +52,13 @@ async function steerOrReplaceActiveRun(
+   if (options?.activeTurnBehavior !== "steer") {
+     return null;
+   }
++  // Clients ask for a steer without knowing whether the provider can take one.
++  // A provider that cannot — ACP, and so Kimi Code — is served by the interrupt
++  // path instead. The shared admission would land in the same place, but only
++  // after an admission step that can fail when the turn moves underneath it.
++  if (agentManager.getAgent(agentId)?.capabilities.supportsSteering === false) {
++    return null;
++  }
+   const steerOptions = options.clearPendingPermissions
+     ? { ...options.runOptions, clearPendingPermissions: true }
+     : options.runOptions;
+@@ -215,7 +222,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
    return `<paseo-system>\n${reason}\n</paseo-system>`;
  }
  
@@ -1224,10 +1398,22 @@ index 41e2d52..96d2683 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index e2fb977..2571603 100644
+index e2fb977..3b5cc2f 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
-@@ -236,6 +236,35 @@ export interface AgentUsage {
+@@ -192,6 +192,11 @@ export interface AgentCapabilityFlags {
+   supportsRewindConversation?: boolean;
+   supportsRewindFiles?: boolean;
+   supportsRewindBoth?: boolean;
++  /**
++   * Whether the session can take a message into the turn it is already running.
++   * Absent on a session that never said; false is the honest answer for ACP.
++   */
++  supportsSteering?: boolean;
+ }
+ 
+ export interface AgentPersistenceHandle {
+@@ -236,6 +241,35 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -1263,7 +1449,7 @@ index e2fb977..2571603 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -421,6 +450,8 @@ export type AgentStreamEvent =
+@@ -421,6 +455,8 @@ export type AgentStreamEvent =
    | { type: "turn_started"; provider: AgentProvider; turnId?: string }
    | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
