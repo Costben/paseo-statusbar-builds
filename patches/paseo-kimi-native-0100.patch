@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd9b..da4038a72 100644
+index 4bc21fd..da4038a 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd9b..da4038a72 100644
  app-example
  
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 4f1302fd1..4a15f6b5e 100644
+index 4f1302f..4a15f6b 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -32,7 +32,7 @@ index 4f1302fd1..4a15f6b5e 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index ff32aaf4d..d329cdd36 100644
+index ff32aaf..d329cdd 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -58,7 +58,7 @@ index ff32aaf4d..d329cdd36 100644
 +  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
  }
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 1bebc8a5a..82bfd2763 100644
+index 1bebc8a..82bfd27 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -412,7 +412,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -73,7 +73,7 @@ index 1bebc8a5a..82bfd2763 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 000000000..2272776c4
+index 0000000..2272776
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,155 @@
@@ -234,7 +234,7 @@ index 000000000..2272776c4
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..a3832bc4a
+index 0000000..a3832bc
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,110 @@
@@ -350,7 +350,7 @@ index 000000000..a3832bc4a
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..3704ac3c1
+index 0000000..3704ac3
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,360 @@
@@ -715,7 +715,7 @@ index 000000000..3704ac3c1
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index a8bdec9ed..b93f0b579 100644
+index a8bdec9..b93f0b5 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,7 @@ import {
@@ -780,7 +780,7 @@ index a8bdec9ed..b93f0b579 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -795,7 +795,7 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index dd5469df2..d3bee6ef2 100644
+index dd5469d..d3bee6e 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -34,6 +34,7 @@ import type {
@@ -815,7 +815,7 @@ index dd5469df2..d3bee6ef2 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..39dd7b68f 100644
+index 4d14f10..39dd7b6 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,11 @@
@@ -850,7 +850,7 @@ index 4d14f101b..39dd7b68f 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c640..7a4c64310 100644
+index c1c70c6..7a4c643 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -870,7 +870,7 @@ index c1c70c640..7a4c64310 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index db72cd3cb..55e1598cf 100644
+index db72cd3..55e1598 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -806,6 +806,31 @@ const AgentActiveTurnPayloadSchema = z.object({
@@ -914,7 +914,7 @@ index db72cd3cb..55e1598cf 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eba0..606e97b7f 100644
+index 0dd49eb..606e97b 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -939,7 +939,7 @@ index 0dd49eba0..606e97b7f 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe187..afe2ccefd 100644
+index 6930fe1..afe2cce 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
@@ -956,7 +956,7 @@ index 6930fe187..afe2ccefd 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 1f8c1374c..e89365af7 100644
+index 1f8c137..e89365a 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -991,7 +991,7 @@ index 1f8c1374c..e89365af7 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 87d3b290a..d2e0d4379 100644
+index 87d3b29..d2e0d43 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,7 @@ import {
@@ -1124,7 +1124,7 @@ index 87d3b290a..d2e0d4379 100644
          agent.currentModeId = event.currentModeId;
          agent.availableModes = event.availableModes;
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index f72bd84db..9a5dda96c 100644
+index f72bd84..9a5dda9 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
@@ -1161,7 +1161,7 @@ index f72bd84db..9a5dda96c 100644
      const features = [createFeature()];
      const agent = createManagedAgent({ features });
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 05f932aea..bc5171de3 100644
+index 05f932a..bc5171d 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
 @@ -146,6 +146,10 @@ export function toAgentPayload(
@@ -1176,7 +1176,7 @@ index 05f932aea..bc5171de3 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a79..ff5f1b8c6 100644
+index 08bd66a..ff5f1b8 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -264,6 +264,22 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
@@ -1203,7 +1203,7 @@ index 08bd66a79..ff5f1b8c6 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 41e2d5201..96d2683ae 100644
+index 41e2d52..96d2683 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
 @@ -215,7 +215,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
@@ -1224,7 +1224,7 @@ index 41e2d5201..96d2683ae 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index e2fb9779b..2571603a5 100644
+index e2fb977..2571603 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -236,6 +236,35 @@ export interface AgentUsage {
@@ -1273,7 +1273,7 @@ index e2fb9779b..2571603a5 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2c1..72f8731a5 100644
+index 9d106a2..285427d 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -2223,7 +2223,7 @@ index 9d106a2c1..72f8731a5 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4180,3 +5024,322 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4180,3 +5024,400 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -2545,9 +2545,87 @@ index 9d106a2c1..72f8731a5 100644
 +    expect(signals[0]?.aborted).toBe(true);
 +    releaseHold();
 +  });
++
++  /**
++   * Runs one turn whose prompt response is withheld until `emit` has had its
++   * chance to land, and reports what the hold was told about the turn's output.
++   */
++  async function collectHoldSawTimeline(update?: SessionUpdate): Promise<boolean[]> {
++    const holds: boolean[] = [];
++    let respondPrompt!: (response: PromptResponse) => void;
++    const response = new Promise<PromptResponse>((resolve) => {
++      respondPrompt = resolve;
++    });
++    let markHeld!: () => void;
++    const held = new Promise<void>((resolve) => {
++      markHeld = resolve;
++    });
++    let releaseHold!: () => void;
++    const hold = new Promise<void>((resolve) => {
++      releaseHold = resolve;
++    });
++    let settleTurn!: () => void;
++    const settled = new Promise<void>((resolve) => {
++      settleTurn = resolve;
++    });
++
++    const session = createSessionWithConfig(
++      {},
++      createTestLogger(),
++      {},
++      {
++        holdTurnWhile: ({ sawTimeline }) => {
++          holds.push(sawTimeline);
++          markHeld();
++          return hold;
++        },
++      },
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: vi.fn(() => response),
++      cancel: vi.fn(async () => {}),
++    };
++    session.subscribe((event) => {
++      if (
++        event.type === "turn_completed" ||
++        event.type === "turn_failed" ||
++        event.type === "turn_canceled"
++      ) {
++        settleTurn();
++      }
++    });
++
++    await session.startTurn("hello");
++    if (update) {
++      await session.sessionUpdate({ sessionId: "session-1", update });
++    }
++    respondPrompt({ stopReason: "end_turn" });
++    await held;
++
++    releaseHold();
++    await settled;
++    return holds;
++  }
++
++  test("holdTurnWhile is told a turn produced no timeline item", async () => {
++    const holds = await collectHoldSawTimeline();
++
++    expect(holds).toEqual([false]);
++  });
++
++  test("holdTurnWhile is told a turn already produced a timeline item", async () => {
++    const holds = await collectHoldSawTimeline({
++      sessionUpdate: "agent_message_chunk",
++      messageId: "assistant-1",
++      content: { type: "text", text: "on it" },
++    } as SessionUpdate);
++
++    expect(holds).toEqual([true]);
++  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index d2e0a1beb..f36c682b8 100644
+index d2e0a1b..cdae2e0 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -72,9 +72,11 @@ import {
@@ -2599,7 +2677,7 @@ index d2e0a1beb..f36c682b8 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
-@@ -427,6 +445,50 @@ export type ACPCatalogModelResolver = (
+@@ -427,6 +445,55 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -2639,18 +2717,23 @@ index d2e0a1beb..f36c682b8 100644
 +   * Paseo showing the agent as running while the provider keeps working on a goal.
 +   * The signal aborts when the turn is interrupted or the session closes, so a
 +   * provider can drop its hold early instead of waiting out its own timeout.
++   *
++   * `sawTimeline` reports whether this turn has produced any timeline item yet.
++   * A provider that answers a prompt it has only queued can use it to tell that
++   * empty response apart from a turn that actually ran.
 +   */
 +  holdTurnWhile?(ctx: {
 +    acpSessionId: string;
 +    logger: Logger;
 +    signal: AbortSignal;
++    sawTimeline: boolean;
 +  }): Promise<void> | null;
 +}
 +
  interface ACPAgentClientOptions {
    provider: string;
    logger: Logger;
-@@ -456,6 +518,7 @@ interface ACPAgentClientOptions {
+@@ -456,6 +523,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -2658,7 +2741,7 @@ index d2e0a1beb..f36c682b8 100644
    now?: () => number;
  }
  
-@@ -489,7 +552,9 @@ interface ACPAgentSessionOptions {
+@@ -489,7 +557,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -2668,7 +2751,7 @@ index d2e0a1beb..f36c682b8 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -586,6 +651,13 @@ class ACPImportHistoryCollector {
+@@ -586,6 +656,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -2682,7 +2765,7 @@ index d2e0a1beb..f36c682b8 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -618,6 +690,8 @@ interface TerminalEntry {
+@@ -618,6 +695,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -2691,7 +2774,7 @@ index d2e0a1beb..f36c682b8 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -916,6 +990,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -916,6 +995,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -2699,7 +2782,7 @@ index d2e0a1beb..f36c682b8 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -946,6 +1021,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -946,6 +1026,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -2707,7 +2790,7 @@ index d2e0a1beb..f36c682b8 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -979,6 +1055,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -979,6 +1060,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -2715,7 +2798,7 @@ index d2e0a1beb..f36c682b8 100644
        },
      );
      await session.initializeNewSession();
-@@ -1030,6 +1107,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1030,6 +1112,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -2723,7 +2806,7 @@ index d2e0a1beb..f36c682b8 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1629,6 +1707,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1629,6 +1712,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -2743,7 +2826,7 @@ index d2e0a1beb..f36c682b8 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1689,9 +1780,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1689,9 +1785,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -2763,7 +2846,7 @@ index d2e0a1beb..f36c682b8 100644
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
    private historyPending = false;
-@@ -1729,7 +1830,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1729,7 +1835,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -2774,7 +2857,7 @@ index d2e0a1beb..f36c682b8 100644
    }
  
    get id(): string | null {
-@@ -1753,6 +1857,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1753,6 +1862,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.bootstrapThreadEventPending = true;
        this.applySessionState(response);
        await this.applyConfiguredOverrides();
@@ -2782,7 +2865,7 @@ index d2e0a1beb..f36c682b8 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1807,6 +1912,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1807,6 +1917,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -2790,7 +2873,7 @@ index d2e0a1beb..f36c682b8 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1824,6 +1930,124 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1824,6 +1935,129 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -2859,9 +2942,9 @@ index d2e0a1beb..f36c682b8 100644
 +  }
 +
 +  /**
-+   * Keep the turn open while the provider is still working on a goal after its
-+   * ACP prompt response arrived. A rejected hold must never break the turn, so
-+   * failures are logged and the turn finishes normally.
++   * Keep the turn open while the provider is still working after its ACP prompt
++   * response arrived. A rejected hold must never break the turn, so failures are
++   * logged and the turn finishes normally.
 +   *
 +   * The hold is also abandoned as soon as the turn is aborted. Previously an
 +   * interrupt could not release a turn whose prompt response had already arrived
@@ -2881,7 +2964,12 @@ index d2e0a1beb..f36c682b8 100644
 +    }
 +    let hold: Promise<void> | null;
 +    try {
-+      hold = hooks.holdTurnWhile({ acpSessionId: sessionId, logger: this.logger, signal });
++      hold = hooks.holdTurnWhile({
++        acpSessionId: sessionId,
++        logger: this.logger,
++        signal,
++        sawTimeline: this.currentTurnSawTimeline,
++      });
 +    } catch (error) {
 +      this.logger.warn({ err: error }, "ACP provider hook holdTurnWhile failed");
 +      return;
@@ -2915,7 +3003,7 @@ index d2e0a1beb..f36c682b8 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1858,24 +2082,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1858,24 +2092,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -2964,7 +3052,7 @@ index d2e0a1beb..f36c682b8 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2349,7 +2593,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2349,7 +2603,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -2976,7 +3064,7 @@ index d2e0a1beb..f36c682b8 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2385,6 +2632,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2385,6 +2642,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -2993,7 +3081,7 @@ index d2e0a1beb..f36c682b8 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2413,6 +2670,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2413,6 +2680,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.pendingPermissions.clear();
  
      if (this.activeForegroundTurnId) {
@@ -3001,7 +3089,7 @@ index d2e0a1beb..f36c682b8 100644
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2422,9 +2680,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2422,9 +2690,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -3013,7 +3101,7 @@ index d2e0a1beb..f36c682b8 100644
  
      for (const pending of this.pendingPermissions.values()) {
        pending.resolve({ outcome: { outcome: "cancelled" } });
-@@ -2464,6 +2724,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2464,6 +2734,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -3021,7 +3109,7 @@ index d2e0a1beb..f36c682b8 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2522,10 +2783,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2522,10 +2793,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.raw_event",
      );
      if (params.sessionId !== this.sessionId) {
@@ -3067,7 +3155,7 @@ index d2e0a1beb..f36c682b8 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2542,6 +2838,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2542,6 +2848,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -3086,7 +3174,7 @@ index d2e0a1beb..f36c682b8 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2567,6 +2875,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2567,6 +2885,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -3134,7 +3222,7 @@ index d2e0a1beb..f36c682b8 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2653,6 +3002,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2653,6 +3012,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -3142,7 +3230,7 @@ index d2e0a1beb..f36c682b8 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -2919,7 +3269,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2919,7 +3279,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return this.handleUserMessageChunk(update);
      }
  
@@ -3166,7 +3254,7 @@ index d2e0a1beb..f36c682b8 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -2965,8 +3330,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,8 +3340,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          this.handleSessionInfoUpdate(update);
          return pendingUserEvents;
        case "usage_update":
@@ -3176,7 +3264,7 @@ index d2e0a1beb..f36c682b8 100644
        case "available_commands_update":
          this.cachedCommands = update.availableCommands.map((command) => ({
            name: command.name,
-@@ -3126,13 +3490,175 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3126,13 +3500,175 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -3289,17 +3377,17 @@ index d2e0a1beb..f36c682b8 100644
 +    clearTimeout(timer);
 +    this.lateTimelineWaiters.delete(waiter);
 +    return this.currentTurnSawTimeline;
-+  }
-+
+   }
+ 
+-  private handlePromptResponse(response: PromptResponse, turnId: string): void {
 +  private releaseLateTimelineWaiters(): void {
 +    const waiters = Array.from(this.lateTimelineWaiters);
 +    this.lateTimelineWaiters.clear();
 +    for (const waiter of waiters) {
 +      waiter();
 +    }
-   }
- 
--  private handlePromptResponse(response: PromptResponse, turnId: string): void {
++  }
++
 +  private async handlePromptResponse(response: PromptResponse, turnId: string): Promise<void> {
 +    if (turnId !== this.activeForegroundTurnId) {
 +      this.logger.warn(
@@ -3355,7 +3443,7 @@ index d2e0a1beb..f36c682b8 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3226,6 +3752,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3226,6 +3762,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    ): void {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      this.activeForegroundTurnId = null;
@@ -3363,7 +3451,7 @@ index d2e0a1beb..f36c682b8 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3479,7 +4006,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3479,7 +4016,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -3384,7 +3472,7 @@ index d2e0a1beb..f36c682b8 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3545,6 +4084,7 @@ function mergeToolSnapshot(
+@@ -3545,6 +4094,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -3392,7 +3480,7 @@ index d2e0a1beb..f36c682b8 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3554,6 +4094,27 @@ function mergeToolSnapshot(
+@@ -3554,6 +4104,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -3420,7 +3508,7 @@ index d2e0a1beb..f36c682b8 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3570,10 +4131,18 @@ function mapToolSnapshotToTimeline(
+@@ -3570,10 +4141,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -3440,7 +3528,7 @@ index d2e0a1beb..f36c682b8 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -3815,7 +4384,17 @@ function mapPermissionRequest(
+@@ -3815,7 +4394,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -3459,7 +3547,7 @@ index d2e0a1beb..f36c682b8 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3824,11 +4403,11 @@ function mapPermissionRequest(
+@@ -3824,11 +4413,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -3473,7 +3561,7 @@ index d2e0a1beb..f36c682b8 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3842,6 +4421,7 @@ function mapPermissionRequest(
+@@ -3842,6 +4431,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -3481,7 +3569,7 @@ index d2e0a1beb..f36c682b8 100644
      },
    };
  }
-@@ -3870,6 +4450,65 @@ function selectPermissionOption(
+@@ -3870,6 +4460,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -3547,7 +3635,7 @@ index d2e0a1beb..f36c682b8 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -3884,16 +4523,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -3884,16 +4533,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
    return false;
  }
  
@@ -3589,8 +3677,421 @@ index d2e0a1beb..f36c682b8 100644
  }
  
  function readRecord(value: unknown): Record<string, unknown> | null {
+diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
+index e30ba29..2be5ff7 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.test.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
+@@ -3249,6 +3249,111 @@ describe("ClaudeAgentSession context window usage", () => {
+   });
+ });
+ 
++describe("ClaudeAgentSession goal", () => {
++  const logger = createTestLogger();
++
++  async function createSessionForTest(): Promise<TestClaudeSession> {
++    const client = new ClaudeAgentClient({ logger, resolveBinary: async () => "/test/claude/bin" });
++    const session = await client.createSession({
++      provider: "claude",
++      cwd: process.cwd(),
++    });
++    const typed = session as unknown as TestClaudeSession;
++    // The session's first frame also announces the thread, which would land in
++    // front of everything a frame under test produces. Absorb it up front.
++    typed.translateMessageToEvents({
++      type: "active_goal",
++      value: null,
++      uuid: "warmup",
++      session_id: "session-1",
++    } as unknown as SDKMessage);
++    return typed;
++  }
++
++  function activeGoalFrame(value: unknown, uuid: string): SDKMessage {
++    return { type: "active_goal", value, uuid, session_id: "session-1" } as unknown as SDKMessage;
++  }
++
++  test("an active_goal frame becomes a goal the client can display", async () => {
++    const session = await createSessionForTest();
++
++    const events = session.translateMessageToEvents(
++      activeGoalFrame(
++        {
++          condition: "the test suite passes",
++          iterations: 3,
++          set_at: 1_700_000_000_000,
++          tokens_at_start: 12,
++          last_reason: "two failures left",
++        },
++        "goal-1",
++      ),
++    );
++
++    expect(events).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: expect.any(String),
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 3,
++          tokensUsed: 0,
++          startedAt: 1_700_000_000_000,
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
++
++  test("an active_goal frame repeating the same goal keeps its id", async () => {
++    const session = await createSessionForTest();
++    const frame = activeGoalFrame(
++      { condition: "the test suite passes", iterations: 4, set_at: 1_700_000_000_000 },
++      "goal-1",
++    );
++
++    const [first] = session.translateMessageToEvents(frame);
++    const [second] = session.translateMessageToEvents(frame);
++
++    const goalIdOf = (event: AgentStreamEvent): unknown =>
++      event.type === "goal_updated" ? event.goal?.goalId : undefined;
++    expect(goalIdOf(first)).toEqual(expect.any(String));
++    expect(goalIdOf(second)).toBe(goalIdOf(first));
++  });
++
++  test("a null active_goal frame drops the goal rather than reporting it met", async () => {
++    const session = await createSessionForTest();
++
++    const events = session.translateMessageToEvents(activeGoalFrame(null, "goal-2"));
++
++    expect(events).toEqual([{ type: "goal_updated", provider: "claude", goal: null }]);
++  });
++
++  test("a frame that is not an active goal still produces its own events", async () => {
++    const session = await createSessionForTest();
++
++    const events = session.translateMessageToEvents({
++      type: "result",
++      subtype: "success",
++      result: "",
++      is_error: false,
++      duration_ms: 2,
++      duration_api_ms: 0,
++      num_turns: 1,
++      stop_reason: null,
++      total_cost_usd: 0,
++      usage: { input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0 },
++      permission_denials: [],
++      uuid: "result-after-goal-1",
++      session_id: "session-1",
++    } as unknown as SDKMessage);
++
++    expect(events.some((event) => event.type === "turn_completed")).toBe(true);
++  });
++});
++
+ describe("toClaudeSdkMcpConfig", () => {
+   test("preserves alwaysLoad on stdio servers", () => {
+     expect(
+diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
+index 04fef2b..016460c 100644
+--- a/packages/server/src/server/agent/providers/claude/agent.ts
++++ b/packages/server/src/server/agent/providers/claude/agent.ts
+@@ -33,6 +33,8 @@ import {
+   findClaudeModel,
+   getClaudeModelsWithSettings,
+   normalizeClaudeRuntimeModelId,
++  readClaudeSettingsEnvSync,
++  resolveClaudeContextWindowMaxTokens,
+   resolveConfiguredClaudeModel,
+ } from "./models.js";
+ import {
+@@ -2132,7 +2134,7 @@ class ClaudeAgentSession implements AgentSession {
+     this.resolveBinary = options.resolveBinary;
+     this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
+     this.contextUsage = new ClaudeContextUsageState(
+-      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
++      this.resolveContextWindowMaxTokens(this.config.model),
+     );
+     const handle = options.handle;
+ 
+@@ -2445,7 +2447,7 @@ class ClaudeAgentSession implements AgentSession {
+       await this.applyFastModeFeature(false, activeQuery);
+     }
+     this.contextUsage.setInitialContextWindowMaxTokens(
+-      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
++      this.resolveContextWindowMaxTokens(this.config.model),
+     );
+     this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
+     this.lastRuntimeModel = null;
+@@ -3252,6 +3254,24 @@ class ClaudeAgentSession implements AgentSession {
+     );
+   }
+ 
++  /**
++   * The context window to start this session with. Manifest models carry one; a gateway model the
++   * manifest does not know gets none until its first turn's result arrives, which leaves the
++   * composer meter empty for that entire turn — so derive it the way Claude Code does.
++   */
++  private resolveContextWindowMaxTokens(modelId: string | null | undefined): number | undefined {
++    const manifestModel = findClaudeModel(modelId);
++    if (manifestModel !== undefined) {
++      return manifestModel.contextWindowMaxTokens;
++    }
++
++    const env = this.buildSdkEnv();
++    return resolveClaudeContextWindowMaxTokens(modelId, {
++      ...env,
++      ...readClaudeSettingsEnvSync(path.join(claudeConfigDir(env), "settings.json")),
++    });
++  }
++
+   private buildSdkEnv(): NodeJS.ProcessEnv {
+     return createProviderEnv({
+       baseEnv: process.env,
+@@ -4119,6 +4139,10 @@ class ClaudeAgentSession implements AgentSession {
+ 
+     this.forgetReadSteer(message);
+ 
++    if (this.appendActiveGoalEvents(message, events)) {
++      return events;
++    }
++
+     switch (message.type) {
+       case "system":
+         this.appendSystemMessageEvents(message, events);
+@@ -4151,6 +4175,49 @@ class ClaudeAgentSession implements AgentSession {
+     return events;
+   }
+ 
++  /**
++   * Claude's own goal, read off the SDK message stream.
++   *
++   * The CLI enqueues an `active_goal` frame next to the transcript whenever the
++   * `/goal` Stop hook reports the condition met — which clears the goal — or not
++   * yet met, which bumps `iterations` and `last_reason`. A goal set with
++   * `/goal <condition>` is therefore visible from the first evaluation onward.
++   * The shipped `SDKMessage` union has not caught up with the frame, so it is
++   * read structurally; returns whether the message was one.
++   */
++  private appendActiveGoalEvents(message: unknown, events: AgentStreamEvent[]): boolean {
++    if (!isMetadata(message) || message.type !== "active_goal") {
++      return false;
++    }
++    const value = message.value;
++    const condition =
++      isMetadata(value) && typeof value.condition === "string" ? value.condition : "";
++    if (condition.length === 0) {
++      // A null value means the goal is over. Claude fires the same frame whether
++      // the condition was met or the user cleared it, so the goal is dropped
++      // rather than reported as met.
++      events.push({ type: "goal_updated", provider: "claude", goal: null });
++      return true;
++    }
++    const iterations =
++      isMetadata(value) && typeof value.iterations === "number" ? value.iterations : 0;
++    const setAt = isMetadata(value) && typeof value.set_at === "number" ? value.set_at : 0;
++    events.push({
++      type: "goal_updated",
++      provider: "claude",
++      goal: {
++        goalId: `claude:${this.claudeSessionId ?? this.agentId ?? "session"}:${setAt}`,
++        objective: condition,
++        status: "active",
++        turnsUsed: iterations,
++        tokensUsed: 0,
++        startedAt: setAt,
++        updatedAt: Date.now(),
++      },
++    });
++    return true;
++  }
++
+   /** Once Claude has read a steer there is nothing left to discard on interrupt. */
+   private forgetReadSteer(message: unknown): void {
+     const lifecycle = readClaudeCommandLifecycle(message);
+diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
+index 0e18773..25549ed 100644
+--- a/packages/server/src/server/agent/providers/claude/models.test.ts
++++ b/packages/server/src/server/agent/providers/claude/models.test.ts
+@@ -13,7 +13,13 @@ import {
+   parseClaudeCodeVersion,
+   resolveClaudeDisabledThinkingForModel,
+ } from "./model-manifest.js";
+-import { findClaudeModel, getClaudeModels, normalizeClaudeRuntimeModelId } from "./models.js";
++import {
++  findClaudeModel,
++  getClaudeModels,
++  normalizeClaudeRuntimeModelId,
++  readClaudeSettingsEnvSync,
++  resolveClaudeContextWindowMaxTokens,
++} from "./models.js";
+ 
+ const createdClaudeConfigDirs: string[] = [];
+ 
+@@ -669,3 +675,77 @@ describe("claudeManifestModelSupportsFastMode", () => {
+     expect(claudeManifestModelSupportsFastMode("claude-fable-5-1")).toBe(false);
+   });
+ });
++
++describe("resolveClaudeContextWindowMaxTokens", () => {
++  it("uses the manifest window for a model it knows", () => {
++    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8", undefined)).toBe(200_000);
++    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8[1m]", undefined)).toBe(1_000_000);
++  });
++
++  it("reads CLAUDE_CODE_MAX_CONTEXT_TOKENS for a model the manifest does not know", () => {
++    expect(
++      resolveClaudeContextWindowMaxTokens("deepseek-flash", {
++        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++      }),
++    ).toBe(300_000);
++  });
++
++  it("gives a [1m] id a 1M window even when the env names a smaller one", () => {
++    expect(
++      resolveClaudeContextWindowMaxTokens("deepseek-flash[1m]", {
++        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++      }),
++    ).toBe(1_000_000);
++  });
++
++  it("lets CLAUDE_CODE_DISABLE_1M_CONTEXT fall back to the env window", () => {
++    expect(
++      resolveClaudeContextWindowMaxTokens("deepseek-flash[1m]", {
++        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++        CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
++      }),
++    ).toBe(300_000);
++  });
++
++  it("reports nothing when neither the manifest nor the env names a window", () => {
++    expect(resolveClaudeContextWindowMaxTokens("deepseek-flash", undefined)).toBeUndefined();
++    expect(resolveClaudeContextWindowMaxTokens("deepseek-flash", {})).toBeUndefined();
++    expect(
++      resolveClaudeContextWindowMaxTokens("", { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000" }),
++    ).toBeUndefined();
++    expect(
++      resolveClaudeContextWindowMaxTokens(null, { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "1" }),
++    ).toBeUndefined();
++  });
++
++  it("ignores an env value that is not a positive number", () => {
++    for (const value of ["", "0", "-1", "abc", "Infinity"]) {
++      expect(
++        resolveClaudeContextWindowMaxTokens("deepseek-flash", {
++          CLAUDE_CODE_MAX_CONTEXT_TOKENS: value,
++        }),
++      ).toBeUndefined();
++    }
++  });
++});
++
++describe("readClaudeSettingsEnvSync", () => {
++  it("reads the string entries of settings.json's env block", async () => {
++    const configDir = await createClaudeConfigDir({
++      env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000", OTHER: 5 },
++    });
++
++    expect(readClaudeSettingsEnvSync(path.join(configDir, "settings.json"))).toEqual({
++      CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
++    });
++  });
++
++  it("reports nothing for a missing file, bad JSON, or no env block", async () => {
++    const brokenDir = await createClaudeConfigDirWithRawSettings("{ nope");
++    const noEnvDir = await createClaudeConfigDir({ model: "deepseek-flash" });
++
++    expect(readClaudeSettingsEnvSync(path.join(brokenDir, "settings.json"))).toBeUndefined();
++    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "settings.json"))).toBeUndefined();
++    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "not-settings.json"))).toBeUndefined();
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
+index 6b341fa..da98226 100644
+--- a/packages/server/src/server/agent/providers/claude/models.ts
++++ b/packages/server/src/server/agent/providers/claude/models.ts
+@@ -1,3 +1,4 @@
++import { readFileSync } from "node:fs";
+ import * as fs from "node:fs/promises";
+ import * as path from "node:path";
+ import type { Logger } from "pino";
+@@ -48,6 +49,73 @@ export function findClaudeModel(
+   return getClaudeModels().find((model) => model.id === normalizedModelId);
+ }
+ 
++/** Claude Code reads a `[1m]` suffix on a model id as "this session runs with a 1M window". */
++const CLAUDE_LONG_CONTEXT_MODEL_ID_PATTERN = /\[1m\]/i;
++const CLAUDE_LONG_CONTEXT_WINDOW_TOKENS = 1_000_000;
++
++/**
++ * The context window Claude Code will use for a model id the manifest does not know.
++ *
++ * Claude Code reports the window only in a turn's result (`modelUsage`), so a fresh session with a
++ * gateway model — `deepseek-flash` behind `ANTHROPIC_BASE_URL`, say — has no window until its first
++ * turn ends, and the composer draws an empty meter for that whole turn. Claude Code computes the
++ * value itself from the model id and the environment, so the daemon can compute the same value up
++ * front instead of waiting to be told.
++ *
++ * `env` must be the environment the Claude Code process runs with, with settings.json's own `env`
++ * merged over it: Claude Code applies its settings over the process env, so a value written there
++ * wins over one the daemon passed.
++ */
++export function resolveClaudeContextWindowMaxTokens(
++  modelId: string | null | undefined,
++  env: Record<string, string | undefined> | undefined,
++): number | undefined {
++  const manifestWindow = findClaudeModel(modelId)?.contextWindowMaxTokens;
++  if (manifestWindow !== undefined) {
++    return manifestWindow;
++  }
++
++  const trimmed = typeof modelId === "string" ? modelId.trim() : "";
++  if (trimmed.length === 0) {
++    return undefined;
++  }
++
++  if (
++    !env?.["CLAUDE_CODE_DISABLE_1M_CONTEXT"] &&
++    CLAUDE_LONG_CONTEXT_MODEL_ID_PATTERN.test(trimmed)
++  ) {
++    return CLAUDE_LONG_CONTEXT_WINDOW_TOKENS;
++  }
++
++  const configured = Number(env?.["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
++  return Number.isFinite(configured) && configured > 0 ? Math.round(configured) : undefined;
++}
++
++/**
++ * Read settings.json's `env` block. Synchronous because the window above is resolved while a
++ * session is being constructed.
++ */
++export function readClaudeSettingsEnvSync(settingsPath: string): Record<string, string> | undefined {
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(readFileSync(settingsPath, "utf8"));
++  } catch {
++    return undefined;
++  }
++
++  if (!isRecord(parsed) || !isRecord(parsed.env)) {
++    return undefined;
++  }
++
++  const env: Record<string, string> = {};
++  for (const [key, value] of Object.entries(parsed.env)) {
++    if (typeof value === "string") {
++      env[key] = value;
++    }
++  }
++  return env;
++}
++
+ export async function getClaudeModelsWithSettings(
+   logger: Logger,
+   configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index c8f8960ea..4c9f1d53b 100644
+index c8f8960..4c9f1d5 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -10,6 +10,7 @@ import {
@@ -3631,7 +4132,7 @@ index c8f8960ea..4c9f1d53b 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb01..950dfa61c 100644
+index b388fdb..950dfa6 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -3715,7 +4216,7 @@ index b388fdb01..950dfa61c 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 50effdf33..c7ef9c57e 100644
+index 50effdf..fd5a289 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -3744,7 +4245,7 @@ index 50effdf33..c7ef9c57e 100644
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -90,6 +101,160 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -90,6 +101,176 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        label: options.label,
        providerParams: options.providerParams,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -3766,8 +4267,8 @@ index 50effdf33..c7ef9c57e 100644
 +};
 +
 +const KIMI_GOAL_COMMAND = "/goal";
-+/** How long an ACP turn is held open while Kimi keeps working on a live goal. */
-+const KIMI_GOAL_HOLD_TIMEOUT_MS = 15 * 60 * 1000;
++/** How long an ACP turn is held open while Kimi keeps working after its response. */
++const KIMI_TURN_HOLD_TIMEOUT_MS = 15 * 60 * 1000;
 +
 +type KimiGoalControlAction = "pause" | "resume" | "cancel";
 +
@@ -3834,12 +4335,15 @@ index 50effdf33..c7ef9c57e 100644
 +
 +export interface KimiProviderHooksOptions {
 +  kimiHome?: string;
++  /** Overrides the bridge's poll cadence; see `KimiNativeBridgeOptions`. */
++  pollIntervalMs?: number;
 +}
 +
 +/**
 + * Provider hooks for Kimi ACP: one native bridge per live session, `/goal`
 + * status handled out-of-band, create/control commands rewritten into prompts,
-+ * and the ACP turn held open while Kimi runs a goal.
++ * and the ACP turn held open while Kimi keeps working after its response — on a
++ * live goal, or on a turn the runtime has not ended yet.
 + */
 +export function createKimiProviderHooks(options: KimiProviderHooksOptions = {}): ACPProviderHooks {
 +  const bridges = new Map<string, KimiNativeBridge>();
@@ -3855,6 +4359,7 @@ index 50effdf33..c7ef9c57e 100644
 +        logger: ctx.logger,
 +        provider: ctx.provider,
 +        emit: ctx.emit,
++        pollIntervalMs: options.pollIntervalMs,
 +      });
 +      bridges.set(ctx.acpSessionId, bridge);
 +      bridge.start();
@@ -3889,10 +4394,22 @@ index 50effdf33..c7ef9c57e 100644
 +    },
 +    holdTurnWhile(ctx) {
 +      const bridge = bridges.get(ctx.acpSessionId);
-+      if (!bridge || !bridge.isGoalLive()) {
++      if (!bridge) {
 +        return null;
 +      }
-+      return bridge.waitForGoalSettled(KIMI_GOAL_HOLD_TIMEOUT_MS, ctx.signal);
++      if (bridge.isGoalLive()) {
++        return bridge.waitForGoalSettled(KIMI_TURN_HOLD_TIMEOUT_MS, ctx.signal);
++      }
++      // Kimi acks a prompt it has only queued: the ACP response arrives with
++      // `end_turn` and no output while the runtime is still inside the turn it
++      // was already running. Holding keeps Paseo's turn open for as long as that
++      // is true, so the next message replaces a live turn — which cancels the
++      // wait and runs immediately — instead of queueing behind it and being
++      // reported as an empty turn.
++      if (ctx.sawTimeline || !bridge.isTurnInProgress()) {
++        return null;
++      }
++      return bridge.waitForTurnSettled(KIMI_TURN_HOLD_TIMEOUT_MS, ctx.signal);
 +    },
 +  };
 +}
@@ -3907,10 +4424,10 @@ index 50effdf33..c7ef9c57e 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 000000000..a0a1c7f23
+index 0000000..e5ff95c
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,113 @@
 +import type { Logger } from "pino";
 +
 +import {
@@ -4003,6 +4520,11 @@ index 000000000..a0a1c7f23
 +    return isAgentGoalLive(this.log.getGoal());
 +  }
 +
++  /** True while the runtime is inside a turn it has not ended yet. */
++  isTurnInProgress(): boolean {
++    return this.log.isTurnInProgress();
++  }
++
 +  /** Resolves when the goal stops being live, after `timeoutMs`, or on abort. */
 +  async waitForGoalSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
 +    if (this.stopped) {
@@ -4010,13 +4532,21 @@ index 000000000..a0a1c7f23
 +    }
 +    await this.log.waitForSettled(timeoutMs, signal);
 +  }
++
++  /** Resolves when the runtime's turn ends, after `timeoutMs`, or on abort. */
++  async waitForTurnSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    if (this.stopped) {
++      return;
++    }
++    await this.log.waitForTurnSettled(timeoutMs, signal);
++  }
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 000000000..b044bf0f2
+index 0000000..03bcec4
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1536 @@
+@@ -0,0 +1,1582 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -5326,6 +5856,52 @@ index 000000000..b044bf0f2
 +    expect(Date.now() - startedAt).toBeLessThan(500);
 +  });
 +
++  test("a turn the runtime has not ended counts as in progress", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${turnStartedLine()}\n`);
++
++    const log = createLog(home);
++    expect(log.isTurnInProgress()).toBe(false);
++    log.start();
++    await waitFor(() => log.isTurnInProgress());
++
++    appendFileSync(file, `${turnEndedLine("turn-1")}\n`);
++    await waitFor(() => !log.isTurnInProgress());
++  });
++
++  test("waitForTurnSettled resolves when the runtime ends the turn it was in", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${turnStartedLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isTurnInProgress());
++
++    const settled = log.waitForTurnSettled(5_000);
++    appendFileSync(file, `${turnEndedLine("turn-1")}\n`);
++    await settled;
++
++    expect(log.isTurnInProgress()).toBe(false);
++  });
++
++  test("waitForTurnSettled resolves as soon as the signal aborts", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${turnStartedLine()}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isTurnInProgress());
++
++    const controller = new AbortController();
++    const startedAt = Date.now();
++    const settled = log.waitForTurnSettled(30_000, controller.signal);
++    setTimeout(() => controller.abort(), 25);
++    await settled;
++
++    expect(Date.now() - startedAt).toBeLessThan(2_000);
++    expect(log.isTurnInProgress()).toBe(true);
++  });
++
 +  test("start and stop are idempotent and never throw without a log file", async () => {
 +    const { home } = createSessionHome(SESSION_ID);
 +    const log = createLog(home);
@@ -5555,10 +6131,10 @@ index 000000000..b044bf0f2
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 000000000..073558791
+index 0000000..d2687a5
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1541 @@
+@@ -0,0 +1,1578 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -6167,20 +6743,55 @@ index 000000000..073558791
 +  }
 +
 +  /**
++   * True while the runtime has a turn it has not ended yet.
++   *
++   * Kimi answers a prompt it has only queued with an immediate `end_turn`, so
++   * Paseo's ACP turn is over while the runtime is still inside the turn it was
++   * already in. This is the only cross-process evidence of that, and the turn
++   * hold uses it to keep the ACP turn open instead of reporting an empty one.
++   *
++   * A log that has not announced a turn yet has none running: `settledThroughTurn`
++   * starts at -1 precisely because no boundary is known before one is seen.
++   */
++  isTurnInProgress(): boolean {
++    return this.settledThroughTurn >= 0 && this.turnGeneration > this.settledThroughTurn;
++  }
++
++  /**
 +   * Resolves once the goal stops being live, on timeout, or as soon as `signal`
 +   * aborts. The abort path is what keeps a held ACP turn from outliving the
 +   * turn it belongs to.
 +   */
 +  async waitForSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    await this.waitForPendingToSettle(() => this.isLive(), timeoutMs, signal);
++  }
++
++  /**
++   * Resolves once the runtime's turn ends, on timeout, or as soon as `signal`
++   * aborts. An interrupt reaches this the same way it reaches `waitForSettled`.
++   */
++  async waitForTurnSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    await this.waitForPendingToSettle(() => this.isTurnInProgress(), timeoutMs, signal);
++  }
++
++  /**
++   * Resolves once `isPending` reports false, on timeout, or as soon as `signal`
++   * aborts.
++   */
++  private async waitForPendingToSettle(
++    isPending: () => boolean,
++    timeoutMs: number,
++    signal?: AbortSignal,
++  ): Promise<void> {
 +    if (signal?.aborted === true) {
 +      return;
 +    }
-+    if (!this.isLive()) {
++    if (!isPending()) {
 +      return;
 +    }
 +    const deadline = Date.now() + Math.max(0, timeoutMs);
 +    if (!signal) {
-+      await this.pollUntilSettled(deadline);
++      await this.pollUntilSettled(isPending, deadline);
 +      return;
 +    }
 +    // Race the polling loop against the signal so an aborted turn is released
@@ -6188,12 +6799,16 @@ index 000000000..073558791
 +    const abortPromise = new Promise<void>((resolve) => {
 +      signal.addEventListener("abort", () => resolve(), { once: true });
 +    });
-+    await Promise.race([abortPromise, this.pollUntilSettled(deadline, signal)]);
++    await Promise.race([abortPromise, this.pollUntilSettled(isPending, deadline, signal)]);
 +  }
 +
-+  /** Re-check the goal every second until it settles, the deadline passes, or the signal aborts. */
-+  private async pollUntilSettled(deadline: number, signal?: AbortSignal): Promise<void> {
-+    while (!this.stopped && this.isLive() && Date.now() < deadline) {
++  /** Re-check every second until `isPending` is false, the deadline passes, or the signal aborts. */
++  private async pollUntilSettled(
++    isPending: () => boolean,
++    deadline: number,
++    signal?: AbortSignal,
++  ): Promise<void> {
++    while (!this.stopped && isPending() && Date.now() < deadline) {
 +      if (signal?.aborted === true) {
 +        return;
 +      }
@@ -7004,9 +7619,7 @@ index 000000000..073558791
 + * object, so tallying both would double every step. A record scoped to the
 + * session reports a running total rather than one step, so it is skipped too.
 + */
-+function stepInputUsage(
-+  entry: Record<string, unknown>,
-+): { used: number; cached: number } | null {
++function stepInputUsage(entry: Record<string, unknown>): { used: number; cached: number } | null {
 +  if (entry.type !== "usage.record") {
 +    return null;
 +  }
@@ -7102,7 +7715,7 @@ index 000000000..073558791
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 000000000..fc0af579c
+index 0000000..fc0af57
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,304 @@
@@ -7412,7 +8025,7 @@ index 000000000..fc0af579c
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 000000000..63dc7f667
+index 0000000..63dc7f6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,241 @@
@@ -7658,7 +8271,7 @@ index 000000000..63dc7f667
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 473cc6f35..dfece89c1 100644
+index 473cc6f..dfece89 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -1,6 +1,6 @@
@@ -7679,7 +8292,7 @@ index 473cc6f35..dfece89c1 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96b9..7136338b7 100644
+index 1f0fa96..7136338 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -7698,7 +8311,7 @@ index 1f0fa96b9..7136338b7 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index 0f0243d7a..ad6243ff1 100644
+index 0f0243d..ad6243f 100644
 --- a/packages/server/src/terminal/worker-terminal-manager.ts
 +++ b/packages/server/src/terminal/worker-terminal-manager.ts
 @@ -1,6 +1,6 @@
@@ -7719,7 +8332,7 @@ index 0f0243d7a..ad6243ff1 100644
      serialization: "advanced",
      stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index 8fac115f0..689b91cfa 100644
+index 8fac115..689b91c 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,11 @@
@@ -7759,239 +8372,3 @@ index 8fac115f0..689b91cfa 100644
  export async function execCommand(
    command: string,
    args: string[],
-diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 04fef2b..92c0d67 100644
---- a/packages/server/src/server/agent/providers/claude/agent.ts
-+++ b/packages/server/src/server/agent/providers/claude/agent.ts
-@@ -33,6 +33,8 @@ import {
-   findClaudeModel,
-   getClaudeModelsWithSettings,
-   normalizeClaudeRuntimeModelId,
-+  readClaudeSettingsEnvSync,
-+  resolveClaudeContextWindowMaxTokens,
-   resolveConfiguredClaudeModel,
- } from "./models.js";
- import {
-@@ -2132,7 +2134,7 @@ class ClaudeAgentSession implements AgentSession {
-     this.resolveBinary = options.resolveBinary;
-     this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
-     this.contextUsage = new ClaudeContextUsageState(
--      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
-+      this.resolveContextWindowMaxTokens(this.config.model),
-     );
-     const handle = options.handle;
- 
-@@ -2445,7 +2447,7 @@ class ClaudeAgentSession implements AgentSession {
-       await this.applyFastModeFeature(false, activeQuery);
-     }
-     this.contextUsage.setInitialContextWindowMaxTokens(
--      findClaudeModel(this.config.model)?.contextWindowMaxTokens,
-+      this.resolveContextWindowMaxTokens(this.config.model),
-     );
-     this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
-     this.lastRuntimeModel = null;
-@@ -3252,6 +3254,24 @@ class ClaudeAgentSession implements AgentSession {
-     );
-   }
- 
-+  /**
-+   * The context window to start this session with. Manifest models carry one; a gateway model the
-+   * manifest does not know gets none until its first turn's result arrives, which leaves the
-+   * composer meter empty for that entire turn — so derive it the way Claude Code does.
-+   */
-+  private resolveContextWindowMaxTokens(modelId: string | null | undefined): number | undefined {
-+    const manifestModel = findClaudeModel(modelId);
-+    if (manifestModel !== undefined) {
-+      return manifestModel.contextWindowMaxTokens;
-+    }
-+
-+    const env = this.buildSdkEnv();
-+    return resolveClaudeContextWindowMaxTokens(modelId, {
-+      ...env,
-+      ...readClaudeSettingsEnvSync(path.join(claudeConfigDir(env), "settings.json")),
-+    });
-+  }
-+
-   private buildSdkEnv(): NodeJS.ProcessEnv {
-     return createProviderEnv({
-       baseEnv: process.env,
-diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 0e18773..25549ed 100644
---- a/packages/server/src/server/agent/providers/claude/models.test.ts
-+++ b/packages/server/src/server/agent/providers/claude/models.test.ts
-@@ -13,7 +13,13 @@ import {
-   parseClaudeCodeVersion,
-   resolveClaudeDisabledThinkingForModel,
- } from "./model-manifest.js";
--import { findClaudeModel, getClaudeModels, normalizeClaudeRuntimeModelId } from "./models.js";
-+import {
-+  findClaudeModel,
-+  getClaudeModels,
-+  normalizeClaudeRuntimeModelId,
-+  readClaudeSettingsEnvSync,
-+  resolveClaudeContextWindowMaxTokens,
-+} from "./models.js";
- 
- const createdClaudeConfigDirs: string[] = [];
- 
-@@ -669,3 +675,77 @@ describe("claudeManifestModelSupportsFastMode", () => {
-     expect(claudeManifestModelSupportsFastMode("claude-fable-5-1")).toBe(false);
-   });
- });
-+
-+describe("resolveClaudeContextWindowMaxTokens", () => {
-+  it("uses the manifest window for a model it knows", () => {
-+    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8", undefined)).toBe(200_000);
-+    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8[1m]", undefined)).toBe(1_000_000);
-+  });
-+
-+  it("reads CLAUDE_CODE_MAX_CONTEXT_TOKENS for a model the manifest does not know", () => {
-+    expect(
-+      resolveClaudeContextWindowMaxTokens("deepseek-flash", {
-+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
-+      }),
-+    ).toBe(300_000);
-+  });
-+
-+  it("gives a [1m] id a 1M window even when the env names a smaller one", () => {
-+    expect(
-+      resolveClaudeContextWindowMaxTokens("deepseek-flash[1m]", {
-+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
-+      }),
-+    ).toBe(1_000_000);
-+  });
-+
-+  it("lets CLAUDE_CODE_DISABLE_1M_CONTEXT fall back to the env window", () => {
-+    expect(
-+      resolveClaudeContextWindowMaxTokens("deepseek-flash[1m]", {
-+        CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
-+        CLAUDE_CODE_DISABLE_1M_CONTEXT: "1",
-+      }),
-+    ).toBe(300_000);
-+  });
-+
-+  it("reports nothing when neither the manifest nor the env names a window", () => {
-+    expect(resolveClaudeContextWindowMaxTokens("deepseek-flash", undefined)).toBeUndefined();
-+    expect(resolveClaudeContextWindowMaxTokens("deepseek-flash", {})).toBeUndefined();
-+    expect(
-+      resolveClaudeContextWindowMaxTokens("", { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000" }),
-+    ).toBeUndefined();
-+    expect(
-+      resolveClaudeContextWindowMaxTokens(null, { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "1" }),
-+    ).toBeUndefined();
-+  });
-+
-+  it("ignores an env value that is not a positive number", () => {
-+    for (const value of ["", "0", "-1", "abc", "Infinity"]) {
-+      expect(
-+        resolveClaudeContextWindowMaxTokens("deepseek-flash", {
-+          CLAUDE_CODE_MAX_CONTEXT_TOKENS: value,
-+        }),
-+      ).toBeUndefined();
-+    }
-+  });
-+});
-+
-+describe("readClaudeSettingsEnvSync", () => {
-+  it("reads the string entries of settings.json's env block", async () => {
-+    const configDir = await createClaudeConfigDir({
-+      env: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000", OTHER: 5 },
-+    });
-+
-+    expect(readClaudeSettingsEnvSync(path.join(configDir, "settings.json"))).toEqual({
-+      CLAUDE_CODE_MAX_CONTEXT_TOKENS: "300000",
-+    });
-+  });
-+
-+  it("reports nothing for a missing file, bad JSON, or no env block", async () => {
-+    const brokenDir = await createClaudeConfigDirWithRawSettings("{ nope");
-+    const noEnvDir = await createClaudeConfigDir({ model: "deepseek-flash" });
-+
-+    expect(readClaudeSettingsEnvSync(path.join(brokenDir, "settings.json"))).toBeUndefined();
-+    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "settings.json"))).toBeUndefined();
-+    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "not-settings.json"))).toBeUndefined();
-+  });
-+});
-diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 6b341fa..da98226 100644
---- a/packages/server/src/server/agent/providers/claude/models.ts
-+++ b/packages/server/src/server/agent/providers/claude/models.ts
-@@ -1,3 +1,4 @@
-+import { readFileSync } from "node:fs";
- import * as fs from "node:fs/promises";
- import * as path from "node:path";
- import type { Logger } from "pino";
-@@ -48,6 +49,73 @@ export function findClaudeModel(
-   return getClaudeModels().find((model) => model.id === normalizedModelId);
- }
- 
-+/** Claude Code reads a `[1m]` suffix on a model id as "this session runs with a 1M window". */
-+const CLAUDE_LONG_CONTEXT_MODEL_ID_PATTERN = /\[1m\]/i;
-+const CLAUDE_LONG_CONTEXT_WINDOW_TOKENS = 1_000_000;
-+
-+/**
-+ * The context window Claude Code will use for a model id the manifest does not know.
-+ *
-+ * Claude Code reports the window only in a turn's result (`modelUsage`), so a fresh session with a
-+ * gateway model — `deepseek-flash` behind `ANTHROPIC_BASE_URL`, say — has no window until its first
-+ * turn ends, and the composer draws an empty meter for that whole turn. Claude Code computes the
-+ * value itself from the model id and the environment, so the daemon can compute the same value up
-+ * front instead of waiting to be told.
-+ *
-+ * `env` must be the environment the Claude Code process runs with, with settings.json's own `env`
-+ * merged over it: Claude Code applies its settings over the process env, so a value written there
-+ * wins over one the daemon passed.
-+ */
-+export function resolveClaudeContextWindowMaxTokens(
-+  modelId: string | null | undefined,
-+  env: Record<string, string | undefined> | undefined,
-+): number | undefined {
-+  const manifestWindow = findClaudeModel(modelId)?.contextWindowMaxTokens;
-+  if (manifestWindow !== undefined) {
-+    return manifestWindow;
-+  }
-+
-+  const trimmed = typeof modelId === "string" ? modelId.trim() : "";
-+  if (trimmed.length === 0) {
-+    return undefined;
-+  }
-+
-+  if (
-+    !env?.["CLAUDE_CODE_DISABLE_1M_CONTEXT"] &&
-+    CLAUDE_LONG_CONTEXT_MODEL_ID_PATTERN.test(trimmed)
-+  ) {
-+    return CLAUDE_LONG_CONTEXT_WINDOW_TOKENS;
-+  }
-+
-+  const configured = Number(env?.["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
-+  return Number.isFinite(configured) && configured > 0 ? Math.round(configured) : undefined;
-+}
-+
-+/**
-+ * Read settings.json's `env` block. Synchronous because the window above is resolved while a
-+ * session is being constructed.
-+ */
-+export function readClaudeSettingsEnvSync(settingsPath: string): Record<string, string> | undefined {
-+  let parsed: unknown;
-+  try {
-+    parsed = JSON.parse(readFileSync(settingsPath, "utf8"));
-+  } catch {
-+    return undefined;
-+  }
-+
-+  if (!isRecord(parsed) || !isRecord(parsed.env)) {
-+    return undefined;
-+  }
-+
-+  const env: Record<string, string> = {};
-+  for (const [key, value] of Object.entries(parsed.env)) {
-+    if (typeof value === "string") {
-+      env[key] = value;
-+    }
-+  }
-+  return env;
-+}
-+
- export async function getClaudeModelsWithSettings(
-   logger: Logger,
-   configDir: string,

@@ -43,6 +43,15 @@
 //                           reach. Bare `/goal` and `/goal status` stay
 //                           out-of-band and report from the tailed log.
 //   goal pill               packages/app/src/composer/goal-pill.tsx.
+//   claude goal             Claude Code reports its own goal on the SDK message
+//                           stream. That frame is mapped into the same goal
+//                           state, so the pill covers Claude too.
+//   kimi cut-in             a message sent while the Kimi runtime is still
+//                           working replaces the turn instead of queueing
+//                           behind it. Without this the runtime answered the
+//                           prompt with an immediate end_turn, the turn looked
+//                           finished while the work was not, and the next
+//                           message queued instead of interrupting.
 //   reliability             Kimi ACP capability descriptors, log instead of
 //                           silently dropping session/staged events, and flag
 //                           Kimi turns that complete with no assistant output.
@@ -364,6 +373,16 @@ const MARKERS = [
     label: "A Claude session seeds the window it resolved",
     path: "packages/server/src/server/agent/providers/claude/agent.ts",
     needle: "private resolveContextWindowMaxTokens(modelId: string | null | undefined): number | undefined {",
+  },
+  {
+    label: "Claude's own goal drives the composer pill",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: 'message.type !== "active_goal"',
+  },
+  {
+    label: "A Kimi turn the runtime has not ended counts as running",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "isTurnInProgress(): boolean",
   },
 ];
 

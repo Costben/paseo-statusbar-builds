@@ -247,6 +247,9 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 | Terminal output cap | trim an oversized terminal buffer in one byte pass instead of one character at a time. The old shape re-measured the whole string per deleted character, so a command whose output overshot the limit by 1 MB cost tens of seconds on the main thread and the daemon stopped answering |
 | Claude context window | a model the manifest does not know — a gateway id behind `ANTHROPIC_BASE_URL`, say — gets no window until its first turn's result reports one, so the composer meter stayed empty for that entire turn. Resolve the window the way Claude Code itself does instead: the manifest first, else a `[1m]` id is 1M, else `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from `settings.json` |
 
+| Claude goal | Claude Code keeps a goal of its own (`/goal <condition>`, re-checked after every turn) and reports it on the same SDK message stream the daemon already reads. Map that frame into the goal state the Kimi side already produces, so the composer pill covers Claude sessions too |
+| Kimi cut-in | a message sent while the Kimi runtime is still working replaces the turn instead of queueing behind it. Kimi answers a prompt it has only queued with an immediate end of turn, so Paseo marked the turn finished and went idle, the next message queued instead of interrupting, and the turn failed 30 s later with `kimi_timeline_missing` |
+
 One series rather than a list because the pieces depend on each other: the session
 log tailer is what feeds the goal state, the goal pill is what reads it, and the
 prompt rewrite is what makes the goal exist in the first place. It is idempotent
