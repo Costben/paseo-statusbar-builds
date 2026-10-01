@@ -73,7 +73,7 @@ index 1bebc8a..82bfd27 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 0000000..f1220fd
+index 0000000..1f04f67
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -238,7 +238,7 @@ index 0000000..f1220fd
 +
 +    expect(fieldText("turns")).toContain("7 回合");
 +    expect(fieldText("turns")).toContain("Claude 只在评估目标时报自己的计数");
-+    expect(fieldText("tokens")).toContain("Paseo 按回合累计的输出 token");
++    expect(fieldText("tokens")).toContain("Paseo 按响应累计的输出 token");
 +    // Kimi's wording belongs to Kimi: it says Kimi reports the number, which is
 +    // the opposite of what a Claude goal is.
 +    expect(fieldText("turns")).not.toContain("Kimi");
@@ -247,7 +247,7 @@ index 0000000..f1220fd
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 0000000..df6dca0
+index 0000000..41eb299
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -353,7 +353,7 @@ index 0000000..df6dca0
 +    const usage = formatGoalInputUsage(1_203_194, undefined);
 +    expect(usage?.value).toBe("1.2M tokens");
 +    expect(usage?.hint).toContain("1,203,194");
-+    expect(usage?.hint).toContain("同一段上下文会重复计入");
++    expect(usage?.hint).toContain("每次请求都计入");
 +  });
 +
 +  it("names the cache-read part when there was one", () => {
@@ -390,7 +390,7 @@ index 0000000..df6dca0
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 0000000..fb2a6c8
+index 0000000..d874088
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,399 @@
@@ -527,7 +527,7 @@ index 0000000..fb2a6c8
 +
 +const CLAUDE_GOAL_USAGE_HINTS: GoalUsageHints = {
 +  turns: "Paseo 按回合统计，Claude 只在评估目标时报自己的计数",
-+  tokens: "Paseo 按回合累计的输出 token",
++  tokens: "Paseo 按响应累计的输出 token",
 +};
 +
 +const DEFAULT_GOAL_USAGE_HINTS: GoalUsageHints = {
@@ -545,7 +545,7 @@ index 0000000..fb2a6c8
 +  return DEFAULT_GOAL_USAGE_HINTS;
 +}
 +
-+const INPUT_TOKENS_HINT = "Paseo 按步骤累计的输入 token，同一段上下文会重复计入";
++const INPUT_TOKENS_HINT = "Paseo 按响应累计的输入 token，同一段上下文每次请求都计入";
 +
 +export function resolveGoalStatusLabel(status: AgentGoalStatus): string {
 +  return GOAL_STATUS_LABELS[status];
@@ -3944,10 +3944,10 @@ index d2e0a1b..cdae2e0 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index e30ba29..94b16c6 100644
+index e30ba29..f263cc1 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -3249,6 +3249,562 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -3249,6 +3249,634 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -4350,11 +4350,12 @@ index e30ba29..94b16c6 100644
 +  function assistantUsageFrame(
 +    usage: { input: number; cached: number; output: number },
 +    uuid: string,
++    messageId = `msg-${uuid}`,
 +  ): SDKMessage {
 +    return {
 +      type: "assistant",
 +      message: {
-+        id: `msg-${uuid}`,
++        id: messageId,
 +        type: "message",
 +        role: "assistant",
 +        model: "claude-sonnet-4-6",
@@ -4426,6 +4427,77 @@ index e30ba29..94b16c6 100644
 +          tokensUsed: 170,
 +          inputTokens: 4_300,
 +          cachedInputTokens: 1_300,
++          startedAt: Date.parse("2026-09-30T12:04:35.837Z"),
++          updatedAt: expect.any(Number),
++        },
++      },
++    ]);
++  });
++
++  test("a response split across frames is counted once", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    // The CLI emits one frame per content block and repeats the response's usage on each, so
++    // the same read arrives three times under one id. The goal read the context once.
++    const responseId = "msg-shared-response";
++    session.translateMessageToEvents(
++      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "block-1", responseId),
++    );
++    session.translateMessageToEvents(
++      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "block-2", responseId),
++    );
++    const events = session.translateMessageToEvents(
++      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "block-3", responseId),
++    );
++
++    // The third frame repeats what the first already counted, so it has nothing to report.
++    expect(goalEvents(events)).toEqual([]);
++  });
++
++  test("a gateway echoing a response with an invented input count does not inflate it", async () => {
++    const { session, writeTranscript } = await goalSession();
++    await writeTranscript([
++      goalStatusEntry("goal-set-1", "the test suite passes", {
++        met: false,
++        timestamp: "2026-09-30T12:04:35.837Z",
++      }),
++    ]);
++    session.translateMessageToEvents(
++      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
++    );
++
++    // A gateway in front of the CLI answers one response with two records: a thinking frame that
++    // wrote nothing and states an input count of its own, and the real frame beside it. Only the
++    // frame that wrote output describes the response.
++    const responseId = "msg-echoed-response";
++    session.translateMessageToEvents(
++      assistantUsageFrame({ input: 13_771, cached: 0, output: 0 }, "thinking-frame", responseId),
++    );
++    const events = session.translateMessageToEvents(
++      assistantUsageFrame({ input: 481, cached: 17_664, output: 260 }, "real-frame", responseId),
++    );
++
++    expect(goalEvents(events)).toEqual([
++      {
++        type: "goal_updated",
++        provider: "claude",
++        goal: {
++          goalId: "claude:session-1:goal-set-1",
++          objective: "the test suite passes",
++          status: "active",
++          turnsUsed: 0,
++          tokensUsed: 260,
++          inputTokens: 18_145,
++          cachedInputTokens: 17_664,
 +          startedAt: Date.parse("2026-09-30T12:04:35.837Z"),
 +          updatedAt: expect.any(Number),
 +        },
@@ -4511,7 +4583,7 @@ index e30ba29..94b16c6 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 04fef2b..4519aeb 100644
+index 04fef2b..aac0b78 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -33,6 +33,8 @@ import {
@@ -4531,7 +4603,7 @@ index 04fef2b..4519aeb 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2065,6 +2068,23 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2065,6 +2068,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -4546,16 +4618,24 @@ index 04fef2b..4519aeb 100644
 +   */
 +  private currentGoal: AgentGoal | null = null;
 +  /**
-+   * What that goal has spent so far. The CLI's `active_goal` frame carries a
-+   * token counter taken when the goal was set, not a running total, and it only
-+   * arrives at an evaluation — which can be an hour after `/goal`. The tally is
-+   * therefore summed here from the usage each response reports.
++   * What that goal has spent so far, one entry per API response. The CLI's
++   * `active_goal` frame carries a token counter taken when the goal was set, not
++   * a running total, and it only arrives at an evaluation — which can be an hour
++   * after `/goal`. The tally is therefore summed here from the usage each
++   * response reports.
++   *
++   * Keyed by response rather than accumulated per frame because one response is
++   * not one frame: the CLI emits a frame per content block, each carrying the
++   * same usage, and a gateway can echo a response more than once. Adding up
++   * frames would count the same read once per block.
 +   */
-+  private goalTally: ClaudeGoalTally = EMPTY_CLAUDE_GOAL_TALLY;
++  private goalUsageByResponse = new Map<string, GoalUsageTotals>();
++  /** Responses the goal has finished, counted where the provider reports a turn closed. */
++  private goalTurns = 0;
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2132,7 +2152,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2132,7 +2160,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -4564,7 +4644,7 @@ index 04fef2b..4519aeb 100644
      );
      const handle = options.handle;
  
-@@ -2445,7 +2465,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2445,7 +2473,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -4573,7 +4653,7 @@ index 04fef2b..4519aeb 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3252,6 +3272,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3252,6 +3280,24 @@ class ClaudeAgentSession implements AgentSession {
      );
    }
  
@@ -4598,7 +4678,7 @@ index 04fef2b..4519aeb 100644
    private buildSdkEnv(): NodeJS.ProcessEnv {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4119,6 +4157,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4119,6 +4165,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetReadSteer(message);
  
@@ -4611,15 +4691,15 @@ index 04fef2b..4519aeb 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4136,6 +4180,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4136,6 +4188,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
-+        this.accumulateGoalUsage(message.message.usage, events);
++        this.accumulateGoalUsage(message.message.id, message.message.usage, events);
          break;
        }
        case "stream_event":
-@@ -4151,6 +4196,173 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4151,6 +4204,197 @@ class ClaudeAgentSession implements AgentSession {
      return events;
    }
  
@@ -4681,21 +4761,23 @@ index 04fef2b..4519aeb 100644
 +  private publishGoal(goal: AgentGoal | null, events: AgentStreamEvent[]): void {
 +    if (goal === null) {
 +      this.currentGoal = null;
-+      this.goalTally = EMPTY_CLAUDE_GOAL_TALLY;
++      this.goalUsageByResponse.clear();
++      this.goalTurns = 0;
 +      events.push({ type: "goal_updated", provider: "claude", goal: null });
 +      return;
 +    }
 +    if (this.currentGoal === null || this.currentGoal.objective !== goal.objective) {
 +      // A different goal is what the tally was never about.
-+      this.goalTally = EMPTY_CLAUDE_GOAL_TALLY;
++      this.goalUsageByResponse.clear();
++      this.goalTurns = 0;
 +    }
-+    const tally = this.goalTally;
++    const totals = sumGoalUsageTotals(this.goalUsageByResponse.values());
 +    const merged: AgentGoal = {
 +      ...goal,
-+      turnsUsed: Math.max(goal.turnsUsed, tally.turns),
-+      tokensUsed: Math.max(goal.tokensUsed, tally.output),
-+      ...(tally.input > 0 ? { inputTokens: tally.input } : {}),
-+      ...(tally.cachedInput > 0 ? { cachedInputTokens: tally.cachedInput } : {}),
++      turnsUsed: Math.max(goal.turnsUsed, this.goalTurns),
++      tokensUsed: Math.max(goal.tokensUsed, totals.output),
++      ...(totals.input > 0 ? { inputTokens: totals.input } : {}),
++      ...(totals.cachedInput > 0 ? { cachedInputTokens: totals.cachedInput } : {}),
 +      updatedAt: Date.now(),
 +    };
 +    this.currentGoal = merged;
@@ -4708,24 +4790,46 @@ index 04fef2b..4519aeb 100644
 +   * Claude states nothing about a goal's tokens until the Stop hook evaluates
 +   * it, so a goal that runs for an hour would show zero for all of it. The
 +   * responses are the same measurement the CLI's own counter adds up.
++   *
++   * The response, not the frame, is the unit. One response arrives as several
++   * frames — one per content block, each repeating the same usage — and a
++   * gateway in front of the CLI can echo a frame it already sent. Counting
++   * frames would multiply the goal's read count by however many blocks each
++   * response happened to have.
 +   */
-+  private accumulateGoalUsage(usage: unknown, events: AgentStreamEvent[]): void {
++  private accumulateGoalUsage(
++    responseId: unknown,
++    usage: unknown,
++    events: AgentStreamEvent[],
++  ): void {
 +    const goal = this.currentGoal;
 +    if (goal === null) {
-+      this.goalTally = EMPTY_CLAUDE_GOAL_TALLY;
++      this.goalUsageByResponse.clear();
++      this.goalTurns = 0;
 +      return;
 +    }
-+    const tokens = readResponseUsageTokens(usage);
-+    if (tokens === null) {
++    const responseKey = readTrimmedString(responseId);
++    if (responseKey === undefined || responseKey.length === 0) {
++      // Without a response to attribute the usage to, counting it would risk
++      // counting the same read again on the next frame.
 +      return;
 +    }
-+    const tally = this.goalTally;
-+    this.goalTally = {
-+      turns: tally.turns,
-+      output: tally.output + tokens.output,
-+      input: tally.input + tokens.input,
-+      cachedInput: tally.cachedInput + tokens.cachedInput,
-+    };
++    const totals = readResponseUsageTotals(usage);
++    if (totals === null) {
++      return;
++    }
++    const previous = this.goalUsageByResponse.get(responseKey);
++    const merged = previous === undefined ? totals : mergeGoalUsageTotals(previous, totals);
++    const unchanged =
++      previous !== undefined &&
++      previous.input === merged.input &&
++      previous.cachedInput === merged.cachedInput &&
++      previous.output === merged.output;
++    if (unchanged) {
++      // A repeated frame of a response already counted says nothing new.
++      return;
++    }
++    this.goalUsageByResponse.set(responseKey, merged);
 +    this.publishGoal(goal, events);
 +  }
 +
@@ -4740,7 +4844,7 @@ index 04fef2b..4519aeb 100644
 +    if (goal === null) {
 +      return;
 +    }
-+    this.goalTally = { ...this.goalTally, turns: this.goalTally.turns + 1 };
++    this.goalTurns += 1;
 +    this.publishGoal(goal, events);
 +  }
 +
@@ -4793,7 +4897,7 @@ index 04fef2b..4519aeb 100644
    /** Once Claude has read a steer there is nothing left to discard on interrupt. */
    private forgetReadSteer(message: unknown): void {
      const lifecycle = readClaudeCommandLifecycle(message);
-@@ -4476,6 +4688,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4476,6 +4720,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -4801,26 +4905,23 @@ index 04fef2b..4519aeb 100644
      const usage = this.convertUsage(message, message.modelUsage);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -5807,6 +6020,112 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -5807,6 +6052,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
-+interface ClaudeGoalTally {
-+  /** Turns the goal has finished since it was set. */
-+  turns: number;
-+  /** Output tokens every response of those turns produced. */
-+  output: number;
-+  /** Input tokens those responses read, cache reads included. */
++interface GoalUsageTotals {
++  /** Input tokens the response read, cache reads and cache writes included. */
 +  input: number;
 +  /** The cache-read part of `input`. */
 +  cachedInput: number;
++  /** Output tokens the response wrote. */
++  output: number;
 +}
 +
-+const EMPTY_CLAUDE_GOAL_TALLY: ClaudeGoalTally = Object.freeze({
-+  turns: 0,
-+  output: 0,
++const EMPTY_GOAL_USAGE_TOTALS: GoalUsageTotals = Object.freeze({
 +  input: 0,
 +  cachedInput: 0,
++  output: 0,
 +});
 +
 +/**
@@ -4828,9 +4929,7 @@ index 04fef2b..4519aeb 100644
 + * nothing. The cache-read and cache-creation counts are part of the input side:
 + * `inputTokens` is the whole of it, `cachedInput` the part that came from cache.
 + */
-+function readResponseUsageTokens(
-+  usage: unknown,
-+): { input: number; cachedInput: number; output: number } | null {
++function readResponseUsageTotals(usage: unknown): GoalUsageTotals | null {
 +  const record = toObjectRecord(usage);
 +  if (!record) {
 +    return null;
@@ -4842,7 +4941,46 @@ index 04fef2b..4519aeb 100644
 +  const cachedInput = read("cache_read_input_tokens");
 +  const input = read("input_tokens") + cachedInput + read("cache_creation_input_tokens");
 +  const output = read("output_tokens");
-+  return input > 0 || output > 0 ? { input, cachedInput, output } : null;
++  if (input <= 0 && output <= 0) {
++    return null;
++  }
++  return { input, cachedInput, output };
++}
++
++/**
++ * Fold a repeated frame of the same response into what that response already
++ * reported. The frame that wrote output is the response; the ones beside it
++ * describe the same read, and a gateway's echoed frame can carry an input count
++ * it invented. An output count therefore decides between them, and equal output
++ * counts fall back to the larger reading rather than the later frame — a partial
++ * frame never has more to say than the complete one it repeats.
++ */
++function mergeGoalUsageTotals(
++  previous: GoalUsageTotals,
++  incoming: GoalUsageTotals,
++): GoalUsageTotals {
++  if (incoming.output > previous.output) {
++    return incoming;
++  }
++  if (incoming.output < previous.output) {
++    return previous;
++  }
++  return {
++    input: Math.max(previous.input, incoming.input),
++    cachedInput: Math.max(previous.cachedInput, incoming.cachedInput),
++    output: previous.output,
++  };
++}
++
++/** What every response counted so far adds up to. */
++function sumGoalUsageTotals(totals: Iterable<GoalUsageTotals>): GoalUsageTotals {
++  const sum: GoalUsageTotals = { ...EMPTY_GOAL_USAGE_TOTALS };
++  for (const entry of totals) {
++    sum.input += entry.input;
++    sum.cachedInput += entry.cachedInput;
++    sum.output += entry.output;
++  }
++  return sum;
 +}
 +
 +interface ClaudeTranscriptGoalStatus {

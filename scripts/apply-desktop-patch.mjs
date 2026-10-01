@@ -115,7 +115,7 @@ if (platform !== "mac" && platform !== "win") {
 const PATCHES = [
   {
     name: "kimi-native",
-    file: "paseo-kimi-native-0100.patch",
+    file: "paseo-kimi-native-0101.patch",
     platforms: ["mac", "win"],
     marker: {
       path: "packages/server/src/server/agent/providers/acp-agent.ts",
@@ -410,7 +410,7 @@ const MARKERS = [
   {
     label: "A Claude goal carries the tokens its responses reported",
     path: "packages/server/src/server/agent/providers/claude/agent.ts",
-    needle: "private accumulateGoalUsage(usage: unknown, events: AgentStreamEvent[]): void {",
+    needle: "this.accumulateGoalUsage(message.message.id, message.message.usage, events);",
   },
   {
     label: "A finished Claude turn advances its goal's turn count",
@@ -482,6 +482,11 @@ const MARKERS = [
     label: "A Kimi background task's transcript and summary land on its own row",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
     needle: "function subagentRowId(",
+  },
+  {
+    label: "A Claude goal counts each API response once",
+    path: "packages/server/src/server/agent/providers/claude/agent.ts",
+    needle: "function mergeGoalUsageTotals(",
   },
 ];
 

@@ -172,7 +172,7 @@ needs only some of the three:
 | What changed | APK | macOS | Windows |
 |---|---|---|---|
 | upstream tag — new client and/or daemon code | rebuild | rebuild | rebuild |
-| `paseo-kimi-native-0100.patch`, `paseo-agent-cwd-guard.patch`, `apply-desktop-patch.mjs` — daemon and/or desktop-app code | **—** | rebuild | rebuild |
+| `paseo-kimi-native-0101.patch`, `paseo-agent-cwd-guard.patch`, `apply-desktop-patch.mjs` — daemon and/or desktop-app code | **—** | rebuild | rebuild |
 | the same, but the change also lands in code the APK bundles (e.g. `packages/protocol/`) | rebuild | rebuild | rebuild |
 | `paseo-app-composer-badges.patch`, `apply-statusbar-patch.mjs` | rebuild | see below | see below |
 | `upload-release-assets.mjs`, the workflow files themselves | rebuild | rebuild | rebuild |
@@ -195,7 +195,7 @@ skipping the APK ships a phone whose rendering disagrees with the desktop's.
 
 The badges row is the exception that catches people: `paseo-app-composer-badges.patch`
 is applied by the APK workflow, but the same change is carried *inside*
-`paseo-kimi-native-0100.patch` for the desktop builds. Editing one means editing
+`paseo-kimi-native-0101.patch` for the desktop builds. Editing one means editing
 the other and rebuilding all three. That is also the mechanism for any other
 shared-code change: mirror the hunk into `paseo-app-composer-badges.patch`, and
 `apply-statusbar-patch.mjs` post-checks it so a build that silently lost it goes
@@ -232,7 +232,7 @@ writes only `*.apk`; the desktops write their own archives and `*.yml`).
 ## The desktop patch
 
 `scripts/apply-desktop-patch.mjs <sourceDir> <mac|win>` applies
-`patches/paseo-kimi-native-0100.patch` — one series carrying everything the daemon
+`patches/paseo-kimi-native-0101.patch` — one series carrying everything the daemon
 needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 
 | Area | Change |
@@ -253,7 +253,7 @@ needs to talk to Kimi Code directly, with no ACP proxy process in the path:
 | Terminal output cap | trim an oversized terminal buffer in one byte pass instead of one character at a time. The old shape re-measured the whole string per deleted character, so a command whose output overshot the limit by 1 MB cost tens of seconds on the main thread and the daemon stopped answering |
 | Claude context window | a model the manifest does not know — a gateway id behind `ANTHROPIC_BASE_URL`, say — gets no window until its first turn's result reports one, so the composer meter stayed empty for that entire turn. Resolve the window the way Claude Code itself does instead: the manifest first, else a `[1m]` id is 1M, else `CLAUDE_CODE_MAX_CONTEXT_TOKENS` from `settings.json` |
 
-| Claude goal | Claude Code keeps a goal of its own (`/goal <condition>`, re-checked after every turn) and reports it on the same SDK message stream the daemon already reads. Map that frame into the goal state the Kimi side already produces, so the composer pill covers Claude sessions too |
+| Claude goal | Claude Code keeps a goal of its own (`/goal <condition>`, re-checked after every turn) and reports it on the same SDK message stream the daemon already reads. Map that frame into the goal state the Kimi side already produces, so the composer pill covers Claude sessions too. The frame's token counter is the ledger reading taken when the goal was set, not what the goal has spent, so the usage is summed from what each API response reports. One response is not one frame — the CLI writes a frame per content block, each carrying the same usage, and a gateway can echo a response — so responses are keyed by `message.id` and a repeat of one already counted is dropped rather than added again |
 | Kimi cut-in | a message sent while the Kimi runtime is still working replaces the turn instead of queueing behind it. Kimi answers a prompt it has only queued with an immediate end of turn, so Paseo marked the turn finished and went idle, the next message queued instead of interrupting, and the turn failed 30 s later with `kimi_timeline_missing` |
 | Kimi send behavior | steering means injecting a message into the turn that is already running, which the ACP channel Kimi Code speaks cannot do. The daemon accepted the request anyway and fell through to an interrupt, so the composer offered an option that could never be honoured. The session now reports whether it can be steered, a steer aimed at one that cannot is dispatched as an interrupt, and the composer shows queue / interrupt only |
 
