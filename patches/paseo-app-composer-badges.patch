@@ -46,10 +46,10 @@ index ff32aaf..d329cdd 100644
 +  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
  }
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 1bebc8a..82bfd27 100644
+index bca5a25..bd04c2f 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -412,7 +412,8 @@ const styles = StyleSheet.create((theme) => ({
+@@ -410,7 +410,8 @@ const styles = StyleSheet.create((theme) => ({
      gap: theme.spacing[1],
    },
    triggerThinking: {
@@ -59,73 +59,48 @@ index 1bebc8a..82bfd27 100644
      color: theme.colors.foregroundExtraMuted,
      fontSize: theme.fontSize.base,
      fontWeight: theme.fontWeight.normal,
-diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c8..69a9923 100644
---- a/packages/app/src/composer/pill-styles.ts
-+++ b/packages/app/src/composer/pill-styles.ts
-@@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
-     flexDirection: "row",
-     alignItems: "center",
-     gap: theme.spacing[2],
-+    // The track is a single non-scrolling row, so a pill that refuses to yield evicts its
-+    // neighbours. Every pill ellipsizes instead.
-+    minWidth: 0,
-+    flexShrink: 1,
-     minHeight: COMPOSER_PILL_MIN_HEIGHT,
-     paddingHorizontal: theme.spacing[3],
-     paddingVertical: theme.spacing[1],
-diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe1..afe2cce 100644
---- a/packages/protocol/src/tool-call-display.ts
-+++ b/packages/protocol/src/tool-call-display.ts
-@@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
-   if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
-     return trimmed;
-   }
-+  // PascalCase and camelCase names are already spelled the way people read
-+  // them; the lowercase pass below would turn "AskUserQuestion" into
-+  // "Askuserquestion".
-+  if (/[A-Z]/.test(trimmed.slice(1))) {
-+    return trimmed;
-+  }
- 
-   return trimmed
-     .replace(/[._-]+/g, " ")
-diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
---- a/packages/protocol/src/messages.ts
-+++ b/packages/protocol/src/messages.ts
-@@ -377,6 +377,8 @@
-     supportsRewindFiles: z.boolean().optional().default(false),
-     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
-     supportsRewindBoth: z.boolean().optional().default(false),
-+    // COMPAT(steering): added in v0.10.2, drop when floor >= v0.10.2.
-+    supportsSteering: z.boolean().optional(),
-   })
-   .catchall(z.boolean());
- 
-diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
---- a/packages/app/src/composer/input/state.ts
-+++ b/packages/app/src/composer/input/state.ts
-@@ -8,8 +8,14 @@
- export function resolveActiveSendBehavior(
-   sendBehavior: SendBehavior,
-   hasPendingPermission: boolean,
-+  supportsSteering: boolean,
- ): SendBehavior {
--  return sendBehavior === "queue" && hasPendingPermission ? "interrupt" : sendBehavior;
-+  if (sendBehavior === "queue" && hasPendingPermission) return "interrupt";
-+  // Steering a provider that cannot take a message into its running turn is not a
-+  // third option: the daemon downgrades that request to an interrupt, so the
-+  // composer says interrupt rather than promising a steer that never happens.
-+  if (sendBehavior === "steer" && !supportsSteering) return "interrupt";
-+  return sendBehavior;
+diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
+index c46e2ac..e374170 100644
+--- a/packages/app/src/composer/index.tsx
++++ b/packages/app/src/composer/index.tsx
+@@ -274,6 +274,9 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
+       contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
+       totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+       model: agent?.model ?? null,
++      // A daemon that predates the flag leaves it undefined. Assume the agent can
++      // steer then, so nothing changes for the providers that always could.
++      supportsSteering: agent?.capabilities?.supportsSteering !== false,
+     };
+   };
  }
+@@ -1543,10 +1546,12 @@ function ComposerContentImpl({
+         agentIdRef.current,
+         text,
+         submitAttachments,
+-        appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
++        appSettings.sendBehavior === "steer" && agentState.supportsSteering
++          ? "steer"
++          : "interrupt",
+       );
+     },
+-    [appSettings.sendBehavior, cwd, onMessageSent, t],
++    [agentState.supportsSteering, appSettings.sendBehavior, cwd, onMessageSent, t],
+   );
  
- interface ComposerSurfaceState {
+   useEffect(() => {
+@@ -1610,6 +1615,7 @@ function ComposerContentImpl({
+   const activeSendBehavior = resolveActiveSendBehavior(
+     appSettings.sendBehavior,
+     hasPendingPermission,
++    agentState.supportsSteering,
+   );
+   const hasAgent = agentState.status !== null;
+ 
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
+index 5503ea1..7ec4799 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
-@@ -190,9 +190,15 @@
+@@ -190,9 +190,15 @@ describe("dictation transcript behavior", () => {
  
  describe("composer send behavior", () => {
    it("sends immediately when queue mode cannot advance past a permission", () => {
@@ -144,39 +119,68 @@ diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/co
    });
  
    function actions() {
-diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
---- a/packages/app/src/composer/index.tsx
-+++ b/packages/app/src/composer/index.tsx
-@@ -275,6 +275,9 @@
-       totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
-       model: agent?.model ?? null,
-       provider: agent?.provider ?? null,
-+      // A daemon that predates the flag leaves it undefined. Assume the agent can
-+      // steer then, so nothing changes for the providers that always could.
-+      supportsSteering: agent?.capabilities?.supportsSteering !== false,
-     };
-   };
+diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
+index a63aeb0..8c20c16 100644
+--- a/packages/app/src/composer/input/state.ts
++++ b/packages/app/src/composer/input/state.ts
+@@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
+ export function resolveActiveSendBehavior(
+   sendBehavior: SendBehavior,
+   hasPendingPermission: boolean,
++  supportsSteering: boolean,
+ ): SendBehavior {
+-  return sendBehavior === "queue" && hasPendingPermission ? "interrupt" : sendBehavior;
++  if (sendBehavior === "queue" && hasPendingPermission) return "interrupt";
++  // Steering a provider that cannot take a message into its running turn is not a
++  // third option: the daemon downgrades that request to an interrupt, so the
++  // composer says interrupt rather than promising a steer that never happens.
++  if (sendBehavior === "steer" && !supportsSteering) return "interrupt";
++  return sendBehavior;
  }
-@@ -1548,10 +1551,12 @@
-         agentIdRef.current,
-         text,
-         submitAttachments,
--        appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
-+        appSettings.sendBehavior === "steer" && agentState.supportsSteering
-+          ? "steer"
-+          : "interrupt",
-       );
-     },
--    [appSettings.sendBehavior, cwd, onMessageSent, t],
-+    [agentState.supportsSteering, appSettings.sendBehavior, cwd, onMessageSent, t],
-   );
  
-   useEffect(() => {
-@@ -1615,6 +1620,7 @@
-   const activeSendBehavior = resolveActiveSendBehavior(
-     appSettings.sendBehavior,
-     hasPendingPermission,
-+    agentState.supportsSteering,
-   );
-   const hasAgent = agentState.status !== null;
+ interface ComposerSurfaceState {
+diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
+index 3ab03c8..69a9923 100644
+--- a/packages/app/src/composer/pill-styles.ts
++++ b/packages/app/src/composer/pill-styles.ts
+@@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
+     flexDirection: "row",
+     alignItems: "center",
+     gap: theme.spacing[2],
++    // The track is a single non-scrolling row, so a pill that refuses to yield evicts its
++    // neighbours. Every pill ellipsizes instead.
++    minWidth: 0,
++    flexShrink: 1,
+     minHeight: COMPOSER_PILL_MIN_HEIGHT,
+     paddingHorizontal: theme.spacing[3],
+     paddingVertical: theme.spacing[1],
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index a4f8836..e358268 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -378,6 +378,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+     supportsRewindFiles: z.boolean().optional().default(false),
+     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+     supportsRewindBoth: z.boolean().optional().default(false),
++    // COMPAT(steering): added in v0.10.2, drop when floor >= v0.10.2.
++    supportsSteering: z.boolean().optional(),
+   })
+   .catchall(z.boolean());
  
+diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
+index 6930fe1..afe2cce 100644
+--- a/packages/protocol/src/tool-call-display.ts
++++ b/packages/protocol/src/tool-call-display.ts
+@@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
+   if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
+     return trimmed;
+   }
++  // PascalCase and camelCase names are already spelled the way people read
++  // them; the lowercase pass below would turn "AskUserQuestion" into
++  // "Askuserquestion".
++  if (/[A-Z]/.test(trimmed.slice(1))) {
++    return trimmed;
++  }
+ 
+   return trimmed
+     .replace(/[._-]+/g, " ")

@@ -187,6 +187,11 @@ const MARKERS = [
     needle: "export const KIMI_ACP_CAPABILITIES",
   },
   {
+    label: "Generic ACP client takes capability overrides",
+    path: "packages/server/src/server/agent/providers/generic-acp-agent.ts",
+    needle: "...options.capabilityOverrides,",
+  },
+  {
     label: "ACP goal extension method",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: 'const GOAL_EXTENSION_METHOD = "_paseo.dev/session/goal";',
@@ -199,7 +204,7 @@ const MARKERS = [
   {
     label: "Goal status includes paused",
     path: "packages/protocol/src/messages.ts",
-    needle: '  "paused",',
+    needle: 'z.enum(["active", "paused", "complete", "blocked", "cleared"])',
   },
   {
     label: "AgentManager goal state event",
@@ -446,7 +451,7 @@ const MARKERS = [
   {
     label: "A steer request is dispatched as an interrupt for an agent that cannot steer",
     path: "packages/server/src/server/agent/agent-prompt.ts",
-    needle: "capabilities.supportsSteering === false",
+    needle: "capabilities?.supportsSteering === false",
   },
   {
     label: "The agent snapshot reports whether the agent can be steered",
