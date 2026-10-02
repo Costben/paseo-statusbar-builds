@@ -794,7 +794,7 @@ index 00000000..d8740887
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index c46e2ac1..6f28d872 100644
+index c46e2ac1..d8af660b 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,7 @@ import {
@@ -805,19 +805,46 @@ index c46e2ac1..6f28d872 100644
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
  import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
  import { useFilePicker } from "@/hooks/use-file-picker";
-@@ -274,6 +275,11 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
-       contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
-       totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
-       model: agent?.model ?? null,
-+      provider: agent?.provider ?? null,
-+      goal: agent?.goal ?? null,
+@@ -265,15 +266,33 @@ function buildRealtimeVoiceButtonStyle(
+   );
+ }
+ 
++/** What the composer sees while the session store holds no agent for the id yet. */
++const ABSENT_AGENT_STATE = {
++  status: null,
++  contextWindowMaxTokens: null,
++  contextWindowUsedTokens: null,
++  totalCostUsd: null,
++  model: null,
++  provider: null,
++  goal: null,
++  supportsSteering: true,
++};
++
+ function buildAgentStateSelector(serverId: string, agentId: string) {
+   return (state: ReturnType<typeof useSessionStore.getState>) => {
+     const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
++    if (agent === null) return ABSENT_AGENT_STATE;
+     return {
+-      status: agent?.status ?? null,
+-      contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
+-      contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
+-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+-      model: agent?.model ?? null,
++      status: agent.status,
++      contextWindowMaxTokens: agent.lastUsage?.contextWindowMaxTokens ?? null,
++      contextWindowUsedTokens: agent.lastUsage?.contextWindowUsedTokens ?? null,
++      totalCostUsd: agent.lastUsage?.totalCostUsd ?? null,
++      model: agent.model,
++      provider: agent.provider,
++      goal: agent.goal ?? null,
 +      // A daemon that predates the flag leaves it undefined. Assume the agent can
 +      // steer then, so nothing changes for the providers that always could.
-+      supportsSteering: agent?.capabilities?.supportsSteering !== false,
++      supportsSteering: agent.capabilities?.supportsSteering !== false,
      };
    };
  }
-@@ -303,10 +309,17 @@ function renderContextWindowMeter(
+@@ -303,10 +322,17 @@ function renderContextWindowMeter(
  }
  
  function resolveContextWindowPlacement(
@@ -836,7 +863,7 @@ index c46e2ac1..6f28d872 100644
  }
  
  interface RenderLeftContentArgs {
-@@ -1543,10 +1556,10 @@ function ComposerContentImpl({
+@@ -1543,10 +1569,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -849,7 +876,7 @@ index c46e2ac1..6f28d872 100644
    );
  
    useEffect(() => {
-@@ -1610,6 +1623,7 @@ function ComposerContentImpl({
+@@ -1610,6 +1636,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -857,7 +884,7 @@ index c46e2ac1..6f28d872 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2091,9 +2105,13 @@ function ComposerContentImpl({
+@@ -2091,9 +2118,13 @@ function ComposerContentImpl({
        contextWindowMeterGlyphSize,
      ],
    );
@@ -873,7 +900,7 @@ index c46e2ac1..6f28d872 100644
    );
  
    const hasGithubAttachment = useMemo(
-@@ -2559,6 +2577,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2559,6 +2590,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: theme.spacing[1],
    },
@@ -3944,7 +3971,7 @@ index 524ede92..5e1a89f9 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index dbd10aea..75e01802 100644
+index dbd10aea..b7f2deab 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
 @@ -3278,6 +3278,634 @@ describe("ClaudeAgentSession context window usage", () => {
@@ -4096,6 +4123,10 @@ index dbd10aea..75e01802 100644
 +    return events.filter((event) => event.type === "goal_updated");
 +  }
 +
++  function removeDirectoryTree(directory: string): Promise<void> {
++    return fs.rm(directory, { recursive: true, force: true });
++  }
++
 +  const goalSession = (() => {
 +    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
 +    const directories: string[] = [];
@@ -4105,11 +4136,7 @@ index dbd10aea..75e01802 100644
 +      } else {
 +        process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
 +      }
-+      await Promise.all(
-+        directories
-+          .splice(0)
-+          .map((directory) => fs.rm(directory, { recursive: true, force: true })),
-+      );
++      await Promise.all(directories.splice(0).map(removeDirectoryTree));
 +    });
 +
 +    return async (): Promise<{
@@ -4583,7 +4610,7 @@ index dbd10aea..75e01802 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index e5153e21..e298a017 100644
+index e5153e21..b38180e3 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -34,6 +34,8 @@ import {
@@ -4678,7 +4705,25 @@ index e5153e21..e298a017 100644
    private buildSdkEnv(): NodeJS.ProcessEnv {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4126,6 +4172,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4096,16 +4142,7 @@ class ClaudeAgentSession implements AgentSession {
+     // Subagent identity and lifecycle are announced by Claude Code's task protocol, so they are
+     // read rather than inferred from sidechain frames. `task_started` precedes the child's first
+     // frame, so the descriptor exists before any timeline item lands on it.
+-    const subagentObservations = this.taskProtocolSource.observe(message);
+-    for (const event of foldSubagentObservations(subagentObservations)) {
+-      events.push({ type: "provider_subagent", provider: "claude", event });
+-    }
+-    for (const observation of subagentObservations) {
+-      if (observation.kind !== "declared") continue;
+-      if (!this.taskProtocolSource.needsSyntheticParentToolCard(observation.id)) continue;
+-      const card = this.buildSubagentToolCallCard(observation);
+-      if (card) events.push(card);
+-    }
++    this.appendSubagentEvents(this.taskProtocolSource.observe(message), events);
+     if (message.type !== "system") {
+       const sessionCapture = this.captureSessionIdFromMessage(message);
+       if (sessionCapture.notice) {
+@@ -4126,6 +4163,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetReadSteer(message);
  
@@ -4691,7 +4736,7 @@ index e5153e21..e298a017 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4143,6 +4195,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4143,6 +4186,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -4699,10 +4744,30 @@ index e5153e21..e298a017 100644
          break;
        }
        case "stream_event":
-@@ -4158,6 +4211,197 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4158,6 +4202,217 @@ class ClaudeAgentSession implements AgentSession {
      return events;
    }
  
++  /**
++   * Announce the subagents one frame observed. The task protocol carries both their lifecycle and
++   * a synthetic parent card for a child whose launching call the client never saw — the launching
++   * sidechain already renders that call, so those are skipped.
++   */
++  private appendSubagentEvents(
++    observations: readonly SubagentObservation[],
++    events: AgentStreamEvent[],
++  ): void {
++    for (const event of foldSubagentObservations(observations)) {
++      events.push({ type: "provider_subagent", provider: "claude", event });
++    }
++    for (const observation of observations) {
++      if (observation.kind !== "declared") continue;
++      if (!this.taskProtocolSource.needsSyntheticParentToolCard(observation.id)) continue;
++      const card = this.buildSubagentToolCallCard(observation);
++      if (card) events.push(card);
++    }
++  }
++
 +  /**
 +   * Claude's own goal, read off the SDK message stream.
 +   *
@@ -4897,7 +4962,7 @@ index e5153e21..e298a017 100644
    /** Once Claude has read a steer there is nothing left to discard on interrupt. */
    private forgetReadSteer(message: unknown): void {
      const lifecycle = readClaudeCommandLifecycle(message);
-@@ -4483,6 +4727,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4483,6 +4738,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -4905,7 +4970,7 @@ index e5153e21..e298a017 100644
      const usage = this.convertUsage(message, message.modelUsage);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -5822,6 +6067,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -5822,6 +6078,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
@@ -5694,10 +5759,10 @@ index 00000000..e5ff95c6
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 00000000..96e4dbac
+index 00000000..33f046ce
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1735 @@
+@@ -0,0 +1,1730 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -7233,12 +7298,7 @@ index 00000000..96e4dbac
 +    await delay(80);
 +
 +    appendFileSync(file, `${subagentCompletedLine({ resultSummary: "Build is green." })}\n`);
-+    await waitFor(
-+      () =>
-+        events.filter(
-+          (event) => event.type === "timeline" && event.item.type === "assistant_message",
-+        ).length > 0,
-+    );
++    await waitFor(() => assistantTimelineTexts(events).length > 0);
 +    await delay(80);
 +
 +    expect(
@@ -7435,10 +7495,10 @@ index 00000000..96e4dbac
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 00000000..851aec8d
+index 00000000..a750e29b
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1660 @@
+@@ -0,0 +1,1709 @@
 +import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -7655,22 +7715,7 @@ index 00000000..851aec8d
 +  lines: Iterable<string>,
 +  previous: KimiSessionLogState,
 +): KimiSessionLogState {
-+  let goal = previous.goal;
-+  let contextWindowUsedTokens = previous.contextWindowUsedTokens;
-+  let modelAlias = previous.modelAlias;
-+  let goalInputTokens = previous.goalInputTokens;
-+  let goalCachedInputTokens = previous.goalCachedInputTokens;
-+  let turnGeneration = previous.turnGeneration;
-+  let settledThroughTurn = previous.settledThroughTurn;
-+  // Keyed by id, so a lifecycle record updates its entry in place and the
-+  // iteration order stays the spawn order.
-+  const subagents = new Map<string, KimiSubagentRecord>();
-+  for (const subagent of previous.subagents) {
-+    subagents.set(subagent.id, subagent);
-+  }
-+  const backgroundTasks = new Map<string, KimiBackgroundTaskRecord>();
-+  for (const task of previous.backgroundTasks) backgroundTasks.set(task.id, task);
-+
++  const draft = createKimiLogDraft(previous);
 +  for (const raw of lines) {
 +    const line = raw.trim();
 +    if (line.length === 0) {
@@ -7680,95 +7725,159 @@ index 00000000..851aec8d
 +    if (entry === null) {
 +      continue;
 +    }
-+    switch (entry.type) {
-+      case "goal.create":
-+        goal = createGoalFromRecord(entry);
-+        // A new goal starts its own input tally; the previous goal's total is
-+        // already on the goal the client is showing.
-+        goalInputTokens = 0;
-+        goalCachedInputTokens = 0;
-+        break;
-+      case "goal.update":
-+        goal = applyGoalUpdate(goal, entry);
-+        break;
-+      case "goal.clear":
-+        goal = clearGoal(goal, readNumber(entry.time));
-+        break;
-+      case "profile.bind":
-+      case "llm.request": {
-+        const alias = readString(entry.modelAlias);
-+        if (alias !== undefined && alias.length > 0) {
-+          modelAlias = alias;
-+        }
-+        break;
-+      }
-+      case "agent.turn.started":
-+        turnGeneration += 1;
-+        // A new turn proves every earlier one is over.
-+        settledThroughTurn = Math.max(settledThroughTurn, turnGeneration - 1);
-+        demoteSettledSubagents(subagents, settledThroughTurn);
-+        break;
-+      case "agent.turn.ended":
-+        // A turn ending proves its own turn is over.
-+        settledThroughTurn = Math.max(settledThroughTurn, turnGeneration);
-+        demoteSettledSubagents(subagents, settledThroughTurn);
-+        break;
-+      case "subagent.spawned":
-+        applySubagentSpawn(subagents, entry, turnGeneration);
-+        if (readBoolean(entry.runInBackground) === true) {
-+          const id = readString(entry.subagentId);
-+          if (id) {
-+            const time = readNumber(entry.time) ?? 0;
-+            const previousTask = backgroundTasks.get(id);
-+            backgroundTasks.set(id, {
-+              id,
-+              title: readString(entry.subagentName) ?? previousTask?.title ?? null,
-+              description: readString(entry.description) ?? previousTask?.description ?? null,
-+              status: previousTask?.status === "completed" ? previousTask.status : "running",
-+              createdAt: previousTask?.createdAt ?? time,
-+              updatedAt: time,
-+            });
-+          }
-+        }
-+        break;
-+      case "subagent.started":
-+        applySubagentStarted(subagents, entry, turnGeneration);
-+        break;
-+      case "subagent.completed":
-+        applySubagentTerminal(subagents, entry, "completed", turnGeneration);
-+        updateBackgroundTask(backgroundTasks, entry, "completed");
-+        break;
-+      case "subagent.cancelled":
-+        applySubagentTerminal(subagents, entry, "canceled", turnGeneration);
-+        updateBackgroundTask(backgroundTasks, entry, "canceled");
-+        break;
-+      default:
-+        contextWindowUsedTokens = nextContextUsage(entry, contextWindowUsedTokens);
-+        // Only a running goal tallies input: once it settles the number is the
-+        // one the goal finished with, and later steps belong to whatever the
-+        // session does next rather than to this goal.
-+        if (goal !== null && isAgentGoalLive(goal)) {
-+          const stepInput = stepInputUsage(entry);
-+          if (stepInput !== null) {
-+            goalInputTokens = (goalInputTokens ?? 0) + stepInput.used;
-+            goalCachedInputTokens = (goalCachedInputTokens ?? 0) + stepInput.cached;
-+          }
-+        }
-+        break;
-+    }
++    applyKimiLogEntry(draft, entry);
 +  }
++  return finishKimiLogDraft(draft);
++}
 +
++/**
++ * One replay's working copy of a state. The subagent and background-task
++ * registries stay maps here so a lifecycle record updates its entry in place and
++ * the iteration order stays the spawn order; both are flattened on the way out.
++ */
++interface KimiLogDraft {
++  goal: AgentGoal | null;
++  contextWindowUsedTokens: number | null;
++  modelAlias: string | null;
++  goalInputTokens: number | null;
++  goalCachedInputTokens: number | null;
++  turnGeneration: number;
++  settledThroughTurn: number;
++  readonly subagents: Map<string, KimiSubagentRecord>;
++  readonly backgroundTasks: Map<string, KimiBackgroundTaskRecord>;
++}
++
++function createKimiLogDraft(previous: KimiSessionLogState): KimiLogDraft {
++  const subagents = new Map<string, KimiSubagentRecord>();
++  for (const subagent of previous.subagents) {
++    subagents.set(subagent.id, subagent);
++  }
++  const backgroundTasks = new Map<string, KimiBackgroundTaskRecord>();
++  for (const task of previous.backgroundTasks) backgroundTasks.set(task.id, task);
 +  return {
-+    goal,
-+    contextWindowUsedTokens,
-+    modelAlias,
-+    goalInputTokens,
-+    goalCachedInputTokens,
-+    subagents: [...subagents.values()],
-+    backgroundTasks: [...backgroundTasks.values()],
-+    turnGeneration,
-+    settledThroughTurn,
++    goal: previous.goal,
++    contextWindowUsedTokens: previous.contextWindowUsedTokens,
++    modelAlias: previous.modelAlias,
++    goalInputTokens: previous.goalInputTokens,
++    goalCachedInputTokens: previous.goalCachedInputTokens,
++    turnGeneration: previous.turnGeneration,
++    settledThroughTurn: previous.settledThroughTurn,
++    subagents,
++    backgroundTasks,
 +  };
++}
++
++function finishKimiLogDraft(draft: KimiLogDraft): KimiSessionLogState {
++  return {
++    goal: draft.goal,
++    contextWindowUsedTokens: draft.contextWindowUsedTokens,
++    modelAlias: draft.modelAlias,
++    goalInputTokens: draft.goalInputTokens,
++    goalCachedInputTokens: draft.goalCachedInputTokens,
++    subagents: [...draft.subagents.values()],
++    backgroundTasks: [...draft.backgroundTasks.values()],
++    turnGeneration: draft.turnGeneration,
++    settledThroughTurn: draft.settledThroughTurn,
++  };
++}
++
++/**
++ * Fold one parsed record onto the draft. Records that share a subject are applied
++ * by one helper each, so a new record type adds a case here rather than another
++ * branch inside the replay loop.
++ */
++function applyKimiLogEntry(draft: KimiLogDraft, entry: Record<string, unknown>): void {
++  switch (entry.type) {
++    case "goal.create":
++      draft.goal = createGoalFromRecord(entry);
++      // A new goal starts its own input tally; the previous goal's total is
++      // already on the goal the client is showing.
++      draft.goalInputTokens = 0;
++      draft.goalCachedInputTokens = 0;
++      break;
++    case "goal.update":
++      draft.goal = applyGoalUpdate(draft.goal, entry);
++      break;
++    case "goal.clear":
++      draft.goal = clearGoal(draft.goal, readNumber(entry.time));
++      break;
++    case "profile.bind":
++    case "llm.request":
++      draft.modelAlias = readModelAlias(entry) ?? draft.modelAlias;
++      break;
++    case "agent.turn.started":
++      draft.turnGeneration += 1;
++      // A new turn proves every earlier one is over.
++      draft.settledThroughTurn = Math.max(draft.settledThroughTurn, draft.turnGeneration - 1);
++      demoteSettledSubagents(draft.subagents, draft.settledThroughTurn);
++      break;
++    case "agent.turn.ended":
++      // A turn ending proves its own turn is over.
++      draft.settledThroughTurn = Math.max(draft.settledThroughTurn, draft.turnGeneration);
++      demoteSettledSubagents(draft.subagents, draft.settledThroughTurn);
++      break;
++    case "subagent.spawned":
++      applySubagentSpawn(draft.subagents, entry, draft.turnGeneration);
++      trackBackgroundTask(draft.backgroundTasks, entry);
++      break;
++    case "subagent.started":
++      applySubagentStarted(draft.subagents, entry, draft.turnGeneration);
++      break;
++    case "subagent.completed":
++      applySubagentTerminal(draft.subagents, entry, "completed", draft.turnGeneration);
++      updateBackgroundTask(draft.backgroundTasks, entry, "completed");
++      break;
++    case "subagent.cancelled":
++      applySubagentTerminal(draft.subagents, entry, "canceled", draft.turnGeneration);
++      updateBackgroundTask(draft.backgroundTasks, entry, "canceled");
++      break;
++    default:
++      applyStepUsage(draft, entry);
++      break;
++  }
++}
++
++/** The alias a `profile.bind` or `llm.request` record binds, when it names one. */
++function readModelAlias(entry: Record<string, unknown>): string | undefined {
++  const alias = readString(entry.modelAlias);
++  return alias !== undefined && alias.length > 0 ? alias : undefined;
++}
++
++/**
++ * A subagent spawned to run in the background outlives the turn that spawned it,
++ * so it is tracked apart from the subagent registry and settled by its own
++ * terminal record rather than by the turn watermark.
++ */
++function trackBackgroundTask(
++  backgroundTasks: Map<string, KimiBackgroundTaskRecord>,
++  entry: Record<string, unknown>,
++): void {
++  if (readBoolean(entry.runInBackground) !== true) return;
++  const id = readString(entry.subagentId);
++  if (!id) return;
++  const time = readNumber(entry.time) ?? 0;
++  const previousTask = backgroundTasks.get(id);
++  backgroundTasks.set(id, {
++    id,
++    title: readString(entry.subagentName) ?? previousTask?.title ?? null,
++    description: readString(entry.description) ?? previousTask?.description ?? null,
++    status: previousTask?.status === "completed" ? previousTask.status : "running",
++    createdAt: previousTask?.createdAt ?? time,
++    updatedAt: time,
++  });
++}
++
++/** The context a step ran with, and the input it read while a goal was live. */
++function applyStepUsage(draft: KimiLogDraft, entry: Record<string, unknown>): void {
++  draft.contextWindowUsedTokens = nextContextUsage(entry, draft.contextWindowUsedTokens);
++  // Only a running goal tallies input: once it settles the number is the one the
++  // goal finished with, and later steps belong to whatever the session does next
++  // rather than to this goal.
++  if (draft.goal === null || !isAgentGoalLive(draft.goal)) return;
++  const stepInput = stepInputUsage(entry);
++  if (stepInput === null) return;
++  draft.goalInputTokens = (draft.goalInputTokens ?? 0) + stepInput.used;
++  draft.goalCachedInputTokens = (draft.goalCachedInputTokens ?? 0) + stepInput.cached;
 +}
 +
 +/**

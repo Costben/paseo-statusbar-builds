@@ -466,7 +466,7 @@ const MARKERS = [
   {
     label: "Kimi background tasks settle with the session log",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-    needle: 'updateBackgroundTask(backgroundTasks, entry, "completed");',
+    needle: 'updateBackgroundTask(draft.backgroundTasks, entry, "completed");',
   },
   {
     label: "Kimi background tasks are published under their own id",
