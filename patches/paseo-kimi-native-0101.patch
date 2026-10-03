@@ -571,10 +571,10 @@ index 000000000..41eb299ee
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..d8740887a
+index 000000000..eba3f3644
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
-@@ -0,0 +1,399 @@
+@@ -0,0 +1,421 @@
 +import { useCallback, type ReactElement } from "react";
 +import { Text, View } from "react-native";
 +import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
@@ -588,9 +588,8 @@ index 000000000..d8740887a
 +  menuRowContentInset,
 +  type MenuTriggerState,
 +} from "@/components/ui/menu";
-+import { composerPillStyles } from "@/composer/pill-styles";
 +import { formatDuration, formatMessageTimestamp } from "@/utils/time";
-+import { ICON_SIZE, type Theme } from "@/styles/theme";
++import type { Theme } from "@/styles/theme";
 +import { assertUnreachable } from "@/utils/exhaustive";
 +
 +export type AgentGoalStatus = AgentGoalPayload["status"];
@@ -631,6 +630,28 @@ index 000000000..d8740887a
 +};
 +
 +const goalPillStyles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.borderAccent,
++    backgroundColor: theme.colors.surface1,
++    minWidth: 0,
++    flexShrink: 1,
++  },
++  pillActive: {
++    backgroundColor: theme.colors.surface2,
++  },
++  label: {
++    fontSize: 12,
++    lineHeight: 14,
++    fontWeight: theme.fontWeight.medium,
++  },
 +  labelActive: {
 +    color: theme.colors.accent,
 +  },
@@ -645,6 +666,7 @@ index 000000000..d8740887a
 +  },
 +  usage: {
 +    color: theme.colors.foregroundExtraMuted,
++    fontWeight: theme.fontWeight.normal,
 +  },
 +  // Detail rows sit on the same rail as a menu row's label, so the panel reads as one surface
 +  // family whether its rows are pressable or plain.
@@ -846,8 +868,8 @@ index 000000000..d8740887a
 +function GoalPillTrigger({ goal }: { goal: AgentGoalPayload }): ReactElement {
 +  const pillStyle = useCallback(
 +    ({ hovered, pressed, open }: MenuTriggerState) => [
-+      composerPillStyles.body,
-+      (hovered || pressed || open) && composerPillStyles.bodyActive,
++      goalPillStyles.pill,
++      (hovered || pressed || open) && goalPillStyles.pillActive,
 +    ],
 +    [],
 +  );
@@ -866,12 +888,12 @@ index 000000000..d8740887a
 +      accessibilityLabel={`${accessibilityLabel}，查看目标详情`}
 +      style={pillStyle}
 +    >
-+      <Glyph size={ICON_SIZE.sm} uniProps={GOAL_STATUS_COLOR_MAPPINGS[goal.status]} />
-+      <Text style={[composerPillStyles.label, goalLabelStyle(goal.status)]} numberOfLines={1}>
++      <Glyph size={13} uniProps={GOAL_STATUS_COLOR_MAPPINGS[goal.status]} />
++      <Text style={[goalPillStyles.label, goalLabelStyle(goal.status)]} numberOfLines={1}>
 +        {label}
 +      </Text>
 +      {usageSuffix ? (
-+        <Text style={[composerPillStyles.label, goalPillStyles.usage]} numberOfLines={1}>
++        <Text style={[goalPillStyles.label, goalPillStyles.usage]} numberOfLines={1}>
 +          {usageSuffix}
 +        </Text>
 +      ) : null}
@@ -1219,7 +1241,7 @@ index 000000000..b894936aa
 +  });
 +});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..172332b46 100644
+index 4d14f101b..88a0601cc 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,12 @@
@@ -1235,7 +1257,7 @@ index 4d14f101b..172332b46 100644
  }
  
  function timestamp(value: Date | string): number {
-@@ -15,7 +18,18 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
+@@ -15,7 +18,21 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
    incoming: T,
  ): T {
    if (!current || timestamp(incoming.updatedAt) >= timestamp(current.updatedAt)) return incoming;
@@ -1252,7 +1274,10 @@ index 4d14f101b..172332b46 100644
 +  if (incoming.goal !== undefined && !equal(incoming.goal, merged.goal)) {
 +    merged = { ...merged, goal: incoming.goal };
 +  }
-+  if (incoming.backgroundTasks !== undefined && !equal(incoming.backgroundTasks, merged.backgroundTasks)) {
++  if (
++    incoming.backgroundTasks !== undefined &&
++    !equal(incoming.backgroundTasks, merged.backgroundTasks)
++  ) {
 +    merged = { ...merged, backgroundTasks: incoming.backgroundTasks };
 +  }
 +  return merged;
