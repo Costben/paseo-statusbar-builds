@@ -1163,42 +1163,79 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 0d59b1c6b..a1a7d0a78 100644
+index 0d59b1c6b..ac2e3f3d1 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
-@@ -34,6 +34,7 @@ import type {
+@@ -34,6 +34,8 @@ import type {
    AgentPersistenceHandle,
  } from "@getpaseo/protocol/agent-types";
  import type {
 +  AgentGoalPayload,
++  AgentBackgroundTasksPayload,
    ServerInfoStatusPayload,
    ProjectPlacementPayload,
    ServerCapabilities,
-@@ -86,6 +87,7 @@ export interface Agent {
+@@ -86,6 +88,8 @@ export interface Agent {
    persistence: AgentPersistenceHandle | null;
    runtimeInfo?: AgentRuntimeInfo;
    lastUsage?: AgentUsage;
 +  goal?: AgentGoalPayload | null;
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
    lastError?: string | null;
    title: string | null;
    cwd: string;
+diff --git a/packages/app/src/utils/agent-directory-update-policy.test.ts b/packages/app/src/utils/agent-directory-update-policy.test.ts
+new file mode 100644
+index 000000000..b894936aa
+--- /dev/null
++++ b/packages/app/src/utils/agent-directory-update-policy.test.ts
+@@ -0,0 +1,28 @@
++import { describe, expect, it } from "vitest";
++import { acceptAgentDirectoryUpdate } from "./agent-directory-update-policy";
++
++describe("acceptAgentDirectoryUpdate", () => {
++  it("merges backgroundTasks even when delta timestamp looks stale", () => {
++    const current = {
++      updatedAt: new Date("2026-10-03T12:00:00.000Z"),
++      backgroundTasks: null,
++    };
++    const incoming = {
++      updatedAt: new Date("2026-10-03T12:00:00.000Z"),
++      backgroundTasks: {
++        count: 1,
++        tasks: [
++          {
++            id: "bash-1",
++            command: "sleep 60",
++            status: "running" as const,
++            startedAt: 1791034549628,
++          },
++        ],
++      },
++    };
++
++    const merged = acceptAgentDirectoryUpdate(current, incoming);
++    expect(merged.backgroundTasks).toEqual(incoming.backgroundTasks);
++  });
++});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..39dd7b68f 100644
+index 4d14f101b..172332b46 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
-@@ -1,9 +1,11 @@
+@@ -1,9 +1,12 @@
  import equal from "fast-deep-equal";
  import type { AgentUsage } from "@getpaseo/protocol/agent-types";
-+import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import type { AgentGoalPayload, AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
  
  interface AgentUpdateValue {
    updatedAt: Date | string;
    lastUsage?: AgentUsage;
 +  goal?: AgentGoalPayload | null;
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
  }
  
  function timestamp(value: Date | string): number {
-@@ -15,7 +17,15 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
+@@ -15,7 +18,18 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
    incoming: T,
  ): T {
    if (!current || timestamp(incoming.updatedAt) >= timestamp(current.updatedAt)) return incoming;
@@ -1206,8 +1243,8 @@ index 4d14f101b..39dd7b68f 100644
 -  if (equal(incoming.lastUsage, current.lastUsage)) return current;
 -  return { ...current, lastUsage: incoming.lastUsage };
 +
-+  // The daemon's emitState() does not bump updatedAt, so usage and goal changes arrive on
-+  // deltas that look stale. Those two fields merge anyway; the rest of the delta is dropped.
++  // The daemon's emitState() does not bump updatedAt, so usage, goal and backgroundTasks changes arrive on
++  // deltas that look stale. Those fields merge anyway; the rest of the delta is dropped.
 +  let merged = current;
 +  if (incoming.lastUsage !== undefined && !equal(incoming.lastUsage, merged.lastUsage)) {
 +    merged = { ...merged, lastUsage: incoming.lastUsage };
@@ -1215,25 +1252,67 @@ index 4d14f101b..39dd7b68f 100644
 +  if (incoming.goal !== undefined && !equal(incoming.goal, merged.goal)) {
 +    merged = { ...merged, goal: incoming.goal };
 +  }
++  if (incoming.backgroundTasks !== undefined && !equal(incoming.backgroundTasks, merged.backgroundTasks)) {
++    merged = { ...merged, backgroundTasks: incoming.backgroundTasks };
++  }
 +  return merged;
  }
+diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
+index e1be8c5a0..ab2262614 100644
+--- a/packages/app/src/utils/agent-snapshots.test.ts
++++ b/packages/app/src/utils/agent-snapshots.test.ts
+@@ -31,6 +31,8 @@ function createSnapshot(
+     pendingPermissions: input.pendingPermissions ?? [],
+     persistence: input.persistence ?? null,
+     title: input.title ?? null,
++    goal: input.goal,
++    backgroundTasks: input.backgroundTasks,
+     labels: (input.labels ?? {}) as AgentSnapshotPayload["labels"],
+   };
+ }
+@@ -40,11 +42,23 @@ describe("normalizeAgentSnapshot", () => {
+     const snapshot = createSnapshot({
+       status: "running",
+       activeTurn: { turnId: "turn-1", startedAt: "2026-07-31T12:00:00.000Z" },
++      backgroundTasks: {
++        count: 1,
++        tasks: [
++          {
++            id: "bash-1",
++            command: "sleep 60",
++            status: "running",
++            startedAt: 1791034549628,
++          },
++        ],
++      },
+     });
+ 
+     expect(projectAgentSnapshot(normalizeAgentSnapshot(snapshot, "server-1"))).toMatchObject({
+       status: "running",
+       activeTurn: snapshot.activeTurn,
++      backgroundTasks: snapshot.backgroundTasks,
+     });
+   });
+ 
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c640..7a4c64310 100644
+index c1c70c640..3579b7f13 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
-@@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
+@@ -78,6 +78,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
      persistence: agent.persistence,
      ...(agent.runtimeInfo ? { runtimeInfo: agent.runtimeInfo } : {}),
      ...(agent.lastUsage ? { lastUsage: agent.lastUsage } : {}),
 +    ...(agent.goal ? { goal: agent.goal } : {}),
++    ...(agent.backgroundTasks ? { backgroundTasks: agent.backgroundTasks } : {}),
      ...(agent.lastError ? { lastError: agent.lastError } : {}),
      title: agent.title,
      labels: agent.labels,
-@@ -121,6 +122,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
+@@ -121,6 +123,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
      persistence: snapshot.persistence ?? null,
      runtimeInfo: snapshot.runtimeInfo,
      lastUsage: snapshot.lastUsage,
 +    goal: snapshot.goal ?? null,
++    backgroundTasks: snapshot.backgroundTasks ?? null,
      lastError: snapshot.lastError ?? null,
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
@@ -1380,6 +1459,32 @@ index 1f8c1374c..e89365af7 100644
          stdio: ["inherit", "pipe", "pipe", "ipc"],
          env: workerEnv,
          execArgv: workerExecArgv,
+diff --git a/packages/server/src/server/agent/agent-loading.ts b/packages/server/src/server/agent/agent-loading.ts
+index 248e8d2b1..bf89483e6 100644
+--- a/packages/server/src/server/agent/agent-loading.ts
++++ b/packages/server/src/server/agent/agent-loading.ts
+@@ -1,3 +1,5 @@
++import { existsSync } from "node:fs";
++
+ import type { Logger } from "pino";
+ 
+ import type { AgentProvider } from "./agent-sdk-types.js";
+@@ -102,6 +104,15 @@ export async function ensureAgentLoaded(
+       throw new Error(`Agent ${agentId} references unavailable provider '${record.provider}'`);
+     }
+ 
++    // Resuming spawns the provider inside the agent's workspace. When that
++    // directory is gone - a pruned worktree, a cleaned temp workspace, a moved
++    // project - the spawn fails with an ENOENT that names the binary rather than
++    // the directory, and the agent looks broken for no visible reason. Refuse the
++    // resume here so the failure names the real cause and no process is started.
++    if (!existsSync(record.cwd)) {
++      throw new Error(`Agent ${agentId} workspace directory no longer exists: ${record.cwd}`);
++    }
++
+     const handle = toAgentPersistenceHandle(validProviders, record.persistence);
+ 
+     let snapshot: ManagedAgent;
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
 index aebede5fa..93f5501fe 100644
 --- a/packages/server/src/server/agent/agent-manager.ts

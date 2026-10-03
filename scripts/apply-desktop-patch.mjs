@@ -313,6 +313,16 @@ const MARKERS = [
     needle: "<BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />",
   },
   {
+    label: "Snapshot normalizer carries backgroundTasks",
+    path: "packages/app/src/utils/agent-snapshots.ts",
+    needle: "backgroundTasks: snapshot.backgroundTasks ?? null,",
+  },
+  {
+    label: "Directory update policy carries backgroundTasks",
+    path: "packages/app/src/utils/agent-directory-update-policy.ts",
+    needle: "merged = { ...merged, backgroundTasks: incoming.backgroundTasks };",
+  },
+  {
     label: "forkProcess helper",
     path: "packages/server/src/utils/spawn.ts",
     needle: "export function forkProcess(",
