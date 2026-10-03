@@ -91,9 +91,28 @@ jobs:
             is_prerelease="$(gh api "repos/${UPSTREAM_REPO}/releases/tags/${tag}" --jq '.prerelease' 2>/dev/null || echo false)"
             echo "Using requested tag: $tag"
           else
-            release="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" \
-              --jq 'map(select(.draft == false))
-                    | sort_by(.published_at) | reverse | .[0]')"
+            # Pick the highest SemVer release, not the most recently published
+            # one: upstream may ship a hotfix on an older line after a newer
+            # prerelease, which would otherwise drag the build back a version.
+            release="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" | jq -c '
+              def zpad10: tostring | ("0000000000" + .)[-10:];
+              def semver_key:
+                sub("^(desktop(-(windows|linux|macos))?|android)-"; "")
+                | sub("^v"; "")
+                | capture("^(?<core>[0-9]+\\.[0-9]+\\.[0-9]+)(?:-(?<pre>[0-9A-Za-z.-]+))?(?:\\+(?<build>[0-9A-Za-z.-]+))?$")
+                | (.core | split(".") | map(tonumber | zpad10) | join(".")) as $core
+                | (if (.pre // "") == ""
+                   then "{"
+                   else ([.pre | split(".")[] | if test("^[0-9]+$") then ("0" + (tonumber | zpad10)) else ("1" + .) end] | join(".")) + ".-"
+                   end) as $pre
+                | "\($core)-\($pre)";
+              [ .[]
+                | select(.draft == false)
+                | . + { _k: (.tag_name | try semver_key catch null) }
+                | select(._k != null)
+              ]
+              | if length == 0 then null else (max_by(._k) | del(._k)) end
+            ')"
             tag="$(jq -r '.tag_name // empty' <<< "$release")"
             is_prerelease="$(jq -r '.prerelease // false' <<< "$release")"
             echo "Latest upstream release: $tag (prerelease=$is_prerelease)"
