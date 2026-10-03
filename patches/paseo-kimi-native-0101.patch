@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd9..da4038a7 100644
+index 4bc21fd9b..da4038a72 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd9..da4038a7 100644
  app-example
  
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 4f1302fd..4a15f6b5 100644
+index 4f1302fd1..4a15f6b5e 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -32,7 +32,7 @@ index 4f1302fd..4a15f6b5 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index ff32aaf4..d329cdd3 100644
+index ff32aaf4d..d329cdd36 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -58,7 +58,7 @@ index ff32aaf4..d329cdd3 100644
 +  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
  }
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index bca5a250..bd04c2fa 100644
+index bca5a250b..bd04c2faa 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -410,7 +410,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -71,9 +71,190 @@ index bca5a250..bd04c2fa 100644
      color: theme.colors.foregroundExtraMuted,
      fontSize: theme.fontSize.base,
      fontWeight: theme.fontWeight.normal,
+diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
+new file mode 100644
+index 000000000..0e9c8d2da
+--- /dev/null
++++ b/packages/app/src/composer/background-task-pill.tsx
+@@ -0,0 +1,175 @@
++import { useCallback, type ReactElement } from "react";
++import { Text, View } from "react-native";
++import { Terminal } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import type { AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
++import {
++  MenuRoot,
++  MenuSurface,
++  MenuTrigger,
++  menuRowContentInset,
++  type MenuTriggerState,
++} from "@/components/ui/menu";
++import { formatDuration } from "@/utils/time";
++
++const ThemedTerminal = withUnistyles(Terminal);
++
++const blueMapping = () => ({ color: "#3b82f6" });
++
++const taskPillStyles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    backgroundColor: "rgba(59, 130, 246, 0.12)",
++    borderColor: "rgba(59, 130, 246, 0.35)",
++    borderWidth: 1,
++    flexShrink: 0,
++  },
++  pillActive: {
++    backgroundColor: "rgba(59, 130, 246, 0.22)",
++    borderColor: "rgba(59, 130, 246, 0.6)",
++  },
++  count: {
++    color: "#3b82f6",
++    fontSize: 12,
++    fontWeight: theme.fontWeight.medium,
++    lineHeight: 14,
++  },
++  detailContainer: {
++    paddingVertical: theme.spacing[2],
++    gap: theme.spacing[2],
++  },
++  taskItem: {
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[2],
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: theme.colors.borderSubtle,
++    gap: 4,
++  },
++  taskHeader: {
++    flexDirection: "row",
++    alignItems: "center",
++    justifyContent: "space-between",
++  },
++  taskId: {
++    fontSize: 11,
++    fontWeight: theme.fontWeight.medium,
++    color: "#3b82f6",
++    fontFamily: theme.fontFamily.mono,
++  },
++  taskElapsed: {
++    fontSize: 11,
++    color: theme.colors.foregroundExtraMuted,
++  },
++  taskCommand: {
++    fontSize: 12,
++    color: theme.colors.foreground,
++    fontFamily: theme.fontFamily.mono,
++  },
++  taskDesc: {
++    fontSize: 12,
++    color: theme.colors.foregroundMuted,
++  },
++  emptyText: {
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[3],
++    color: theme.colors.foregroundMuted,
++    fontSize: 12,
++  },
++}));
++
++interface BackgroundTaskPillProps {
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
++}
++
++export function BackgroundTaskPill({
++  backgroundTasks,
++}: BackgroundTaskPillProps): ReactElement | null {
++  if (!backgroundTasks || backgroundTasks.count <= 0) {
++    return null;
++  }
++
++  return (
++    <MenuRoot compactMode="sheet">
++      <BackgroundTaskPillTrigger count={backgroundTasks.count} />
++      <MenuSurface
++        side="top"
++        align="start"
++        offset={6}
++        sheetTitle={`后台任务 (${backgroundTasks.count})`}
++        minWidth={280}
++        maxWidth={460}
++        maxHeight={400}
++        scrollable
++        testID="composer-background-task-panel"
++      >
++        <BackgroundTaskDetail tasks={backgroundTasks.tasks} />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
++
++function BackgroundTaskPillTrigger({ count }: { count: number }): ReactElement {
++  const pillStyle = useCallback(
++    ({ hovered, pressed, open }: MenuTriggerState) => [
++      taskPillStyles.pill,
++      (hovered || pressed || open) && taskPillStyles.pillActive,
++    ],
++    [],
++  );
++
++  return (
++    <MenuTrigger
++      testID="composer-background-task-pill"
++      accessibilityRole="button"
++      accessibilityLabel={`后台任务: ${count} 个运行中`}
++      style={pillStyle}
++    >
++      <ThemedTerminal size={13} uniProps={blueMapping} />
++      <Text style={taskPillStyles.count}>{count}</Text>
++    </MenuTrigger>
++  );
++}
++
++function BackgroundTaskDetail({
++  tasks,
++}: {
++  tasks: AgentBackgroundTasksPayload["tasks"];
++}): ReactElement {
++  if (tasks.length === 0) {
++    return <Text style={taskPillStyles.emptyText}>当前没有正在运行的后台任务</Text>;
++  }
++
++  const now = Date.now();
++
++  return (
++    <View style={taskPillStyles.detailContainer}>
++      {tasks.map((task) => {
++        const elapsed = task.startedAt ? formatDuration(now - task.startedAt) : null;
++        return (
++          <View key={task.id} style={taskPillStyles.taskItem}>
++            <View style={taskPillStyles.taskHeader}>
++              <Text style={taskPillStyles.taskId}>{task.id}</Text>
++              {elapsed ? <Text style={taskPillStyles.taskElapsed}>已运行 {elapsed}</Text> : null}
++            </View>
++            {task.description ? (
++              <Text style={taskPillStyles.taskDesc} numberOfLines={2}>
++                {task.description}
++              </Text>
++            ) : null}
++            {task.command ? (
++              <Text style={taskPillStyles.taskCommand} numberOfLines={3}>
++                {task.command}
++              </Text>
++            ) : null}
++          </View>
++        );
++      })}
++    </View>
++  );
++}
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 00000000..1f04f679
+index 000000000..1f04f6797
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -247,7 +428,7 @@ index 00000000..1f04f679
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 00000000..41eb299e
+index 000000000..41eb299ee
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -390,7 +571,7 @@ index 00000000..41eb299e
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 00000000..d8740887
+index 000000000..d8740887a
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,399 @@
@@ -794,18 +975,19 @@ index 00000000..d8740887
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index c46e2ac1..d8af660b 100644
+index c46e2ac15..23d6a1d40 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -48,6 +48,7 @@ import {
+@@ -48,6 +48,8 @@ import {
    type DraftAgentControlsProps,
  } from "@/composer/agent-controls";
  import { ContextWindowMeter } from "@/components/context-window-meter";
 +import { GoalPill } from "@/composer/goal-pill";
++import { BackgroundTaskPill } from "@/composer/background-task-pill";
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
  import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
  import { useFilePicker } from "@/hooks/use-file-picker";
-@@ -265,15 +266,33 @@ function buildRealtimeVoiceButtonStyle(
+@@ -265,15 +267,35 @@ function buildRealtimeVoiceButtonStyle(
    );
  }
  
@@ -818,6 +1000,7 @@ index c46e2ac1..d8af660b 100644
 +  model: null,
 +  provider: null,
 +  goal: null,
++  backgroundTasks: null,
 +  supportsSteering: true,
 +};
 +
@@ -838,17 +1021,19 @@ index c46e2ac1..d8af660b 100644
 +      model: agent.model,
 +      provider: agent.provider,
 +      goal: agent.goal ?? null,
++      backgroundTasks: agent.backgroundTasks ?? null,
 +      // A daemon that predates the flag leaves it undefined. Assume the agent can
 +      // steer then, so nothing changes for the providers that always could.
 +      supportsSteering: agent.capabilities?.supportsSteering !== false,
      };
    };
  }
-@@ -303,10 +322,17 @@ function renderContextWindowMeter(
+@@ -303,10 +325,19 @@ function renderContextWindowMeter(
  }
  
  function resolveContextWindowPlacement(
 +  goalPill: ReactElement | null,
++  backgroundTaskPill: ReactElement | null,
    meter: ReactElement | null,
    reserveSlot: boolean,
  ): ReactNode {
@@ -856,6 +1041,7 @@ index c46e2ac1..d8af660b 100644
 +  if (!reserveSlot) return null;
 +  return (
 +    <View style={styles.composerToolbarSlot}>
++      {backgroundTaskPill}
 +      {goalPill}
 +      <View style={styles.contextWindowMeterSlot}>{meter}</View>
 +    </View>
@@ -863,7 +1049,7 @@ index c46e2ac1..d8af660b 100644
  }
  
  interface RenderLeftContentArgs {
-@@ -1543,10 +1569,10 @@ function ComposerContentImpl({
+@@ -1543,10 +1574,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -876,7 +1062,7 @@ index c46e2ac1..d8af660b 100644
    );
  
    useEffect(() => {
-@@ -1610,6 +1636,7 @@ function ComposerContentImpl({
+@@ -1610,6 +1641,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -884,7 +1070,7 @@ index c46e2ac1..d8af660b 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2091,9 +2118,13 @@ function ComposerContentImpl({
+@@ -2091,9 +2123,18 @@ function ComposerContentImpl({
        contextWindowMeterGlyphSize,
      ],
    );
@@ -892,15 +1078,20 @@ index c46e2ac1..d8af660b 100644
 +    () => <GoalPill goal={agentState.goal} provider={agentState.provider} />,
 +    [agentState.goal, agentState.provider],
 +  );
++  const backgroundTaskPill = useMemo(
++    () => <BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />,
++    [agentState.backgroundTasks],
++  );
    const beforeVoiceContent = useMemo(
 -    () => <>{resolveContextWindowPlacement(contextWindowMeter, hasAgent)}</>,
 -    [contextWindowMeter, hasAgent],
-+    () => <>{resolveContextWindowPlacement(goalPill, contextWindowMeter, hasAgent)}</>,
-+    [goalPill, contextWindowMeter, hasAgent],
++    () =>
++      <>{resolveContextWindowPlacement(goalPill, backgroundTaskPill, contextWindowMeter, hasAgent)}</>,
++    [goalPill, backgroundTaskPill, contextWindowMeter, hasAgent],
    );
  
    const hasGithubAttachment = useMemo(
-@@ -2559,6 +2590,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2559,6 +2600,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: theme.spacing[1],
    },
@@ -914,7 +1105,7 @@ index c46e2ac1..d8af660b 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index 5503ea15..7ec4799a 100644
+index 5503ea151..7ec4799a5 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -190,9 +190,15 @@ describe("dictation transcript behavior", () => {
@@ -937,7 +1128,7 @@ index 5503ea15..7ec4799a 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index a63aeb02..8c20c16d 100644
+index a63aeb02d..8c20c16d5 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -957,7 +1148,7 @@ index a63aeb02..8c20c16d 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c87..69a99234 100644
+index 3ab03c877..69a992346 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -972,7 +1163,7 @@ index 3ab03c87..69a99234 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 0d59b1c6..a1a7d0a7 100644
+index 0d59b1c6b..a1a7d0a78 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -34,6 +34,7 @@ import type {
@@ -992,7 +1183,7 @@ index 0d59b1c6..a1a7d0a7 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101..39dd7b68 100644
+index 4d14f101b..39dd7b68f 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,11 @@
@@ -1027,7 +1218,7 @@ index 4d14f101..39dd7b68 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c64..7a4c6431 100644
+index c1c70c640..7a4c64310 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -1047,7 +1238,7 @@ index c1c70c64..7a4c6431 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index a4f88360..4bdea7e3 100644
+index a4f883604..fb7009d40 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -378,6 +378,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -1059,7 +1250,7 @@ index a4f88360..4bdea7e3 100644
    })
    .catchall(z.boolean());
  
-@@ -807,6 +809,25 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -807,6 +809,43 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -1082,19 +1273,38 @@ index a4f88360..4bdea7e3 100644
 +
 +export type AgentGoalPayload = z.infer<typeof AgentGoalPayloadSchema>;
 +
++export const AgentBackgroundTaskPayloadSchema = z.object({
++  id: z.string(),
++  command: z.string().nullable().optional(),
++  description: z.string().nullable().optional(),
++  status: z.enum(["running", "completed", "failed", "canceled"]).optional(),
++  startedAt: z.number().nullable().optional(),
++  pid: z.number().optional(),
++});
++
++export type AgentBackgroundTaskPayload = z.infer<typeof AgentBackgroundTaskPayloadSchema>;
++
++export const AgentBackgroundTasksPayloadSchema = z.object({
++  count: z.number(),
++  tasks: z.array(AgentBackgroundTaskPayloadSchema),
++});
++
++export type AgentBackgroundTasksPayload = z.infer<typeof AgentBackgroundTasksPayloadSchema>;
++
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -828,6 +849,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -828,6 +867,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    persistence: AgentPersistenceHandleSchema.nullable(),
    runtimeInfo: AgentRuntimeInfoSchema.optional(),
    lastUsage: AgentUsageSchema.optional(),
 +  goal: AgentGoalPayloadSchema.nullable().optional(),
++  backgroundTasks: AgentBackgroundTasksPayloadSchema.nullable().optional(),
    lastError: z.string().optional(),
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eba..606e97b7 100644
+index 0dd49eba0..606e97b7f 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -1119,7 +1329,7 @@ index 0dd49eba..606e97b7 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe18..afe2ccef 100644
+index 6930fe187..afe2ccefd 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
@@ -1136,7 +1346,7 @@ index 6930fe18..afe2ccef 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 1f8c1374..e89365af 100644
+index 1f8c1374c..e89365af7 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -1171,26 +1381,28 @@ index 1f8c1374..e89365af 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index aebede5f..07f90d9d 100644
+index aebede5fa..93f5501fe 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
-@@ -30,6 +30,7 @@ import {
+@@ -30,6 +30,8 @@ import {
    type AgentResumePurpose,
    type AgentResumeSessionOptions,
    type AgentFeature,
 +  type AgentGoal,
++  type AgentBackgroundTasks,
    type AgentLaunchContext,
    type AgentSlashCommand,
    type AgentMode,
-@@ -423,6 +424,7 @@ interface ManagedAgentBase {
+@@ -423,6 +425,8 @@ interface ManagedAgentBase {
    activeTurnId: string | null;
    activeTurnStartedAt: Date | null;
    lastUsage?: AgentUsage;
 +  goal?: AgentGoal | null;
++  backgroundTasks?: AgentBackgroundTasks | null;
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -2443,7 +2445,7 @@ export class AgentManager {
+@@ -2443,7 +2447,7 @@ export class AgentManager {
          pendingRun.start = { status: "failed", error: error.message };
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -1199,7 +1411,7 @@ index aebede5f..07f90d9d 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -2455,7 +2457,7 @@ export class AgentManager {
+@@ -2455,7 +2459,7 @@ export class AgentManager {
          error: errorMsg,
        });
        this.finalizeForegroundTurn(agent);
@@ -1208,7 +1420,7 @@ index aebede5f..07f90d9d 100644
        throw error;
      }
    }
-@@ -2585,7 +2587,7 @@ export class AgentManager {
+@@ -2585,7 +2589,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -1217,7 +1429,7 @@ index aebede5f..07f90d9d 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -2644,6 +2646,24 @@ export class AgentManager {
+@@ -2644,6 +2648,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -1242,7 +1454,7 @@ index aebede5f..07f90d9d 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3046,7 +3066,7 @@ export class AgentManager {
+@@ -3046,7 +3068,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -1251,7 +1463,7 @@ index aebede5f..07f90d9d 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -3184,7 +3204,7 @@ export class AgentManager {
+@@ -3184,7 +3206,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -1260,7 +1472,7 @@ index aebede5f..07f90d9d 100644
      }
    }
  
-@@ -3640,7 +3660,12 @@ export class AgentManager {
+@@ -3640,7 +3662,12 @@ export class AgentManager {
        workspaceId: options?.workspaceId,
        owner: options?.owner,
        session,
@@ -1274,7 +1486,7 @@ index aebede5f..07f90d9d 100644
        config,
        runtimeInfo: undefined,
        lifecycle: "initializing",
-@@ -3769,9 +3794,28 @@ export class AgentManager {
+@@ -3769,9 +3796,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -1303,7 +1515,7 @@ index aebede5f..07f90d9d 100644
            return;
          }
          this.logger.trace(
-@@ -4295,6 +4339,13 @@ export class AgentManager {
+@@ -4295,6 +4341,18 @@ export class AgentManager {
          agent.lastUsage = event.usage;
          this.emitState(agent);
          return undefined;
@@ -1314,11 +1526,16 @@ index aebede5f..07f90d9d 100644
 +        flags.shouldDispatchEvent = false;
 +        this.emitState(agent);
 +        return undefined;
++      case "background_tasks_updated":
++        agent.backgroundTasks = event.backgroundTasks;
++        flags.shouldDispatchEvent = false;
++        this.emitState(agent);
++        return undefined;
        case "mode_changed":
          agent.currentModeId = event.currentModeId;
          agent.availableModes = event.availableModes;
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index f72bd84d..9a5dda96 100644
+index f72bd84db..9a5dda96c 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
@@ -1355,10 +1572,10 @@ index f72bd84d..9a5dda96 100644
      const features = [createFeature()];
      const agent = createManagedAgent({ features });
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 05f932ae..bc5171de 100644
+index 05f932aea..8a1848d37 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
-@@ -146,6 +146,10 @@ export function toAgentPayload(
+@@ -146,6 +146,14 @@ export function toAgentPayload(
      payload.lastUsage = usage;
    }
  
@@ -1366,11 +1583,15 @@ index 05f932ae..bc5171de 100644
 +    payload.goal = agent.goal;
 +  }
 +
++  if (agent.backgroundTasks !== undefined) {
++    payload.backgroundTasks = agent.backgroundTasks;
++  }
++
    if (agent.lastError !== undefined) {
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a7..44dd408c 100644
+index 08bd66a79..44dd408c9 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -12,6 +12,8 @@ import {
@@ -1469,7 +1690,7 @@ index 08bd66a7..44dd408c 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 41e2d520..7c5aef46 100644
+index 41e2d5201..7c5aef46a 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
 @@ -52,6 +52,14 @@ async function steerOrReplaceActiveRun(
@@ -1505,7 +1726,7 @@ index 41e2d520..7c5aef46 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index a0ed0eed..c6e3316a 100644
+index a0ed0eedc..fdd98fe5e 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -178,6 +178,11 @@ export interface AgentCapabilityFlags {
@@ -1520,7 +1741,7 @@ index a0ed0eed..c6e3316a 100644
  }
  
  export interface AgentPersistenceHandle {
-@@ -222,6 +227,35 @@ export interface AgentUsage {
+@@ -222,6 +227,49 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -1553,20 +1774,35 @@ index a0ed0eed..c6e3316a 100644
 +  return goal !== null && goal !== undefined && goal.status === "active";
 +}
 +
++export interface AgentBackgroundTask {
++  id: string;
++  command?: string | null;
++  description?: string | null;
++  status?: "running" | "completed" | "failed" | "canceled";
++  startedAt?: number | null;
++  pid?: number;
++}
++
++export interface AgentBackgroundTasks {
++  count: number;
++  tasks: AgentBackgroundTask[];
++}
++
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -407,6 +441,8 @@ export type AgentStreamEvent =
+@@ -407,6 +455,9 @@ export type AgentStreamEvent =
    | { type: "turn_started"; provider: AgentProvider; turnId?: string }
    | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
 +  // Provider-reported goal state. A null goal means the agent holds no goal.
 +  | { type: "goal_updated"; provider: AgentProvider; goal: AgentGoal | null }
++  | { type: "background_tasks_updated"; provider: AgentProvider; backgroundTasks: AgentBackgroundTasks }
    | {
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d106a2c..285427dd 100644
+index 9d106a2c1..285427dd0 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -2918,7 +3154,7 @@ index 9d106a2c..285427dd 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 524ede92..5e1a89f9 100644
+index 524ede92d..5e1a89f95 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -73,9 +73,11 @@ import {
@@ -3971,7 +4207,7 @@ index 524ede92..5e1a89f9 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index dbd10aea..b7f2deab 100644
+index dbd10aea4..b7f2deab5 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
 @@ -3278,6 +3278,634 @@ describe("ClaudeAgentSession context window usage", () => {
@@ -4610,7 +4846,7 @@ index dbd10aea..b7f2deab 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index e5153e21..b38180e3 100644
+index e5153e210..b38180e38 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -34,6 +34,8 @@ import {
@@ -5118,7 +5354,7 @@ index e5153e21..b38180e3 100644
    contents: string[];
    workflowContents: string[];
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 0e187734..25549ed4 100644
+index 0e187734b..25549ed49 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -13,7 +13,13 @@ import {
@@ -5215,7 +5451,7 @@ index 0e187734..25549ed4 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 6b341fa9..a43a5419 100644
+index 6b341fa9e..a43a5419f 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -5300,7 +5536,7 @@ index 6b341fa9..a43a5419 100644
    logger: Logger,
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 5a14d991..c1f92b7b 100644
+index 5a14d9913..c1f92b7b7 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -5348,7 +5584,7 @@ index 5a14d991..c1f92b7b 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb0..950dfa61 100644
+index b388fdb01..950dfa61c 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -5432,7 +5668,7 @@ index b388fdb0..950dfa61 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f6..b2befcb5 100644
+index 7ae144f65..b2befcb5e 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -5640,10 +5876,10 @@ index 7ae144f6..b2befcb5 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 00000000..e5ff95c6
+index 000000000..04fd19dac
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,116 @@
 +import type { Logger } from "pino";
 +
 +import {
@@ -5705,6 +5941,9 @@ index 00000000..e5ff95c6
 +      onSubagent: (event) => {
 +        this.emit({ type: "provider_subagent", provider: this.provider, event });
 +      },
++      onBackgroundTasks: (backgroundTasks) => {
++        this.emit({ type: "background_tasks_updated", provider: this.provider, backgroundTasks });
++      },
 +    });
 +  }
 +
@@ -5759,7 +5998,7 @@ index 00000000..e5ff95c6
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 00000000..33f046ce
+index 000000000..33f046ce2
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 @@ -0,0 +1,1730 @@
@@ -7495,11 +7734,11 @@ index 00000000..33f046ce
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 00000000..a750e29b
+index 000000000..97876f0e9
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1709 @@
-+import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
+@@ -0,0 +1,1791 @@
++import { closeSync, createReadStream, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
 +import path from "node:path";
@@ -7510,6 +7749,8 @@ index 00000000..a750e29b
 +
 +import {
 +  isAgentGoalLive,
++  type AgentBackgroundTask,
++  type AgentBackgroundTasks,
 +  type AgentGoal,
 +  type AgentGoalStatus,
 +  type AgentTimelineItem,
@@ -8084,6 +8325,7 @@ index 00000000..a750e29b
 +  onGoal?: (goal: AgentGoal | null) => void;
 +  onUsage?: (usage: AgentUsage) => void;
 +  onSubagent?: (event: ProviderSubagentInputEvent) => void;
++  onBackgroundTasks?: (tasks: AgentBackgroundTasks) => void;
 +}
 +
 +/**
@@ -8118,11 +8360,13 @@ index 00000000..a750e29b
 +  private readonly onGoal: ((goal: AgentGoal | null) => void) | undefined;
 +  private readonly onUsage: ((usage: AgentUsage) => void) | undefined;
 +  private readonly onSubagent: ((event: ProviderSubagentInputEvent) => void) | undefined;
++  private readonly onBackgroundTasks: ((tasks: AgentBackgroundTasks) => void) | undefined;
 +
 +  private resolvedPath: string | null = null;
 +  private offset = 0;
 +  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
 +  private pending = "";
++  private backgroundTasksSignature = "";
 +  private goal: AgentGoal | null = null;
 +  private contextWindowUsedTokens: number | null = null;
 +  private modelAlias: string | null = null;
@@ -8171,6 +8415,7 @@ index 00000000..a750e29b
 +    this.onGoal = options.onGoal;
 +    this.onUsage = options.onUsage;
 +    this.onSubagent = options.onSubagent;
++    this.onBackgroundTasks = options.onBackgroundTasks;
 +  }
 +
 +  /** Idempotent. Starts tailing. */
@@ -8316,6 +8561,10 @@ index 00000000..a750e29b
 +    if (this.stopped) {
 +      return;
 +    }
++    this.publishBackgroundTasks();
++    if (this.stopped) {
++      return;
++    }
 +    await this.publishSubagents();
 +    if (this.stopped) {
 +      return;
@@ -8431,6 +8680,7 @@ index 00000000..a750e29b
 +    this.subagentTailers.clear();
 +    this.subagentSignatures.clear();
 +    this.backgroundTaskSignatures.clear();
++    this.backgroundTasksSignature = "";
 +    this.subagentsWithText.clear();
 +    this.summarisedSubagents.clear();
 +    this.subagentIncarnations.clear();
@@ -8493,6 +8743,33 @@ index 00000000..a750e29b
 +      this.logger.warn(
 +        { err: error, sessionId: this.kimiSessionId },
 +        "Kimi session log goal listener failed",
++      );
++    }
++  }
++
++  private publishBackgroundTasks(): void {
++    if (!this.onBackgroundTasks) {
++      return;
++    }
++    const sessionDir = this.resolveSessionDir();
++    if (sessionDir === null) {
++      return;
++    }
++    const runningTasks = readRunningTasksFromSessionDir(sessionDir);
++    const signature = JSON.stringify(runningTasks.map((t) => [t.id, t.startedAt]));
++    if (signature === this.backgroundTasksSignature) {
++      return;
++    }
++    this.backgroundTasksSignature = signature;
++    try {
++      this.onBackgroundTasks({
++        count: runningTasks.length,
++        tasks: runningTasks,
++      });
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log background tasks listener failed",
 +      );
 +    }
 +  }
@@ -9208,9 +9485,53 @@ index 00000000..a750e29b
 +    setTimeout(resolve, ms);
 +  });
 +}
++
++interface KimiTaskFileRecord {
++  taskId?: string;
++  description?: string;
++  status?: string;
++  command?: string;
++  startedAt?: number;
++  pid?: number;
++}
++
++export function readRunningTasksFromSessionDir(sessionDir: string): AgentBackgroundTask[] {
++  const tasksDir = path.join(sessionDir, "agents", "main", "tasks");
++  if (!existsSync(tasksDir)) {
++    return [];
++  }
++  let entries: string[];
++  try {
++    entries = readdirSync(tasksDir);
++  } catch {
++    return [];
++  }
++  const runningTasks: AgentBackgroundTask[] = [];
++  for (const entry of entries) {
++    if (!entry.endsWith(".json")) continue;
++    try {
++      const fullPath = path.join(tasksDir, entry);
++      const content = readFileSync(fullPath, "utf8");
++      const record = JSON.parse(content) as KimiTaskFileRecord;
++      if (record && record.status === "running") {
++        runningTasks.push({
++          id: record.taskId || path.basename(entry, ".json"),
++          command: record.command ?? null,
++          description: record.description ?? null,
++          status: "running",
++          startedAt: record.startedAt ?? null,
++          pid: record.pid,
++        });
++      }
++    } catch {
++      // Ignore reading / parsing errors on partially written files
++    }
++  }
++  return runningTasks;
++}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 00000000..fc0af579
+index 000000000..fc0af579c
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,304 @@
@@ -9520,7 +9841,7 @@ index 00000000..fc0af579
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 00000000..63dc7f66
+index 000000000..63dc7f667
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,241 @@
@@ -9766,7 +10087,7 @@ index 00000000..63dc7f66
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index a26e7cbf..751cd715 100644
+index a26e7cbfe..751cd7154 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -5,7 +5,7 @@ import {
@@ -9788,7 +10109,7 @@ index a26e7cbf..751cd715 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96b..7136338b 100644
+index 1f0fa96b9..7136338b7 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -9807,7 +10128,7 @@ index 1f0fa96b..7136338b 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index 0f0243d7..ad6243ff 100644
+index 0f0243d7a..ad6243ff1 100644
 --- a/packages/server/src/terminal/worker-terminal-manager.ts
 +++ b/packages/server/src/terminal/worker-terminal-manager.ts
 @@ -1,6 +1,6 @@
@@ -9828,7 +10149,7 @@ index 0f0243d7..ad6243ff 100644
      serialization: "advanced",
      stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index 8fac115f..689b91cf 100644
+index 8fac115f0..689b91cfa 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,11 @@

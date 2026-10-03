@@ -303,6 +303,16 @@ const MARKERS = [
     needle: "<GoalPill goal={agentState.goal} provider={agentState.provider} />",
   },
   {
+    label: "Native background task pill",
+    path: "packages/app/src/composer/background-task-pill.tsx",
+    needle: "export function BackgroundTaskPill(",
+  },
+  {
+    label: "Background task pill mounted in the composer",
+    path: "packages/app/src/composer/index.tsx",
+    needle: "<BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />",
+  },
+  {
     label: "forkProcess helper",
     path: "packages/server/src/utils/spawn.ts",
     needle: "export function forkProcess(",
