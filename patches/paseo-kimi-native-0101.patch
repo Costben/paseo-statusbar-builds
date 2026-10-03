@@ -73,7 +73,7 @@ index bca5a250b..bd04c2faa 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..0e9c8d2da
+index 000000000..bef3e8107
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -104,14 +104,14 @@ index 000000000..0e9c8d2da
 +    paddingHorizontal: 8,
 +    paddingVertical: 2,
 +    borderRadius: 9999,
-+    backgroundColor: "rgba(59, 130, 246, 0.12)",
-+    borderColor: "rgba(59, 130, 246, 0.35)",
++    backgroundColor: "transparent",
++    borderColor: "rgba(59, 130, 246, 0.45)",
 +    borderWidth: 1,
 +    flexShrink: 0,
 +  },
 +  pillActive: {
-+    backgroundColor: "rgba(59, 130, 246, 0.22)",
-+    borderColor: "rgba(59, 130, 246, 0.6)",
++    backgroundColor: "rgba(59, 130, 246, 0.08)",
++    borderColor: "rgba(59, 130, 246, 0.75)",
 +  },
 +  count: {
 +    color: "#3b82f6",
@@ -428,7 +428,7 @@ index 000000000..1f04f6797
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..41eb299ee
+index 000000000..2c20c7f26
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -517,7 +517,7 @@ index 000000000..41eb299ee
 +  });
 +
 +  it("appends the input side when the log carried one", () => {
-+    expect(formatGoalUsageSuffix(3, 12_300, 1_200_000)).toBe("· 3 回合 · 12.3K · 入 1.2M");
++    expect(formatGoalUsageSuffix(3, 12_300, 1_200_000)).toBe("· 3 回合 · 12.3K · IN 1.2M");
 +  });
 +
 +  it("leaves the suffix alone when there is no input count", () => {
@@ -571,7 +571,7 @@ index 000000000..41eb299ee
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..eba3f3644
+index 000000000..213410e7e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -775,7 +775,7 @@ index 000000000..eba3f3644
 +  const parts: string[] = [];
 +  if (turnsUsed > 0) parts.push(`${Math.round(turnsUsed)} 回合`);
 +  if (tokensUsed > 0) parts.push(formatCompactTokens(tokensUsed));
-+  if (inputTokens > 0) parts.push(`入 ${formatCompactTokens(inputTokens)}`);
++  if (inputTokens > 0) parts.push(`IN ${formatCompactTokens(inputTokens)}`);
 +  return parts;
 +}
 +
