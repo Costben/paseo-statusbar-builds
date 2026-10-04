@@ -73,7 +73,7 @@ index bca5a250b..bd04c2faa 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..bef3e8107
+index 000000000..1411c2de2
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -104,14 +104,14 @@ index 000000000..bef3e8107
 +    paddingHorizontal: 8,
 +    paddingVertical: 2,
 +    borderRadius: 9999,
-+    backgroundColor: "transparent",
-+    borderColor: "rgba(59, 130, 246, 0.45)",
 +    borderWidth: 1,
++    borderColor: theme.colors.borderAccent,
++    backgroundColor: theme.colors.surface1,
++    minWidth: 0,
 +    flexShrink: 0,
 +  },
 +  pillActive: {
-+    backgroundColor: "rgba(59, 130, 246, 0.08)",
-+    borderColor: "rgba(59, 130, 246, 0.75)",
++    backgroundColor: theme.colors.surface2,
 +  },
 +  count: {
 +    color: "#3b82f6",
