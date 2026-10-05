@@ -119,7 +119,7 @@ const PATCHES = [
     platforms: ["mac", "win"],
     marker: {
       path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: "handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[]",
+      needle: "private mapGoalExtension(",
     },
   },
   {
@@ -137,14 +137,17 @@ const PATCHES = [
 // the code that is supposed to be there is actually there.
 const MARKERS = [
   {
-    label: "ACP usage_update mapping",
+    // Upstream owns this mapping since #4848 (it preserves currentTurnUsage and
+    // tags the turnId). The patch no longer rewrites it; the check stays so a
+    // build cannot silently lose the ACP context-window reading.
+    label: "ACP usage_update mapping (upstream)",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
-    needle: "handleUsageUpdate(update: UsageUpdate): AgentStreamEvent[]",
+    needle: "private handleUsageUpdate(update: UsageUpdate): void {",
   },
   {
-    label: "ACP usage_update event emission",
+    label: "ACP usage_update event emission (upstream)",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
-    needle: "return [...pendingUserEvents, ...this.handleUsageUpdate(update)]",
+    needle: 'type: "usage_updated",',
   },
   {
     label: "ACP ExitPlanMode plan metadata",
