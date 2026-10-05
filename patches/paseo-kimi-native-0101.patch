@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd..da4038a 100644
+index 4bc21fd9b..da4038a72 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd..da4038a 100644
  app-example
  
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 4f1302f..4a15f6b 100644
+index 4f1302fd1..4a15f6b5e 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -32,7 +32,7 @@ index 4f1302f..4a15f6b 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index ff32aaf..d329cdd 100644
+index ff32aaf4d..d329cdd36 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -57,8 +57,119 @@ index ff32aaf..d329cdd 100644
 -  return formatControlLabel(option, true);
 +  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
  }
+diff --git a/packages/app/src/components/question-form-card-core.test.ts b/packages/app/src/components/question-form-card-core.test.ts
+index 40692d4ac..3732328c2 100644
+--- a/packages/app/src/components/question-form-card-core.test.ts
++++ b/packages/app/src/components/question-form-card-core.test.ts
+@@ -31,7 +31,7 @@ describe("question form card core", () => {
+     expect(resolveDismissLabel(questions)).toBe("Skip");
+   });
+ 
+-  test("requires a selection for option-only questions", () => {
++  test("accepts a typed answer for an option-only question", () => {
+     const questions = parseQuestionFormQuestions({
+       questions: [
+         {
+@@ -46,12 +46,38 @@ describe("question form card core", () => {
+     if (!questions) throw new Error("questions did not parse");
+     const [question] = questions;
+     if (!question) throw new Error("question missing");
+-    expect(questionShowsTextInput(question)).toBe(false);
+-    expect(areQuestionsAnswered(questions, {}, { 0: "freeform" })).toBe(false);
++    expect(questionShowsTextInput(question)).toBe(true);
++    expect(areQuestionsAnswered(questions, {}, { 0: "freeform" })).toBe(true);
++    expect(areQuestionsAnswered(questions, {}, {})).toBe(false);
+     expect(areQuestionsAnswered(questions, { 0: new Set([1]) }, {})).toBe(true);
+     expect(buildQuestionFormAnswers(questions, { 0: new Set([1]) }, {})).toEqual({
+       Response: "B",
+     });
++    expect(buildQuestionFormAnswers(questions, {}, { 0: "freeform" })).toEqual({
++      Response: "freeform",
++    });
++  });
++
++  test("accepts a typed answer for an option-only multi-select question", () => {
++    const questions = parseQuestionFormQuestions({
++      questions: [
++        {
++          question: "Which agents?",
++          header: "Scope",
++          options: [{ label: "Kimi Code" }, { label: "Codex" }],
++          multiSelect: true,
++        },
++      ],
++    });
++
++    if (!questions) throw new Error("questions did not parse");
++    expect(areQuestionsAnswered(questions, {}, { 0: "everything but OpenCode" })).toBe(true);
++    expect(buildQuestionFormAnswers(questions, {}, { 0: "everything but OpenCode" })).toEqual({
++      Scope: "everything but OpenCode",
++    });
++    expect(
++      buildQuestionFormAnswers(questions, { 0: new Set([0]) }, { 0: "everything but OpenCode" }),
++    ).toEqual({ Scope: "Kimi Code, everything but OpenCode" });
+   });
+ 
+   test("keeps checked options and appends the other answer for multi-select", () => {
+diff --git a/packages/app/src/components/question-form-card-core.ts b/packages/app/src/components/question-form-card-core.ts
+index 0dea6c706..004d088f4 100644
+--- a/packages/app/src/components/question-form-card-core.ts
++++ b/packages/app/src/components/question-form-card-core.ts
+@@ -62,8 +62,17 @@ export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion
+   return questions.length > 0 ? questions : null;
+ }
+ 
+-export function questionShowsTextInput(question: QuestionFormQuestion): boolean {
+-  return question.options.length === 0 || question.allowOther;
++/**
++ * Every question takes a typed answer, including one that ships options.
++ *
++ * A provider that omits `allowOther` still accepts free-form text, and the card
++ * has no other way to reach it. Leaving the field hidden pushes the answer into
++ * the composer, which makes the client interrupt the running turn and re-prompt
++ * — a path where the answer can be queued and then dropped without ever reaching
++ * the session.
++ */
++export function questionShowsTextInput(_question: QuestionFormQuestion): boolean {
++  return true;
+ }
+ 
+ export function isQuestionAnswered(
+diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
+index 630b001aa..fb88253ff 100644
+--- a/packages/app/src/components/question-form-card.browser.test.tsx
++++ b/packages/app/src/components/question-form-card.browser.test.tsx
+@@ -102,6 +102,14 @@ const singleSelectQuestion = {
+   allowOther: true,
+ };
+ 
++// Kimi omits `allowOther` on a question that still accepts a typed answer.
++const optionOnlyQuestion = {
++  question: "Which local agents should the MCP browser server be wired into?",
++  header: "Scope",
++  options: [{ label: "Kimi Code" }, { label: "Codex CLI" }, { label: "Claude Code" }],
++  multiSelect: true,
++};
++
+ describe("QuestionFormCard other answers", () => {
+   it("keeps checked options when the other answer is typed afterwards (multi-select)", () => {
+     const card = mountCard(multiSelectQuestion);
+@@ -146,4 +154,13 @@ describe("QuestionFormCard other answers", () => {
+     card.submit();
+     expect(card.submittedAnswers()).toEqual({ Provider: "Codex" });
+   });
++
++  it("takes a typed answer for a question that ships only options", () => {
++    const card = mountCard(optionOnlyQuestion);
++
++    card.type("everything except OpenCode");
++    card.submit();
++
++    expect(card.submittedAnswers()).toEqual({ Scope: "everything except OpenCode" });
++  });
+ });
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index bca5a25..bd04c2f 100644
+index bca5a250b..bd04c2faa 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -410,7 +410,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -73,7 +184,7 @@ index bca5a25..bd04c2f 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 0000000..612c2a3
+index 000000000..612c2a3e4
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -254,7 +365,7 @@ index 0000000..612c2a3
 +}
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 0000000..1f04f67
+index 000000000..1f04f6797
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -428,7 +539,7 @@ index 0000000..1f04f67
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 0000000..2c20c7f
+index 000000000..2c20c7f26
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -571,7 +682,7 @@ index 0000000..2c20c7f
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 0000000..213410e
+index 000000000..213410e7e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -997,7 +1108,7 @@ index 0000000..213410e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index c36d7f9..34e896b 100644
+index c36d7f9e4..34e896bed 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,8 @@ import {
@@ -1134,7 +1245,7 @@ index c36d7f9..34e896b 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index 5503ea1..7ec4799 100644
+index 5503ea151..7ec4799a5 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -190,9 +190,15 @@ describe("dictation transcript behavior", () => {
@@ -1157,7 +1268,7 @@ index 5503ea1..7ec4799 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index a63aeb0..8c20c16 100644
+index a63aeb02d..8c20c16d5 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -1177,7 +1288,7 @@ index a63aeb0..8c20c16 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c8..69a9923 100644
+index 3ab03c877..69a992346 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1192,7 +1303,7 @@ index 3ab03c8..69a9923 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 0d59b1c..ac2e3f3 100644
+index 0d59b1c6b..ac2e3f3d1 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -34,6 +34,8 @@ import type {
@@ -1215,7 +1326,7 @@ index 0d59b1c..ac2e3f3 100644
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.test.ts b/packages/app/src/utils/agent-directory-update-policy.test.ts
 new file mode 100644
-index 0000000..9622ed9
+index 000000000..9622ed9e4
 --- /dev/null
 +++ b/packages/app/src/utils/agent-directory-update-policy.test.ts
 @@ -0,0 +1,34 @@
@@ -1254,7 +1365,7 @@ index 0000000..9622ed9
 +  });
 +});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f10..88a0601 100644
+index 4d14f101b..88a0601cc 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,12 @@
@@ -1296,7 +1407,7 @@ index 4d14f10..88a0601 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
-index e1be8c5..ab22626 100644
+index e1be8c5a0..ab2262614 100644
 --- a/packages/app/src/utils/agent-snapshots.test.ts
 +++ b/packages/app/src/utils/agent-snapshots.test.ts
 @@ -31,6 +31,8 @@ function createSnapshot(
@@ -1333,7 +1444,7 @@ index e1be8c5..ab22626 100644
    });
  
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c6..3579b7f 100644
+index c1c70c640..3579b7f13 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -1355,7 +1466,7 @@ index c1c70c6..3579b7f 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 0214502..6a148e3 100644
+index 021450226..6a148e305 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -379,6 +379,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -1421,7 +1532,7 @@ index 0214502..6a148e3 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eb..606e97b 100644
+index 0dd49eba0..606e97b7f 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -1446,7 +1557,7 @@ index 0dd49eb..606e97b 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe1..afe2cce 100644
+index 6930fe187..afe2ccefd 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
@@ -1463,7 +1574,7 @@ index 6930fe1..afe2cce 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 1f8c137..e89365a 100644
+index 1f8c1374c..e89365af7 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -1498,7 +1609,7 @@ index 1f8c137..e89365a 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-loading.ts b/packages/server/src/server/agent/agent-loading.ts
-index 248e8d2..bf89483 100644
+index 248e8d2b1..bf89483e6 100644
 --- a/packages/server/src/server/agent/agent-loading.ts
 +++ b/packages/server/src/server/agent/agent-loading.ts
 @@ -1,3 +1,5 @@
@@ -1524,7 +1635,7 @@ index 248e8d2..bf89483 100644
  
      let snapshot: ManagedAgent;
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 9e809a4..62b7af6 100644
+index 9e809a457..62b7af615 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,8 @@ import {
@@ -1678,7 +1789,7 @@ index 9e809a4..62b7af6 100644
          this.applyObservedMode(agent, event.currentModeId);
          agent.availableModes = event.availableModes;
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index f72bd84..9a5dda9 100644
+index f72bd84db..9a5dda96c 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
@@ -1715,7 +1826,7 @@ index f72bd84..9a5dda9 100644
      const features = [createFeature()];
      const agent = createManagedAgent({ features });
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 05f932a..8a1848d 100644
+index 05f932aea..8a1848d37 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
 @@ -146,6 +146,14 @@ export function toAgentPayload(
@@ -1734,7 +1845,7 @@ index 05f932a..8a1848d 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a..44dd408 100644
+index 08bd66a79..44dd408c9 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -12,6 +12,8 @@ import {
@@ -1833,7 +1944,7 @@ index 08bd66a..44dd408 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 41e2d52..7c5aef4 100644
+index 41e2d5201..7c5aef46a 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
 @@ -52,6 +52,14 @@ async function steerOrReplaceActiveRun(
@@ -1869,7 +1980,7 @@ index 41e2d52..7c5aef4 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 3e5e739..9cf89a7 100644
+index 3e5e73957..9cf89a7ad 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -178,6 +178,11 @@ export interface AgentCapabilityFlags {
@@ -1949,7 +2060,7 @@ index 3e5e739..9cf89a7 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index f847745..d4d0507 100644
+index f847745d6..830c86a6c 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -22,6 +22,7 @@ import {
@@ -2576,7 +2687,7 @@ index f847745..d4d0507 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -2958,6 +3450,325 @@ describe("ACPAgentSession", () => {
+@@ -2958,6 +3450,357 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -2604,6 +2715,38 @@ index f847745..d4d0507 100644
 +      turnId,
 +    });
 +    expect(JSON.stringify(failure)).not.toContain("proxy");
++  });
++
++  test("Kimi reliable mode reports the provider's explanation for a missing timeline", async () => {
++    const session = createSessionWithConfig(
++      { provider: "kimi", lateTimelineGraceMs: 0 },
++      createTestLogger(),
++      { kimiReliableQueue: true },
++      {
++        describeMissingTimeline: () => ({
++          code: "kimi_prompt_not_accepted",
++          error: "custom",
++          diagnostic: "why",
++        }),
++      },
++    );
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: async () => ({ stopReason: "end_turn" }),
++    };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    await Promise.resolve();
++    await Promise.resolve();
++
++    expect(events.find((event) => event.type === "turn_failed")).toMatchObject({
++      type: "turn_failed",
++      code: "kimi_prompt_not_accepted",
++      error: "custom",
++      turnId,
++    });
 +  });
 +
 +  test("Kimi reliable mode keeps a turn alive when its prompt resolves before the turn's updates", async () => {
@@ -2902,7 +3045,7 @@ index f847745..d4d0507 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4220,3 +5031,400 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4220,3 +5063,400 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -3304,7 +3447,7 @@ index f847745..d4d0507 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 1b47cca..70c46f2 100644
+index 1b47ccacc..67885117f 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -73,9 +73,11 @@ import {
@@ -3356,7 +3499,7 @@ index 1b47cca..70c46f2 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
-@@ -435,6 +453,55 @@ export type ACPCatalogModelResolver = (
+@@ -435,6 +453,65 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -3407,12 +3550,22 @@ index 1b47cca..70c46f2 100644
 +    signal: AbortSignal;
 +    sawTimeline: boolean;
 +  }): Promise<void> | null;
++  /**
++   * Explain a turn that ended with no timeline output, replacing the generic
++   * "completed without producing any timeline output" failure. Return null to
++   * keep that generic failure.
++   */
++  describeMissingTimeline?(ctx: ACPProviderHookContext): {
++    code: string;
++    error: string;
++    diagnostic?: string;
++  } | null;
 +}
 +
  interface ACPAgentClientOptions {
    provider: string;
    logger: Logger;
-@@ -464,6 +531,7 @@ interface ACPAgentClientOptions {
+@@ -464,6 +541,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -3420,7 +3573,7 @@ index 1b47cca..70c46f2 100644
    now?: () => number;
  }
  
-@@ -497,7 +565,9 @@ interface ACPAgentSessionOptions {
+@@ -497,7 +575,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -3430,7 +3583,7 @@ index 1b47cca..70c46f2 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -594,6 +664,13 @@ class ACPImportHistoryCollector {
+@@ -594,6 +674,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -3444,7 +3597,7 @@ index 1b47cca..70c46f2 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -626,6 +703,8 @@ interface TerminalEntry {
+@@ -626,6 +713,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -3453,7 +3606,7 @@ index 1b47cca..70c46f2 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -924,6 +1003,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -924,6 +1013,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -3461,7 +3614,7 @@ index 1b47cca..70c46f2 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -954,6 +1034,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -954,6 +1044,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -3469,7 +3622,7 @@ index 1b47cca..70c46f2 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -992,6 +1073,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -992,6 +1083,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -3477,7 +3630,7 @@ index 1b47cca..70c46f2 100644
        },
      );
      await session.initializeNewSession();
-@@ -1048,6 +1130,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1048,6 +1140,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -3485,7 +3638,7 @@ index 1b47cca..70c46f2 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1655,6 +1738,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1655,6 +1748,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -3505,7 +3658,7 @@ index 1b47cca..70c46f2 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1716,9 +1812,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1716,9 +1822,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -3525,7 +3678,7 @@ index 1b47cca..70c46f2 100644
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
    private historyPending = false;
-@@ -1756,7 +1862,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1756,7 +1872,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -3536,7 +3689,7 @@ index 1b47cca..70c46f2 100644
    }
  
    get id(): string | null {
-@@ -1783,6 +1892,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1783,6 +1902,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -3544,7 +3697,7 @@ index 1b47cca..70c46f2 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1837,6 +1947,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1837,6 +1957,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -3552,7 +3705,7 @@ index 1b47cca..70c46f2 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1854,6 +1965,129 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1854,6 +1975,177 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -3665,6 +3818,54 @@ index 1b47cca..70c46f2 100644
 +    await Promise.race([settledHold, waitForAbortSignal(signal)]);
 +  }
 +
++  /**
++   * Ask the provider why a turn produced no timeline item. A throwing hook must
++   * never change the failure, so a rejection keeps the generic code.
++   */
++  private describeMissingTimeline(): { code: string; error: string; diagnostic?: string } | null {
++    const hooks = this.providerHooks;
++    if (!hooks?.describeMissingTimeline) {
++      return null;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return null;
++    }
++    try {
++      return hooks.describeMissingTimeline(ctx);
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook describeMissingTimeline failed");
++      return null;
++    }
++  }
++
++  /**
++   * The failure to report for a turn that produced no timeline output, carrying
++   * the provider's explanation when it has one.
++   */
++  private missingTimelineFailure(
++    explained: { code: string; error: string; diagnostic?: string } | null,
++    response: PromptResponse,
++  ): { error: string; code: string; diagnostic: string | undefined } {
++    return {
++      error: explained?.error ?? "Kimi ACP completed without producing any timeline output",
++      code: explained?.code ?? "kimi_timeline_missing",
++      diagnostic: this.collectDiagnostic(
++        [
++          "The prompt returned without the agent producing any output for this turn",
++          `stopReason=${response.stopReason}`,
++          `acpUpdates=${this.currentTurnUpdateCount}`,
++          `mismatchedSessionUpdates=${this.currentTurnMismatchedUpdateCount}`,
++          `turnElapsedMs=${Date.now() - this.currentTurnStartedAt}`,
++          `graceMs=${this.lateTimelineGraceMs}`,
++          explained?.diagnostic,
++        ]
++          .filter((line): line is string => typeof line === "string")
++          .join(" "),
++      ),
++    };
++  }
++
 +  tryHandleOutOfBand(prompt: AgentPromptInput): {
 +    run(ctx: { emit: (event: AgentStreamEvent) => void }): Promise<void>;
 +  } | null {
@@ -3682,7 +3883,7 @@ index 1b47cca..70c46f2 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1888,24 +2122,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1888,24 +2180,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -3731,7 +3932,7 @@ index 1b47cca..70c46f2 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2396,7 +2650,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2396,7 +2708,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -3743,7 +3944,7 @@ index 1b47cca..70c46f2 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2432,6 +2689,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2432,6 +2747,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -3760,7 +3961,7 @@ index 1b47cca..70c46f2 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2458,6 +2725,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2458,6 +2783,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.cancelPendingPermissions();
  
      if (this.activeForegroundTurnId) {
@@ -3768,7 +3969,7 @@ index 1b47cca..70c46f2 100644
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2467,9 +2735,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2467,9 +2793,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -3780,7 +3981,7 @@ index 1b47cca..70c46f2 100644
  
      this.cancelPendingPermissions();
  
-@@ -2506,6 +2776,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2506,6 +2834,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -3788,7 +3989,7 @@ index 1b47cca..70c46f2 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2568,10 +2839,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2568,10 +2897,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -3834,7 +4035,7 @@ index 1b47cca..70c46f2 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2588,6 +2894,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2588,6 +2952,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -3853,7 +4054,7 @@ index 1b47cca..70c46f2 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2613,6 +2931,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2613,6 +2989,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -3901,7 +4102,7 @@ index 1b47cca..70c46f2 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2699,6 +3058,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2699,6 +3116,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -3909,7 +4110,7 @@ index 1b47cca..70c46f2 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -2965,7 +3325,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,7 +3383,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return this.handleUserMessageChunk(update);
      }
  
@@ -3933,7 +4134,7 @@ index 1b47cca..70c46f2 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3197,9 +3572,161 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3197,9 +3630,154 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -4073,21 +4274,14 @@ index 1b47cca..70c46f2 100644
 +      response.stopReason !== "cancelled" &&
 +      !this.currentTurnSawTimeline
 +    ) {
++      const explained = this.describeMissingTimeline();
++      const failure = this.missingTimelineFailure(explained, response);
 +      this.finishTurn({
 +        type: "turn_failed",
 +        provider: this.provider,
-+        error: "Kimi ACP completed without producing any timeline output",
-+        code: "kimi_timeline_missing",
-+        diagnostic: this.collectDiagnostic(
-+          [
-+            "The prompt returned without the agent producing any output for this turn",
-+            `stopReason=${response.stopReason}`,
-+            `acpUpdates=${this.currentTurnUpdateCount}`,
-+            `mismatchedSessionUpdates=${this.currentTurnMismatchedUpdateCount}`,
-+            `turnElapsedMs=${Date.now() - this.currentTurnStartedAt}`,
-+            `graceMs=${this.lateTimelineGraceMs}`,
-+          ].join(" "),
-+        ),
++        error: failure.error,
++        code: failure.code,
++        diagnostic: failure.diagnostic,
 +        turnId,
 +      });
 +      return;
@@ -4096,7 +4290,7 @@ index 1b47cca..70c46f2 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3298,6 +3825,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3298,6 +3876,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.cancelPendingPermissions();
      }
      this.activeForegroundTurnId = null;
@@ -4104,7 +4298,7 @@ index 1b47cca..70c46f2 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3558,7 +4086,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3558,7 +4137,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -4125,7 +4319,7 @@ index 1b47cca..70c46f2 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3624,6 +4164,7 @@ function mergeToolSnapshot(
+@@ -3624,6 +4215,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -4133,7 +4327,7 @@ index 1b47cca..70c46f2 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3633,6 +4174,27 @@ function mergeToolSnapshot(
+@@ -3633,6 +4225,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -4161,7 +4355,7 @@ index 1b47cca..70c46f2 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3649,10 +4211,18 @@ function mapToolSnapshotToTimeline(
+@@ -3649,10 +4262,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -4181,7 +4375,7 @@ index 1b47cca..70c46f2 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -3894,7 +4464,17 @@ function mapPermissionRequest(
+@@ -3894,7 +4515,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -4200,7 +4394,7 @@ index 1b47cca..70c46f2 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3903,11 +4483,11 @@ function mapPermissionRequest(
+@@ -3903,11 +4534,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -4214,7 +4408,7 @@ index 1b47cca..70c46f2 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3921,6 +4501,7 @@ function mapPermissionRequest(
+@@ -3921,6 +4552,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -4222,7 +4416,7 @@ index 1b47cca..70c46f2 100644
      },
    };
  }
-@@ -3949,6 +4530,65 @@ function selectPermissionOption(
+@@ -3949,6 +4581,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -4288,7 +4482,7 @@ index 1b47cca..70c46f2 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -3963,16 +4603,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -3963,16 +4654,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
    return false;
  }
  
@@ -4331,7 +4525,7 @@ index 1b47cca..70c46f2 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index d88d810..160ad9f 100644
+index d88d8105c..160ad9f43 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
 @@ -3316,6 +3316,634 @@ describe("ClaudeAgentSession context window usage", () => {
@@ -4970,7 +5164,7 @@ index d88d810..160ad9f 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 7b16c03..ce18ea8 100644
+index 7b16c030a..ce18ea84b 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -34,6 +34,8 @@ import {
@@ -5478,7 +5672,7 @@ index 7b16c03..ce18ea8 100644
    contents: string[];
    workflowContents: string[];
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 0e18773..25549ed 100644
+index 0e187734b..25549ed49 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -13,7 +13,13 @@ import {
@@ -5575,7 +5769,7 @@ index 0e18773..25549ed 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 6b341fa..a43a541 100644
+index 6b341fa9e..a43a5419f 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -5660,7 +5854,7 @@ index 6b341fa..a43a541 100644
    logger: Logger,
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 5a14d99..c1f92b7 100644
+index 5a14d9913..c1f92b7b7 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -5708,16 +5902,17 @@ index 5a14d99..c1f92b7 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb..950dfa6 100644
+index b388fdb01..dee1294ff 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
  import { describe, expect, test, vi } from "vitest";
  
  import { createTestLogger } from "../../../test-utils/test-logger.js";
-+import type { AgentPromptInput } from "../agent-sdk-types.js";
- import { type SpawnedACPProcess } from "./acp-agent.js";
+-import { type SpawnedACPProcess } from "./acp-agent.js";
 -import { KimiACPAgentClient } from "./kimi-acp-agent.js";
++import type { AgentPromptInput } from "../agent-sdk-types.js";
++import { type ACPProviderHookContext, type SpawnedACPProcess } from "./acp-agent.js";
 +import {
 +  createKimiProviderHooks,
 +  KimiACPAgentClient,
@@ -5726,7 +5921,7 @@ index b388fdb..950dfa6 100644
  
  function modelConfigOption(currentValue: string): SessionConfigOption {
    return {
-@@ -239,3 +244,64 @@ describe("KimiACPAgentClient per-model thinking options", () => {
+@@ -239,3 +244,75 @@ describe("KimiACPAgentClient per-model thinking options", () => {
      expect(kimiK3?.defaultThinkingOptionId).toBeUndefined();
    });
  });
@@ -5765,12 +5960,23 @@ index b388fdb..950dfa6 100644
 +  test("exposes the transformer through the provider hooks", () => {
 +    const hooks = createKimiProviderHooks();
 +    const transform = (
-+      hooks as { transformPrompt?: (prompt: AgentPromptInput) => AgentPromptInput | null }
++      hooks as {
++        transformPrompt?: (
++          prompt: AgentPromptInput,
++          ctx: ACPProviderHookContext,
++        ) => AgentPromptInput | null;
++      }
 +    ).transformPrompt;
++    const ctx: ACPProviderHookContext = {
++      acpSessionId: "session_goal-test",
++      provider: "kimi-acp",
++      logger: createTestLogger(),
++      emit: () => {},
++    };
 +
 +    expect(typeof transform).toBe("function");
-+    expect(transform?.("/goal ship it")).toContain("CreateGoal");
-+    expect(transform?.("hello")).toBeNull();
++    expect(transform?.("/goal ship it", ctx)).toContain("CreateGoal");
++    expect(transform?.("hello", ctx)).toBeNull();
 +  });
 +
 +  test("keeps create and control out of the out-of-band path", () => {
@@ -5792,7 +5998,7 @@ index b388fdb..950dfa6 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f..b2befcb 100644
+index 7ae144f65..fbd85f561 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -5821,7 +6027,7 @@ index 7ae144f..b2befcb 100644
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -88,6 +99,176 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -88,6 +99,192 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        providerId: options.providerId,
        label: options.label,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -5965,7 +6171,11 @@ index 7ae144f..b2befcb 100644
 +        },
 +      };
 +    },
-+    transformPrompt(prompt) {
++    transformPrompt(prompt, ctx) {
++      // The prompt is about to be sent; snapshot what the session has accepted so
++      // a turn that produces no output can be told apart from one the runtime
++      // never started.
++      bridges.get(ctx.acpSessionId)?.markPromptSubmitted();
 +      return transformKimiGoalPrompt(prompt);
 +    },
 +    holdTurnWhile(ctx) {
@@ -5987,6 +6197,18 @@ index 7ae144f..b2befcb 100644
 +      }
 +      return bridge.waitForTurnSettled(KIMI_TURN_HOLD_TIMEOUT_MS, ctx.signal);
 +    },
++    describeMissingTimeline(ctx) {
++      const bridge = bridges.get(ctx.acpSessionId);
++      if (!bridge || bridge.wasPromptAccepted()) {
++        return null;
++      }
++      return {
++        code: "kimi_prompt_not_accepted",
++        error: "Kimi never accepted this message into the session",
++        diagnostic:
++          "The runtime was still inside another turn when this prompt arrived and the session log shows no user message for it afterwards, so the queued prompt was dropped before it could run. Send the message again.",
++      };
++    },
 +  };
 +}
 +
@@ -6000,10 +6222,10 @@ index 7ae144f..b2befcb 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 0000000..04fd19d
+index 000000000..566bc72ca
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,134 @@
 +import type { Logger } from "pino";
 +
 +import {
@@ -6047,6 +6269,7 @@ index 0000000..04fd19d
 +  private readonly provider: AgentProvider;
 +  private started = false;
 +  private stopped = false;
++  private promptBaseline: number | null = null;
 +
 +  constructor(options: KimiNativeBridgeOptions) {
 +    this.emit = options.emit;
@@ -6119,13 +6342,30 @@ index 0000000..04fd19d
 +    }
 +    await this.log.waitForTurnSettled(timeoutMs, signal);
 +  }
++
++  /**
++   * Records how many prompts the session had accepted, so a later
++   * `wasPromptAccepted()` can tell whether the prompt just sent ever landed.
++   */
++  markPromptSubmitted(): void {
++    this.promptBaseline = this.log.getUserMessageCount();
++  }
++
++  /**
++   * True when the session accepted a prompt since `markPromptSubmitted()`, or
++   * when no baseline was taken: an unknown baseline must not accuse the runtime
++   * of dropping a prompt.
++   */
++  wasPromptAccepted(): boolean {
++    return this.promptBaseline === null || this.log.getUserMessageCount() > this.promptBaseline;
++  }
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..33f046c
+index 000000000..9ef64079a
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1730 @@
+@@ -0,0 +1,1788 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -6309,6 +6549,34 @@ index 0000000..33f046c
 +
 +function turnEndedLine(turnId = "turn-0", time = SUBAGENT_TIME + 100): string {
 +  return JSON.stringify({ type: "agent.turn.ended", agentId: "main", turnId, time });
++}
++
++function userMessageLine(text: string, time = 1791199259864): string {
++  return JSON.stringify({
++    type: "context.append_message",
++    agentId: "main",
++    message: {
++      role: "user",
++      content: [{ type: "text", text }],
++      id: "msg_1",
++      toolCalls: [],
++      origin: { kind: "user" },
++    },
++    time,
++  });
++}
++
++function injectionLine(text: string, time = 1791199259871): string {
++  return JSON.stringify({
++    type: "context.append_message",
++    agentId: "main",
++    message: {
++      role: "user",
++      content: [{ type: "text", text }],
++      origin: { kind: "injection", variant: "date_change" },
++    },
++    time,
++  });
 +}
 +
 +function subagentStartedLine(subagentId = SUBAGENT_ID, time = SUBAGENT_TIME + 322): string {
@@ -7503,6 +7771,36 @@ index 0000000..33f046c
 +    expect(log.isTurnInProgress()).toBe(true);
 +  });
 +
++  test("waitForTurnSettled resolves when a turn ends as the next one starts", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${turnStartedLine("turn-1")}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isTurnInProgress());
++
++    const startedAt = Date.now();
++    const settled = log.waitForTurnSettled(5_000);
++    // One append, so a poll cannot land in the gap between the turn that ends
++    // and the next one starting.
++    appendFileSync(file, `${turnEndedLine("turn-1")}\n${turnStartedLine("turn-2")}\n`);
++    await settled;
++
++    expect(Date.now() - startedAt).toBeLessThan(4_000);
++  });
++
++  test("counts only the messages Kimi attributed to the user", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${userMessageLine("hi")}\n${injectionLine("reminder")}\n`);
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.getUserMessageCount() === 1);
++    await delay(80);
++
++    expect(log.getUserMessageCount()).toBe(1);
++  });
++
 +  test("start and stop are idempotent and never throw without a log file", async () => {
 +    const { home } = createSessionHome(SESSION_ID);
 +    const log = createLog(home);
@@ -7858,10 +8156,10 @@ index 0000000..33f046c
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..36128cb
+index 000000000..a707fd55d
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1799 @@
+@@ -0,0 +1,1855 @@
 +import {
 +  closeSync,
 +  createReadStream,
@@ -8039,6 +8337,14 @@ index 0000000..36128cb
 +  turnGeneration: number;
 +  /** Highest turn known to be over. Starts at -1 so no boundary is assumed before one is seen. */
 +  settledThroughTurn: number;
++  /**
++   * Count of `context.append_message` records Kimi attributed to the user.
++   *
++   * This is the only cross-process proof that a prompt entered the session: a
++   * prompt the runtime queues and then drops leaves no other trace, and the turn
++   * counters cannot tell its turns apart from the runtime's own.
++   */
++  userMessageCount: number;
 +}
 +
 +export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
@@ -8051,6 +8357,7 @@ index 0000000..36128cb
 +  backgroundTasks: [],
 +  turnGeneration: 0,
 +  settledThroughTurn: -1,
++  userMessageCount: 0,
 +});
 +
 +/**
@@ -8081,6 +8388,8 @@ index 0000000..36128cb
 + *   read here; each subagent's transcript lives in its own log.
 + * - `agent.turn.started` and `agent.turn.ended` move the turn watermark that
 + *   closes out subagents whose turn is over.
++ * - `context.append_message` counts the prompts Kimi attributed to the user;
++ *   everything else appended to the context is an injection or a notification.
 + *
 + * Anything unparseable is skipped; a half-written line must not abort a replay.
 + */
@@ -8116,6 +8425,7 @@ index 0000000..36128cb
 +  goalCachedInputTokens: number | null;
 +  turnGeneration: number;
 +  settledThroughTurn: number;
++  userMessageCount: number;
 +  readonly subagents: Map<string, KimiSubagentRecord>;
 +  readonly backgroundTasks: Map<string, KimiBackgroundTaskRecord>;
 +}
@@ -8135,6 +8445,7 @@ index 0000000..36128cb
 +    goalCachedInputTokens: previous.goalCachedInputTokens,
 +    turnGeneration: previous.turnGeneration,
 +    settledThroughTurn: previous.settledThroughTurn,
++    userMessageCount: previous.userMessageCount,
 +    subagents,
 +    backgroundTasks,
 +  };
@@ -8151,6 +8462,7 @@ index 0000000..36128cb
 +    backgroundTasks: [...draft.backgroundTasks.values()],
 +    turnGeneration: draft.turnGeneration,
 +    settledThroughTurn: draft.settledThroughTurn,
++    userMessageCount: draft.userMessageCount,
 +  };
 +}
 +
@@ -8204,6 +8516,11 @@ index 0000000..36128cb
 +      applySubagentTerminal(draft.subagents, entry, "canceled", draft.turnGeneration);
 +      updateBackgroundTask(draft.backgroundTasks, entry, "canceled");
 +      break;
++    case "context.append_message":
++      if (isUserAuthoredMessage(entry)) {
++        draft.userMessageCount += 1;
++      }
++      break;
 +    default:
 +      applyStepUsage(draft, entry);
 +      break;
@@ -8214,6 +8531,17 @@ index 0000000..36128cb
 +function readModelAlias(entry: Record<string, unknown>): string | undefined {
 +  const alias = readString(entry.modelAlias);
 +  return alias !== undefined && alias.length > 0 ? alias : undefined;
++}
++
++/**
++ * True for a message Kimi attributed to the user. Reminders, task notifications
++ * and subagent results are appended with their own `origin.kind`, so counting
++ * every append would report a prompt the session never received.
++ */
++function isUserAuthoredMessage(entry: Record<string, unknown>): boolean {
++  const message = asRecord(entry.message);
++  const origin = message ? asRecord(message.origin) : null;
++  return origin?.kind === "user";
 +}
 +
 +/**
@@ -8510,6 +8838,7 @@ index 0000000..36128cb
 +  private backgroundTasks: KimiBackgroundTaskRecord[] = [];
 +  private turnGeneration = 0;
 +  private settledThroughTurn = -1;
++  private userMessageCount = 0;
 +  /** Value signature of the last goal considered; null means "nothing considered yet". */
 +  private goalSignature: string | null = null;
 +  private goalBucket = -1;
@@ -8595,6 +8924,15 @@ index 0000000..36128cb
 +  }
 +
 +  /**
++   * Prompts the runtime has accepted into the session so far. Snapshot this
++   * before sending a prompt and compare afterwards: an unchanged count means the
++   * prompt never reached the session.
++   */
++  getUserMessageCount(): number {
++    return this.userMessageCount;
++  }
++
++  /**
 +   * Resolves once the goal stops being live, on timeout, or as soon as `signal`
 +   * aborts. The abort path is what keeps a held ACP turn from outliving the
 +   * turn it belongs to.
@@ -8606,9 +8944,22 @@ index 0000000..36128cb
 +  /**
 +   * Resolves once the runtime's turn ends, on timeout, or as soon as `signal`
 +   * aborts. An interrupt reaches this the same way it reaches `waitForSettled`.
++   *
++   * The wait keys off the settle watermark rather than `isTurnInProgress()`:
++   * Kimi ends a turn and starts the next one in the same tick when it keeps
++   * working, so the momentary idle a boolean check needs is never observed and
++   * the caller waits out its whole timeout instead.
 +   */
 +  async waitForTurnSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
-+    await this.waitForPendingToSettle(() => this.isTurnInProgress(), timeoutMs, signal);
++    const generation = this.turnGeneration;
++    if (generation <= 0) {
++      return;
++    }
++    await this.waitForPendingToSettle(
++      () => this.settledThroughTurn < generation,
++      timeoutMs,
++      signal,
++    );
 +  }
 +
 +  /**
@@ -8809,6 +9160,7 @@ index 0000000..36128cb
 +    this.backgroundTasks = [];
 +    this.turnGeneration = 0;
 +    this.settledThroughTurn = -1;
++    this.userMessageCount = 0;
 +    this.subagentTailers.clear();
 +    this.subagentSignatures.clear();
 +    this.backgroundTaskSignatures.clear();
@@ -8839,6 +9191,7 @@ index 0000000..36128cb
 +        backgroundTasks: this.backgroundTasks,
 +        turnGeneration: this.turnGeneration,
 +        settledThroughTurn: this.settledThroughTurn,
++        userMessageCount: this.userMessageCount,
 +      });
 +      this.goal = next.goal;
 +      this.contextWindowUsedTokens = next.contextWindowUsedTokens;
@@ -8849,6 +9202,7 @@ index 0000000..36128cb
 +      this.backgroundTasks = next.backgroundTasks;
 +      this.turnGeneration = next.turnGeneration;
 +      this.settledThroughTurn = next.settledThroughTurn;
++      this.userMessageCount = next.userMessageCount;
 +    }
 +  }
 +
@@ -9663,7 +10017,7 @@ index 0000000..36128cb
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 0000000..fc0af57
+index 000000000..fc0af579c
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,304 @@
@@ -9973,7 +10327,7 @@ index 0000000..fc0af57
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 0000000..63dc7f6
+index 000000000..63dc7f667
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,241 @@
@@ -10219,7 +10573,7 @@ index 0000000..63dc7f6
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 9886a36..080d3ca 100644
+index 9886a368e..080d3caee 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -6,7 +6,7 @@ import {
@@ -10241,7 +10595,7 @@ index 9886a36..080d3ca 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96..7136338 100644
+index 1f0fa96b9..7136338b7 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -10260,7 +10614,7 @@ index 1f0fa96..7136338 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index 0f0243d..ad6243f 100644
+index 0f0243d7a..ad6243ff1 100644
 --- a/packages/server/src/terminal/worker-terminal-manager.ts
 +++ b/packages/server/src/terminal/worker-terminal-manager.ts
 @@ -1,6 +1,6 @@
@@ -10281,7 +10635,7 @@ index 0f0243d..ad6243f 100644
      serialization: "advanced",
      stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index 8fac115..689b91c 100644
+index 8fac115f0..689b91cfa 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,11 @@

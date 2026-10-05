@@ -177,7 +177,7 @@ const MARKERS = [
   {
     label: "Kimi timeline missing validation",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
-    needle: 'code: "kimi_timeline_missing"',
+    needle: 'code: explained?.code ?? "kimi_timeline_missing",',
   },
   {
     label: "ACP session mismatch recovery",
@@ -515,6 +515,26 @@ const MARKERS = [
     label: "A Claude goal counts each API response once",
     path: "packages/server/src/server/agent/providers/claude/agent.ts",
     needle: "function mergeGoalUsageTotals(",
+  },
+  {
+    label: "A question that ships only options still takes a typed answer",
+    path: "packages/app/src/components/question-form-card-core.ts",
+    needle: "export function questionShowsTextInput(_question: QuestionFormQuestion): boolean {",
+  },
+  {
+    label: "The session log counts the prompts the runtime accepted",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "getUserMessageCount(): number {",
+  },
+  {
+    label: "A Kimi turn hold waits on the settle watermark",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "() => this.settledThroughTurn < generation",
+  },
+  {
+    label: "A prompt the runtime never accepted is named as such",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: 'code: "kimi_prompt_not_accepted"',
   },
 ];
 
