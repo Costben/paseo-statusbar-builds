@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd9b..da4038a72 100644
+index 4bc21fd..da4038a 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd9b..da4038a72 100644
  app-example
  
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 4f1302fd1..4a15f6b5e 100644
+index 4f1302f..4a15f6b 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -32,7 +32,7 @@ index 4f1302fd1..4a15f6b5e 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index ff32aaf4d..d329cdd36 100644
+index ff32aaf..d329cdd 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -58,7 +58,7 @@ index ff32aaf4d..d329cdd36 100644
 +  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
  }
 diff --git a/packages/app/src/components/question-form-card-core.test.ts b/packages/app/src/components/question-form-card-core.test.ts
-index 40692d4ac..3732328c2 100644
+index 40692d4..3732328 100644
 --- a/packages/app/src/components/question-form-card-core.test.ts
 +++ b/packages/app/src/components/question-form-card-core.test.ts
 @@ -31,7 +31,7 @@ describe("question form card core", () => {
@@ -112,7 +112,7 @@ index 40692d4ac..3732328c2 100644
  
    test("keeps checked options and appends the other answer for multi-select", () => {
 diff --git a/packages/app/src/components/question-form-card-core.ts b/packages/app/src/components/question-form-card-core.ts
-index 0dea6c706..004d088f4 100644
+index 0dea6c7..004d088 100644
 --- a/packages/app/src/components/question-form-card-core.ts
 +++ b/packages/app/src/components/question-form-card-core.ts
 @@ -62,8 +62,17 @@ export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion
@@ -136,7 +136,7 @@ index 0dea6c706..004d088f4 100644
  
  export function isQuestionAnswered(
 diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
-index 630b001aa..fb88253ff 100644
+index 630b001..fb88253 100644
 --- a/packages/app/src/components/question-form-card.browser.test.tsx
 +++ b/packages/app/src/components/question-form-card.browser.test.tsx
 @@ -102,6 +102,14 @@ const singleSelectQuestion = {
@@ -169,7 +169,7 @@ index 630b001aa..fb88253ff 100644
 +  });
  });
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index bca5a250b..bd04c2faa 100644
+index bca5a25..bd04c2f 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -410,7 +410,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -184,7 +184,7 @@ index bca5a250b..bd04c2faa 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..612c2a3e4
+index 0000000..612c2a3
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -365,7 +365,7 @@ index 000000000..612c2a3e4
 +}
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 000000000..1f04f6797
+index 0000000..1f04f67
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -539,7 +539,7 @@ index 000000000..1f04f6797
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..2c20c7f26
+index 0000000..2c20c7f
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -682,7 +682,7 @@ index 000000000..2c20c7f26
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..213410e7e
+index 0000000..213410e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -1108,7 +1108,7 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index c36d7f9e4..34e896bed 100644
+index c36d7f9..34e896b 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -48,6 +48,8 @@ import {
@@ -1245,7 +1245,7 @@ index c36d7f9e4..34e896bed 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index 5503ea151..7ec4799a5 100644
+index 5503ea1..7ec4799 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -190,9 +190,15 @@ describe("dictation transcript behavior", () => {
@@ -1268,7 +1268,7 @@ index 5503ea151..7ec4799a5 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index a63aeb02d..8c20c16d5 100644
+index a63aeb0..8c20c16 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -1288,7 +1288,7 @@ index a63aeb02d..8c20c16d5 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1303,7 +1303,7 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 0d59b1c6b..ac2e3f3d1 100644
+index 0d59b1c..ac2e3f3 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -34,6 +34,8 @@ import type {
@@ -1326,7 +1326,7 @@ index 0d59b1c6b..ac2e3f3d1 100644
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.test.ts b/packages/app/src/utils/agent-directory-update-policy.test.ts
 new file mode 100644
-index 000000000..9622ed9e4
+index 0000000..9622ed9
 --- /dev/null
 +++ b/packages/app/src/utils/agent-directory-update-policy.test.ts
 @@ -0,0 +1,34 @@
@@ -1365,7 +1365,7 @@ index 000000000..9622ed9e4
 +  });
 +});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..88a0601cc 100644
+index 4d14f10..88a0601 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,12 @@
@@ -1407,7 +1407,7 @@ index 4d14f101b..88a0601cc 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
-index e1be8c5a0..ab2262614 100644
+index e1be8c5..ab22626 100644
 --- a/packages/app/src/utils/agent-snapshots.test.ts
 +++ b/packages/app/src/utils/agent-snapshots.test.ts
 @@ -31,6 +31,8 @@ function createSnapshot(
@@ -1444,7 +1444,7 @@ index e1be8c5a0..ab2262614 100644
    });
  
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c640..3579b7f13 100644
+index c1c70c6..3579b7f 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -1466,7 +1466,7 @@ index c1c70c640..3579b7f13 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 021450226..6a148e305 100644
+index 0214502..6a148e3 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -379,6 +379,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -1532,7 +1532,7 @@ index 021450226..6a148e305 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eba0..606e97b7f 100644
+index 0dd49eb..606e97b 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -1557,7 +1557,7 @@ index 0dd49eba0..606e97b7f 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe187..afe2ccefd 100644
+index 6930fe1..afe2cce 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
@@ -1574,7 +1574,7 @@ index 6930fe187..afe2ccefd 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 1f8c1374c..e89365af7 100644
+index 1f8c137..e89365a 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -1609,7 +1609,7 @@ index 1f8c1374c..e89365af7 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-loading.ts b/packages/server/src/server/agent/agent-loading.ts
-index 248e8d2b1..bf89483e6 100644
+index 248e8d2..bf89483 100644
 --- a/packages/server/src/server/agent/agent-loading.ts
 +++ b/packages/server/src/server/agent/agent-loading.ts
 @@ -1,3 +1,5 @@
@@ -1635,7 +1635,7 @@ index 248e8d2b1..bf89483e6 100644
  
      let snapshot: ManagedAgent;
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 9e809a457..62b7af615 100644
+index 9e809a4..62b7af6 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,8 @@ import {
@@ -1789,7 +1789,7 @@ index 9e809a457..62b7af615 100644
          this.applyObservedMode(agent, event.currentModeId);
          agent.availableModes = event.availableModes;
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index f72bd84db..9a5dda96c 100644
+index f72bd84..9a5dda9 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -463,6 +463,32 @@ describe("toAgentPayload", () => {
@@ -1826,7 +1826,7 @@ index f72bd84db..9a5dda96c 100644
      const features = [createFeature()];
      const agent = createManagedAgent({ features });
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 05f932aea..8a1848d37 100644
+index 05f932a..8a1848d 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
 @@ -146,6 +146,14 @@ export function toAgentPayload(
@@ -1845,7 +1845,7 @@ index 05f932aea..8a1848d37 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a79..44dd408c9 100644
+index 08bd66a..44dd408 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -12,6 +12,8 @@ import {
@@ -1944,7 +1944,7 @@ index 08bd66a79..44dd408c9 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 41e2d5201..7c5aef46a 100644
+index 41e2d52..7c5aef4 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
 @@ -52,6 +52,14 @@ async function steerOrReplaceActiveRun(
@@ -1980,7 +1980,7 @@ index 41e2d5201..7c5aef46a 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 3e5e73957..9cf89a7ad 100644
+index 3e5e739..9cf89a7 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -178,6 +178,11 @@ export interface AgentCapabilityFlags {
@@ -2060,9 +2060,17 @@ index 3e5e73957..9cf89a7ad 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index f847745d6..830c86a6c 100644
+index f847745..397ae4e 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -1,6 +1,6 @@
+ import { type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+ import { EventEmitter } from "node:events";
+-import { mkdtemp, rm } from "node:fs/promises";
++import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import path from "node:path";
+ import { afterEach, describe, expect, test, vi } from "vitest";
 @@ -22,6 +22,7 @@ import {
  import {
    ACPAgentClient,
@@ -2687,7 +2695,7 @@ index f847745d6..830c86a6c 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -2958,6 +3450,357 @@ describe("ACPAgentSession", () => {
+@@ -2958,6 +3450,444 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -2747,6 +2755,93 @@ index f847745d6..830c86a6c 100644
 +      error: "custom",
 +      turnId,
 +    });
++  });
++
++  test("Kimi accepted task notification with no timeline does not report a dropped prompt", async () => {
++    const home = await mkdtemp(path.join(tmpdir(), "paseo-kimi-notification-"));
++    const sessionId = "session_notification-test";
++    const logDir = path.join(home, "sessions", "wd_test", sessionId, "agents", "main");
++    await mkdir(logDir, { recursive: true });
++    const wire = path.join(logDir, "wire.jsonl");
++    await writeFile(wire, "");
++    const hooks = createKimiProviderHooks({ kimiHome: home, pollIntervalMs: 10 });
++    const events: AgentStreamEvent[] = [];
++    const logger = createTestLogger();
++    let observeLog!: () => void;
++    const logObserved = new Promise<void>((resolve) => {
++      observeLog = resolve;
++    });
++    const cleanup = hooks.onSessionReady?.({
++      acpSessionId: sessionId,
++      provider: "kimi",
++      logger,
++      emit: (event) => {
++        // A terminal goal update is a read watermark, not timeline output.
++        if (event.type === "goal_updated" && event.goal?.status === "complete") observeLog();
++      },
++    });
++    try {
++      const session = createSessionWithConfig(
++        { provider: "kimi", lateTimelineGraceMs: 0 },
++        logger,
++        { kimiReliableQueue: true },
++        hooks,
++      );
++      const origin = {
++        kind: "task",
++        taskId: "question-uk3q7g81",
++        status: "completed",
++        notificationId: "task:question-uk3q7g81:completed",
++      };
++      const notification =
++        '<notification id="task:question-uk3q7g81:completed" category="task" type="task.completed" />';
++      asInternals<ACPSessionInternals>(session).sessionId = sessionId;
++      asInternals<ACPSessionInternals>(session).connection = {
++        prompt: async () => {
++          const records = [
++            { type: "turn.prompt", agentId: "main", turnId: 20, origin },
++            {
++              type: "context.append_message",
++              agentId: "main",
++              message: { role: "user", origin, content: [{ type: "text", text: notification }] },
++            },
++            { type: "agent.turn.started", agentId: "main", turnId: 20 },
++            { type: "agent.turn.ended", agentId: "main", turnId: 20 },
++            {
++              type: "goal.create",
++              agentId: "main",
++              goalId: "read-watermark",
++              objective: "Observe log",
++            },
++            { type: "goal.update", agentId: "main", status: "complete" },
++          ];
++          await appendFile(wire, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
++          await logObserved;
++          return { stopReason: "end_turn" };
++        },
++      };
++      let finish!: () => void;
++      const finished = new Promise<void>((resolve) => {
++        finish = resolve;
++      });
++      session.subscribe((event) => {
++        events.push(event);
++        if (event.type === "turn_failed" || event.type === "turn_completed") finish();
++      });
++      const { turnId } = await session.startTurn(notification);
++      await finished;
++      expect(
++        events.filter((event) => event.type === "timeline" && event.item.type !== "user_message"),
++      ).toEqual([]);
++      expect(events).toContainEqual(
++        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
++      );
++      expect(JSON.stringify(events)).not.toContain("kimi_prompt_not_accepted");
++      expect(JSON.stringify(events)).not.toMatch(/dropped|Send the message again/);
++    } finally {
++      cleanup?.onClose?.();
++      await rm(home, { recursive: true, force: true });
++    }
 +  });
 +
 +  test("Kimi reliable mode keeps a turn alive when its prompt resolves before the turn's updates", async () => {
@@ -3045,7 +3140,7 @@ index f847745d6..830c86a6c 100644
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -4220,3 +5063,400 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
+@@ -4220,3 +5150,400 @@ describe("ACP session/load invariant — cwd and mcpServers always passed", () =
      });
    });
  });
@@ -3447,7 +3542,7 @@ index f847745d6..830c86a6c 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 1b47ccacc..67885117f 100644
+index 1b47cca..6788511 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -73,9 +73,11 @@ import {
@@ -4525,7 +4620,7 @@ index 1b47ccacc..67885117f 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index d88d8105c..160ad9f43 100644
+index d88d810..160ad9f 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
 @@ -3316,6 +3316,634 @@ describe("ClaudeAgentSession context window usage", () => {
@@ -5164,7 +5259,7 @@ index d88d8105c..160ad9f43 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 7b16c030a..ce18ea84b 100644
+index 7b16c03..ce18ea8 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -34,6 +34,8 @@ import {
@@ -5672,7 +5767,7 @@ index 7b16c030a..ce18ea84b 100644
    contents: string[];
    workflowContents: string[];
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 0e187734b..25549ed49 100644
+index 0e18773..25549ed 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -13,7 +13,13 @@ import {
@@ -5769,7 +5864,7 @@ index 0e187734b..25549ed49 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 6b341fa9e..a43a5419f 100644
+index 6b341fa..a43a541 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -5854,7 +5949,7 @@ index 6b341fa9e..a43a5419f 100644
    logger: Logger,
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 5a14d9913..c1f92b7b7 100644
+index 5a14d99..c1f92b7 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -5902,7 +5997,7 @@ index 5a14d9913..c1f92b7b7 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb01..dee1294ff 100644
+index b388fdb..dee1294 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -5998,7 +6093,7 @@ index b388fdb01..dee1294ff 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f65..fbd85f561 100644
+index 7ae144f..0a4b5f7 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -6027,7 +6122,7 @@ index 7ae144f65..fbd85f561 100644
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -88,6 +99,192 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -88,6 +99,200 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        providerId: options.providerId,
        label: options.label,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -6199,14 +6294,22 @@ index 7ae144f65..fbd85f561 100644
 +    },
 +    describeMissingTimeline(ctx) {
 +      const bridge = bridges.get(ctx.acpSessionId);
-+      if (!bridge || bridge.wasPromptAccepted()) {
++      if (!bridge) {
 +        return null;
++      }
++      if (bridge.wasPromptAccepted()) {
++        return {
++          code: "kimi_timeline_missing",
++          error: "Kimi accepted this prompt but produced no timeline output",
++          diagnostic:
++            "The session log records an inbound prompt after submission. No timeline output was observed for the accepted turn.",
++        };
 +      }
 +      return {
 +        code: "kimi_prompt_not_accepted",
-+        error: "Kimi never accepted this message into the session",
++        error: "Kimi prompt acceptance was not confirmed",
 +        diagnostic:
-+          "The runtime was still inside another turn when this prompt arrived and the session log shows no user message for it afterwards, so the queued prompt was dropped before it could run. Send the message again.",
++          "No inbound turn.prompt receipt was observed in the main session log after submission. Prompt acceptance could not be confirmed.",
 +      };
 +    },
 +  };
@@ -6222,7 +6325,7 @@ index 7ae144f65..fbd85f561 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 000000000..566bc72ca
+index 0000000..92e7496
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -0,0 +1,134 @@
@@ -6348,7 +6451,7 @@ index 000000000..566bc72ca
 +   * `wasPromptAccepted()` can tell whether the prompt just sent ever landed.
 +   */
 +  markPromptSubmitted(): void {
-+    this.promptBaseline = this.log.getUserMessageCount();
++    this.promptBaseline = this.log.getAcceptedPromptCount();
 +  }
 +
 +  /**
@@ -6357,15 +6460,15 @@ index 000000000..566bc72ca
 +   * of dropping a prompt.
 +   */
 +  wasPromptAccepted(): boolean {
-+    return this.promptBaseline === null || this.log.getUserMessageCount() > this.promptBaseline;
++    return this.promptBaseline === null || this.log.getAcceptedPromptCount() > this.promptBaseline;
 +  }
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 000000000..9ef64079a
+index 0000000..6d7eccd
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1788 @@
+@@ -0,0 +1,1848 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -6551,17 +6654,13 @@ index 000000000..9ef64079a
 +  return JSON.stringify({ type: "agent.turn.ended", agentId: "main", turnId, time });
 +}
 +
-+function userMessageLine(text: string, time = 1791199259864): string {
++function userPromptLine(text: string, time = 1791199259864): string {
 +  return JSON.stringify({
-+    type: "context.append_message",
++    type: "turn.prompt",
 +    agentId: "main",
-+    message: {
-+      role: "user",
-+      content: [{ type: "text", text }],
-+      id: "msg_1",
-+      toolCalls: [],
-+      origin: { kind: "user" },
-+    },
++    origin: { kind: "user" },
++    turnId: 1,
++    prompt: text,
 +    time,
 +  });
 +}
@@ -7789,16 +7888,80 @@ index 000000000..9ef64079a
 +    expect(Date.now() - startedAt).toBeLessThan(4_000);
 +  });
 +
-+  test("counts only the messages Kimi attributed to the user", async () => {
++  test("counts user prompt receipts without counting context injections", async () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
-+    appendFileSync(file, `${userMessageLine("hi")}\n${injectionLine("reminder")}\n`);
++    appendFileSync(file, `${userPromptLine("hi")}\n${injectionLine("reminder")}\n`);
 +
 +    const log = createLog(home);
 +    log.start();
-+    await waitFor(() => log.getUserMessageCount() === 1);
++    await waitFor(() => log.getAcceptedPromptCount() === 1);
 +    await delay(80);
 +
-+    expect(log.getUserMessageCount()).toBe(1);
++    expect(log.getAcceptedPromptCount()).toBe(1);
++  });
++
++  test.each([
++    { kind: "user" },
++    { kind: "task", notificationId: "task:question-uk3q7g81:completed" },
++    { kind: "cron_job", jobId: "reminder-1" },
++    { kind: "skill_activation", trigger: "user-slash" },
++    { kind: "system_trigger", name: "goal_continuation" },
++  ])("recognizes a main-agent inbound prompt from $kind", (origin) => {
++    const prompt = { type: "turn.prompt", agentId: "main", turnId: 20, origin };
++    const appended = {
++      type: "context.append_message",
++      agentId: "main",
++      message: { role: "user", origin },
++    };
++    const state = parseKimiSessionLogLines(
++      [JSON.stringify(prompt), JSON.stringify(appended)],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    expect(state.acceptedPromptCount).toBe(1);
++    expect(parseKimiSessionLogLines([], state).acceptedPromptCount).toBe(1);
++  });
++
++  test.each([
++    { type: "turn.prompt", agentId: "agent-0", origin: { kind: "user" } },
++    { type: "turn.prompt", agentId: "agent-0", origin: { kind: "task" } },
++    { type: "turn.prompt", agentId: "main", origin: { kind: "system_trigger", name: "subagent" } },
++    {
++      type: "turn.prompt",
++      agentId: "main",
++      origin: { kind: "skill_activation", trigger: "model-tool" },
++    },
++    {
++      type: "turn.steer",
++      agentId: "main",
++      origin: { kind: "skill_activation", trigger: "model-tool" },
++    },
++    { type: "turn.prompt", agentId: "main", origin: { kind: "injection", variant: "date_change" } },
++    { type: "turn.prompt", agentId: "main", origin: { kind: "unknown" } },
++    { type: "turn.prompt", agentId: "main" },
++    {
++      type: "context.append_message",
++      agentId: "main",
++      message: { role: "assistant", origin: { kind: "user" } },
++    },
++    { type: "context.append_message", agentId: "main", message: { role: "tool" } },
++    {
++      type: "context.append_message",
++      agentId: "main",
++      message: { role: "user", origin: { kind: "task", taskId: "agent-result" } },
++    },
++    {
++      type: "context.append_message",
++      agentId: "main",
++      message: { role: "user", origin: { kind: "injection" } },
++    },
++    { type: "subagent.completed", subagentId: "agent-0", resultSummary: "Done" },
++  ])("does not treat an unrelated log record as prompt acceptance: %j", (record) => {
++    const before = parseKimiSessionLogLines(
++      [userPromptLine("existing prompt")],
++      EMPTY_KIMI_SESSION_LOG_STATE,
++    );
++    const after = parseKimiSessionLogLines([JSON.stringify(record)], before);
++    expect(after.acceptedPromptCount).toBe(before.acceptedPromptCount);
 +  });
 +
 +  test("start and stop are idempotent and never throw without a log file", async () => {
@@ -8156,10 +8319,10 @@ index 000000000..9ef64079a
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 000000000..a707fd55d
+index 0000000..ec47596
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1855 @@
+@@ -0,0 +1,1865 @@
 +import {
 +  closeSync,
 +  createReadStream,
@@ -8338,13 +8501,11 @@ index 000000000..a707fd55d
 +  /** Highest turn known to be over. Starts at -1 so no boundary is assumed before one is seen. */
 +  settledThroughTurn: number;
 +  /**
-+   * Count of `context.append_message` records Kimi attributed to the user.
-+   *
-+   * This is the only cross-process proof that a prompt entered the session: a
-+   * prompt the runtime queues and then drops leaves no other trace, and the turn
-+   * counters cannot tell its turns apart from the runtime's own.
++   * Count of main-agent `turn.prompt` receipts from verified inbound origins.
++   * Context messages and turn boundaries also arise from ongoing work, so they
++   * cannot establish receipt of a new prompt.
 +   */
-+  userMessageCount: number;
++  acceptedPromptCount: number;
 +}
 +
 +export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
@@ -8357,7 +8518,7 @@ index 000000000..a707fd55d
 +  backgroundTasks: [],
 +  turnGeneration: 0,
 +  settledThroughTurn: -1,
-+  userMessageCount: 0,
++  acceptedPromptCount: 0,
 +});
 +
 +/**
@@ -8425,7 +8586,7 @@ index 000000000..a707fd55d
 +  goalCachedInputTokens: number | null;
 +  turnGeneration: number;
 +  settledThroughTurn: number;
-+  userMessageCount: number;
++  acceptedPromptCount: number;
 +  readonly subagents: Map<string, KimiSubagentRecord>;
 +  readonly backgroundTasks: Map<string, KimiBackgroundTaskRecord>;
 +}
@@ -8445,7 +8606,7 @@ index 000000000..a707fd55d
 +    goalCachedInputTokens: previous.goalCachedInputTokens,
 +    turnGeneration: previous.turnGeneration,
 +    settledThroughTurn: previous.settledThroughTurn,
-+    userMessageCount: previous.userMessageCount,
++    acceptedPromptCount: previous.acceptedPromptCount,
 +    subagents,
 +    backgroundTasks,
 +  };
@@ -8462,7 +8623,7 @@ index 000000000..a707fd55d
 +    backgroundTasks: [...draft.backgroundTasks.values()],
 +    turnGeneration: draft.turnGeneration,
 +    settledThroughTurn: draft.settledThroughTurn,
-+    userMessageCount: draft.userMessageCount,
++    acceptedPromptCount: draft.acceptedPromptCount,
 +  };
 +}
 +
@@ -8516,9 +8677,9 @@ index 000000000..a707fd55d
 +      applySubagentTerminal(draft.subagents, entry, "canceled", draft.turnGeneration);
 +      updateBackgroundTask(draft.backgroundTasks, entry, "canceled");
 +      break;
-+    case "context.append_message":
-+      if (isUserAuthoredMessage(entry)) {
-+        draft.userMessageCount += 1;
++    case "turn.prompt":
++      if (isInboundPrompt(entry)) {
++        draft.acceptedPromptCount += 1;
 +      }
 +      break;
 +    default:
@@ -8534,14 +8695,26 @@ index 000000000..a707fd55d
 +}
 +
 +/**
-+ * True for a message Kimi attributed to the user. Reminders, task notifications
-+ * and subagent results are appended with their own `origin.kind`, so counting
-+ * every append would report a prompt the session never received.
++ * Main-agent turn prompts are receipt records. A task result appended inside an
++ * existing turn, a model-triggered skill activation, or a context reminder is
++ * not evidence that a new prompt ran. These origins were observed in wire logs;
++ * unknown origins stay excluded until their receipt semantics are verified.
 + */
-+function isUserAuthoredMessage(entry: Record<string, unknown>): boolean {
-+  const message = asRecord(entry.message);
-+  const origin = message ? asRecord(message.origin) : null;
-+  return origin?.kind === "user";
++function isInboundPrompt(entry: Record<string, unknown>): boolean {
++  if (entry.agentId !== "main") return false;
++  const origin = asRecord(entry.origin);
++  switch (origin?.kind) {
++    case "user":
++    case "task":
++    case "cron_job":
++      return true;
++    case "skill_activation":
++      return origin.trigger === "user-slash";
++    case "system_trigger":
++      return origin.name === "goal_continuation";
++    default:
++      return false;
++  }
 +}
 +
 +/**
@@ -8838,7 +9011,7 @@ index 000000000..a707fd55d
 +  private backgroundTasks: KimiBackgroundTaskRecord[] = [];
 +  private turnGeneration = 0;
 +  private settledThroughTurn = -1;
-+  private userMessageCount = 0;
++  private acceptedPromptCount = 0;
 +  /** Value signature of the last goal considered; null means "nothing considered yet". */
 +  private goalSignature: string | null = null;
 +  private goalBucket = -1;
@@ -8926,10 +9099,10 @@ index 000000000..a707fd55d
 +  /**
 +   * Prompts the runtime has accepted into the session so far. Snapshot this
 +   * before sending a prompt and compare afterwards: an unchanged count means the
-+   * prompt never reached the session.
++   * log has no receipt for the prompt yet. Context appends are not receipts.
 +   */
-+  getUserMessageCount(): number {
-+    return this.userMessageCount;
++  getAcceptedPromptCount(): number {
++    return this.acceptedPromptCount;
 +  }
 +
 +  /**
@@ -9160,7 +9333,7 @@ index 000000000..a707fd55d
 +    this.backgroundTasks = [];
 +    this.turnGeneration = 0;
 +    this.settledThroughTurn = -1;
-+    this.userMessageCount = 0;
++    this.acceptedPromptCount = 0;
 +    this.subagentTailers.clear();
 +    this.subagentSignatures.clear();
 +    this.backgroundTaskSignatures.clear();
@@ -9191,7 +9364,7 @@ index 000000000..a707fd55d
 +        backgroundTasks: this.backgroundTasks,
 +        turnGeneration: this.turnGeneration,
 +        settledThroughTurn: this.settledThroughTurn,
-+        userMessageCount: this.userMessageCount,
++        acceptedPromptCount: this.acceptedPromptCount,
 +      });
 +      this.goal = next.goal;
 +      this.contextWindowUsedTokens = next.contextWindowUsedTokens;
@@ -9202,7 +9375,7 @@ index 000000000..a707fd55d
 +      this.backgroundTasks = next.backgroundTasks;
 +      this.turnGeneration = next.turnGeneration;
 +      this.settledThroughTurn = next.settledThroughTurn;
-+      this.userMessageCount = next.userMessageCount;
++      this.acceptedPromptCount = next.acceptedPromptCount;
 +    }
 +  }
 +
@@ -10017,7 +10190,7 @@ index 000000000..a707fd55d
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 000000000..fc0af579c
+index 0000000..fc0af57
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,304 @@
@@ -10327,7 +10500,7 @@ index 000000000..fc0af579c
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 000000000..63dc7f667
+index 0000000..63dc7f6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,241 @@
@@ -10573,7 +10746,7 @@ index 000000000..63dc7f667
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 9886a368e..080d3caee 100644
+index 9886a36..080d3ca 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -6,7 +6,7 @@ import {
@@ -10595,7 +10768,7 @@ index 9886a368e..080d3caee 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96b9..7136338b7 100644
+index 1f0fa96..7136338 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -10614,7 +10787,7 @@ index 1f0fa96b9..7136338b7 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index 0f0243d7a..ad6243ff1 100644
+index 0f0243d..ad6243f 100644
 --- a/packages/server/src/terminal/worker-terminal-manager.ts
 +++ b/packages/server/src/terminal/worker-terminal-manager.ts
 @@ -1,6 +1,6 @@
@@ -10635,7 +10808,7 @@ index 0f0243d7a..ad6243ff1 100644
      serialization: "advanced",
      stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index 8fac115f0..689b91cfa 100644
+index 8fac115..689b91c 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,11 @@

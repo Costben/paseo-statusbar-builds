@@ -524,7 +524,17 @@ const MARKERS = [
   {
     label: "The session log counts the prompts the runtime accepted",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-    needle: "getUserMessageCount(): number {",
+    needle: "getAcceptedPromptCount(): number {",
+  },
+  {
+    label: "Kimi prompt receipts exclude context appends and child agents",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "function isInboundPrompt(",
+  },
+  {
+    label: "An accepted Kimi prompt with no output gets a neutral diagnosis",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: 'error: "Kimi accepted this prompt but produced no timeline output",',
   },
   {
     label: "A Kimi turn hold waits on the settle watermark",
