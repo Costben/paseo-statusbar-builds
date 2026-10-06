@@ -1635,7 +1635,7 @@ index 248e8d2..bf89483 100644
  
      let snapshot: ManagedAgent;
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 9e809a4..62b7af6 100644
+index 9e809a4..8a1599d 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,8 @@ import {
@@ -1769,25 +1769,125 @@ index 9e809a4..62b7af6 100644
            return;
          }
          this.logger.trace(
-@@ -4321,6 +4367,18 @@ export class AgentManager {
-         agent.lastUsage = event.usage;
-         this.emitState(agent);
+@@ -4313,46 +4359,9 @@ export class AgentManager {
+   }): Promise<void> | undefined {
+     const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
+       params;
++    if (this.dispatchAgentStateEvent(params)) return undefined;
++
+     switch (event.type) {
+-      case "thread_started":
+-        this.onStreamThreadStarted(agent);
+-        return undefined;
+-      case "usage_updated":
+-        agent.lastUsage = event.usage;
+-        this.emitState(agent);
+-        return undefined;
+-      case "mode_changed":
+-        this.applyObservedMode(agent, event.currentModeId);
+-        agent.availableModes = event.availableModes;
+-        if (agent.runtimeInfo) {
+-          agent.runtimeInfo = { ...agent.runtimeInfo, modeId: event.currentModeId };
+-        }
+-        flags.shouldDispatchEvent = false;
+-        this.emitState(agent);
+-        return undefined;
+-      case "model_changed":
+-        agent.runtimeInfo = event.runtimeInfo;
+-        if (!agent.persistence && event.runtimeInfo.sessionId) {
+-          agent.persistence = attachPersistenceCwd(
+-            { provider: agent.provider, sessionId: event.runtimeInfo.sessionId },
+-            agent.cwd,
+-          );
+-        }
+-        this.applyObservedMode(agent, event.runtimeInfo.modeId ?? agent.currentModeId);
+-        flags.shouldDispatchEvent = false;
+-        this.emitState(agent);
+-        return undefined;
+-      case "thinking_option_changed":
+-        agent.config.thinkingOptionId = event.thinkingOptionId ?? undefined;
+-        if (agent.runtimeInfo) {
+-          agent.runtimeInfo = {
+-            ...agent.runtimeInfo,
+-            thinkingOptionId: event.thinkingOptionId,
+-          };
+-        }
+-        flags.shouldDispatchEvent = false;
+-        this.emitState(agent);
+-        return undefined;
+       case "timeline":
+         return this.onStreamTimelineEvent({ agent, event, options, flags });
+       case "turn_completed":
+@@ -4396,7 +4405,68 @@ export class AgentManager {
          return undefined;
+     }
+   }
+-
++  private dispatchAgentStateEvent(params: {
++    agent: ActiveManagedAgent;
++    event: AgentStreamEvent;
++    flags: StreamEventFlags;
++  }): boolean {
++    const { agent, event, flags } = params;
++    switch (event.type) {
++      case "thread_started":
++        this.onStreamThreadStarted(agent);
++        return true;
++      case "usage_updated":
++        agent.lastUsage = event.usage;
++        this.emitState(agent);
++        return true;
 +      case "goal_updated":
 +        agent.goal = event.goal;
 +        // The goal travels only in the agent snapshot; `goal_updated` is not a
 +        // member of the wire stream union, so it must not be forwarded.
 +        flags.shouldDispatchEvent = false;
 +        this.emitState(agent);
-+        return undefined;
++        return true;
 +      case "background_tasks_updated":
 +        agent.backgroundTasks = event.backgroundTasks;
 +        flags.shouldDispatchEvent = false;
 +        this.emitState(agent);
-+        return undefined;
-       case "mode_changed":
-         this.applyObservedMode(agent, event.currentModeId);
-         agent.availableModes = event.availableModes;
++        return true;
++      case "mode_changed":
++        this.applyObservedMode(agent, event.currentModeId);
++        agent.availableModes = event.availableModes;
++        if (agent.runtimeInfo) {
++          agent.runtimeInfo = { ...agent.runtimeInfo, modeId: event.currentModeId };
++        }
++        flags.shouldDispatchEvent = false;
++        this.emitState(agent);
++        return true;
++      case "model_changed":
++        agent.runtimeInfo = event.runtimeInfo;
++        if (!agent.persistence && event.runtimeInfo.sessionId) {
++          agent.persistence = attachPersistenceCwd(
++            { provider: agent.provider, sessionId: event.runtimeInfo.sessionId },
++            agent.cwd,
++          );
++        }
++        this.applyObservedMode(agent, event.runtimeInfo.modeId ?? agent.currentModeId);
++        flags.shouldDispatchEvent = false;
++        this.emitState(agent);
++        return true;
++      case "thinking_option_changed":
++        agent.config.thinkingOptionId = event.thinkingOptionId ?? undefined;
++        if (agent.runtimeInfo) {
++          agent.runtimeInfo = {
++            ...agent.runtimeInfo,
++            thinkingOptionId: event.thinkingOptionId,
++          };
++        }
++        flags.shouldDispatchEvent = false;
++        this.emitState(agent);
++        return true;
++      default:
++        return false;
++    }
++  }
+   private onStreamThreadStarted(agent: ActiveManagedAgent): void {
+     const previousSessionId = agent.persistence?.sessionId ?? null;
+     this.refreshSessionPersistence(agent);
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
 index f72bd84..9a5dda9 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
