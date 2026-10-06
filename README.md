@@ -10,6 +10,27 @@ the patch script. At build time it checks out an upstream tag, injects the patch
 and compiles — it never stores or merges upstream source, so there are no merge
 conflicts to maintain.
 
+## Editing this repo
+
+`main` on GitHub is the only working copy. Do not clone this repo locally, and do
+not leave a checkout behind — a local copy only drifts, and the drift stays
+invisible until a build fails.
+
+Make changes through the GitHub API instead: read with
+`gh api repos/Costben/paseo-statusbar-builds/contents/<path>`, write with the git
+data API (blob → tree → commit → move the ref) or the contents API. Neither needs
+a worktree.
+
+Verification is CI's job. After a change to `patches/` or `scripts/`, dispatch the
+workflow for the tag you target and let the patch step decide whether it still
+applies; a red run there means the patch needs refreshing against the new upstream
+tag. If a change really has to be tried out before it is pushed, use a throwaway
+directory under `$TMPDIR` and delete it afterwards — never put scratch trees,
+`node_modules` or build output inside a project directory.
+
+Agent-facing conventions — commit scopes, which workflow to run — live in
+[`AGENTS.md`](AGENTS.md).
+
 ## How it works
 
 ```
