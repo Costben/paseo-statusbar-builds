@@ -118,8 +118,8 @@ const PATCHES = [
     file: "paseo-kimi-native-0101.patch",
     platforms: ["mac", "win"],
     marker: {
-      path: "packages/server/src/server/agent/providers/acp-agent.ts",
-      needle: "private mapGoalExtension(",
+      path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+      needle: "getAcceptedPromptCount(): number {",
     },
   },
   {

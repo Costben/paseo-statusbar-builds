@@ -1466,7 +1466,7 @@ index c1c70c6..3579b7f 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 0214502..6a148e3 100644
+index 41b9ca3..4f04feb 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -379,6 +379,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -1574,7 +1574,7 @@ index 6930fe1..afe2cce 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 1f8c137..e89365a 100644
+index ec56822..4ea4d11 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -1589,7 +1589,7 @@ index 1f8c137..e89365a 100644
  import { signalProcessTree } from "../src/utils/tree-kill.js";
  
  const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
-@@ -276,12 +277,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
+@@ -285,12 +286,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
      const spawnSpec = resolveWorkerSpawnSpec?.(workerEntry) ?? null;
      writeLifecycleLog("Spawning worker", { workerEntry });
      if (spawnSpec) {
@@ -5259,7 +5259,7 @@ index d88d810..160ad9f 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 7b16c03..ce18ea8 100644
+index aa60e40..495cc51 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -34,6 +34,8 @@ import {
@@ -5279,7 +5279,7 @@ index 7b16c03..ce18ea8 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2069,6 +2072,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2077,6 +2080,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -5311,7 +5311,7 @@ index 7b16c03..ce18ea8 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2141,7 +2169,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2149,7 +2177,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -5320,7 +5320,7 @@ index 7b16c03..ce18ea8 100644
      );
      const handle = options.handle;
  
-@@ -2454,7 +2482,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2462,7 +2490,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -5329,7 +5329,7 @@ index 7b16c03..ce18ea8 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3280,6 +3308,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3288,6 +3316,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -5354,7 +5354,7 @@ index 7b16c03..ce18ea8 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4121,16 +4167,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4129,16 +4175,7 @@ class ClaudeAgentSession implements AgentSession {
      // Subagent identity and lifecycle are announced by Claude Code's task protocol, so they are
      // read rather than inferred from sidechain frames. `task_started` precedes the child's first
      // frame, so the descriptor exists before any timeline item lands on it.
@@ -5372,7 +5372,7 @@ index 7b16c03..ce18ea8 100644
      if (message.type !== "system") {
        const sessionCapture = this.captureSessionIdFromMessage(message);
        if (sessionCapture.notice) {
-@@ -4151,6 +4188,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4159,6 +4196,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetReadSteer(message);
  
@@ -5385,7 +5385,7 @@ index 7b16c03..ce18ea8 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4168,6 +4211,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4176,6 +4219,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -5393,7 +5393,7 @@ index 7b16c03..ce18ea8 100644
          break;
        }
        case "stream_event":
-@@ -4183,6 +4227,217 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4191,6 +4235,217 @@ class ClaudeAgentSession implements AgentSession {
      return events;
    }
  
@@ -5611,7 +5611,7 @@ index 7b16c03..ce18ea8 100644
    /** Once Claude has read a steer there is nothing left to discard on interrupt. */
    private forgetReadSteer(message: unknown): void {
      const lifecycle = readClaudeCommandLifecycle(message);
-@@ -4521,6 +4776,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4520,6 +4775,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -5619,7 +5619,7 @@ index 7b16c03..ce18ea8 100644
      const usage = this.convertUsage(message, message.modelUsage);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -5867,6 +6123,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -5900,6 +6156,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
@@ -10808,31 +10808,21 @@ index 0f0243d..ad6243f 100644
      serialization: "advanced",
      stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index 8fac115..689b91c 100644
+index b26104c..5efa1df 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
-@@ -1,4 +1,11 @@
--import { execFile, spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
-+import {
-+  execFile,
-+  fork,
-+  spawn,
-+  type ChildProcess,
-+  type ForkOptions,
-+  type SpawnOptions,
-+} from "node:child_process";
- import { extname } from "node:path";
- import { promisify } from "node:util";
+@@ -1,4 +1,4 @@
+-import type { ChildProcess, SpawnOptions } from "node:child_process";
++import { fork, type ChildProcess, type ForkOptions, type SpawnOptions } from "node:child_process";
+ import { spawnProcess as spawnCli, execCommand as execCli } from "@getpaseo/plugin/server";
+ import { createExternalCommandProcessEnv, type ProcessEnvRecord } from "../server/paseo-env.js";
  
-@@ -83,6 +90,23 @@ export function spawnProcess(
+@@ -49,6 +49,19 @@ export function spawnProcess(
    });
  }
  
 +interface ForkProcessOptions extends ForkOptions {
-+  /**
-+   * `child_process.fork` forwards its options to `spawn`, so `windowsHide` takes
-+   * effect at runtime; @types/node just omits the flag from `ForkOptions`.
-+   */
++  /** `fork` forwards this option to the underlying Windows process spawn. */
 +  windowsHide?: boolean;
 +}
 +
@@ -10841,8 +10831,7 @@ index 8fac115..689b91c 100644
 +  args: string[],
 +  options?: ForkProcessOptions,
 +): ChildProcess {
-+  const forkOptions: ForkProcessOptions = { ...options, windowsHide: true };
-+  return fork(modulePath, args, forkOptions);
++  return fork(modulePath, args, { ...options, windowsHide: true } as ForkOptions);
 +}
 +
  export async function execCommand(
