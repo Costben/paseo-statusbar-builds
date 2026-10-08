@@ -108,6 +108,21 @@ jobs:
           cache: "npm"
           cache-dependency-path: upstream/package-lock.json
 
+      # Upstream's own ci.yml installs this before running the provider tests, and
+      # one of them resolves the CLI's real version instead of faking it. Without
+      # it the suite fails on the runner for a reason that has nothing to do with
+      # the patch — exactly the kind of false alarm this job must not raise.
+      - name: Install the Claude Code CLI (a provider test resolves its version)
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm install -g @anthropic-ai/claude-code; then exit 0; fi
+            echo "::warning::claude-code install failed (attempt ${attempt}/3); retrying"
+            sleep $((attempt * 15))
+          done
+          echo "::error::could not install @anthropic-ai/claude-code"
+          exit 1
+
       # This is the step that goes red when upstream moved the code a patch
       # targets. Both desktop build workflows apply a target; verifying both here
       # means neither can be the first to find out.
