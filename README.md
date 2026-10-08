@@ -21,12 +21,13 @@ Make changes through the GitHub API instead: read with
 data API (blob → tree → commit → move the ref) or the contents API. Neither needs
 a worktree.
 
-Verification is CI's job. After a change to `patches/` or `scripts/`, dispatch the
-workflow for the tag you target and let the patch step decide whether it still
-applies; a red run there means the patch needs refreshing against the new upstream
-tag. If a change really has to be tried out before it is pushed, use a throwaway
-directory under `$TMPDIR` and delete it afterwards — never put scratch trees,
-`node_modules` or build output inside a project directory.
+Verification is CI's job, all of it. A patch refresh is validated by
+`patch-verify.yml`, which applies the series to the upstream tag and runs the
+typechecks plus the tests the patch touches; the desktop builds are the final gate.
+Nothing runs on a laptop — no `npm ci`, no build, no typecheck, no test — except
+resolving a patch conflict, which needs an editable working tree and so happens in
+a throwaway directory under `$TMPDIR` that is deleted afterwards. Never put scratch
+trees, `node_modules` or build output inside a project directory.
 
 Agent-facing conventions — commit scopes, which workflow to run — live in
 [`AGENTS.md`](AGENTS.md).

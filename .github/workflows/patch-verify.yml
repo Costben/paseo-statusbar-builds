@@ -1,0 +1,177 @@
+name: Verify patches against an upstream tag
+
+# Pre-flight for a patch refresh, and the only place that work happens: it applies
+# the desktop patch series to an upstream tag and runs the checks a person used to
+# run by hand on a laptop before pushing — does the patch still apply, does the
+# patched tree typecheck, do the tests the patch touches still pass.
+#
+# It is deliberately much cheaper than the desktop builds: no Metro web bundle, no
+# electron-builder, no packaging, no publishing. A patch that is going to fail
+# fails here in minutes instead of burning a 40-minute build on a red patch.
+#
+# Dispatch it against the tag you are refreshing for, on the ref that holds the
+# patches. Nothing here writes to the repository or to a Release.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upstream tag to verify against (blank = latest non-draft release)"
+        required: false
+        type: string
+      ref:
+        description: "Build-repo ref holding the patches (blank = the ref this was dispatched on)"
+        required: false
+        type: string
+
+concurrency:
+  group: paseo-patch-verify
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  UPSTREAM_REPO: getpaseo/paseo
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+    steps:
+      - name: Resolve upstream tag
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$REQUESTED" ]; then
+            tag="$REQUESTED"
+          else
+            tag="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq '.tag_name')"
+          fi
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "Could not resolve an upstream tag." >&2
+            exit 1
+          fi
+          echo "Verifying patches against $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: apply, typecheck and test
+    needs: resolve
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout build repo (patch scripts live here)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+
+      - name: Checkout upstream tag
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ needs.resolve.outputs.tag }}
+          path: upstream
+          fetch-depth: 1
+
+      - name: Checkout upstream tag again (the win target needs its own tree)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ needs.resolve.outputs.tag }}
+          path: upstream-win
+          fetch-depth: 1
+
+      - name: Free runner disk space
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/local/share/dotnet \
+            /usr/local/share/CodeQL \
+            /usr/local/Homebrew/Library/Taps \
+            "$HOME/.rustup" \
+            "$HOME/.cargo" || true
+          brew cleanup -s || true
+          echo "Disk after cleanup:"
+          df -h /
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: upstream/package-lock.json
+
+      # This is the step that goes red when upstream moved the code a patch
+      # targets. Both desktop build workflows apply a target; verifying both here
+      # means neither can be the first to find out.
+      - name: Apply desktop patches (mac)
+        run: node scripts/apply-desktop-patch.mjs upstream mac
+
+      - name: Apply desktop patches (win)
+        run: node scripts/apply-desktop-patch.mjs upstream-win win
+
+      - name: Install JS dependencies
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm ci; then exit 0; fi
+            echo "::warning::npm ci failed (attempt ${attempt}/3); retrying in $((attempt * 15))s"
+            sleep $((attempt * 15))
+          done
+          echo "::error::npm ci failed after 3 attempts"
+          exit 1
+
+      # tsgo resolves @getpaseo/* through dist/, so the workspace has to be built
+      # before a typecheck means anything.
+      - name: Build workspace deps
+        working-directory: upstream
+        run: npm run build:server
+
+      - name: Typecheck (relay, protocol, client, plugins, server, cli)
+        working-directory: upstream
+        run: npm run typecheck:server
+
+      - name: Typecheck (app)
+        working-directory: upstream
+        run: npm run typecheck --workspace=@getpaseo/app
+
+      - name: Test the files the patch touches
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          # Derive the test files from the patch rather than hard-coding a list, so
+          # a refresh that adds or renames a test keeps being covered by this job.
+          git add -A -N
+          git diff --name-only > "$RUNNER_TEMP/changed.txt"
+          echo "Files the patch touches:"
+          cat "$RUNNER_TEMP/changed.txt"
+
+          status=0
+          for pkg in packages/server packages/protocol packages/app packages/cli packages/client packages/relay; do
+            [ -d "$pkg" ] || continue
+            # Browser tests need a Playwright chromium build that this job does not
+            # install; they are excluded. The desktop builds run no tests at all, so
+            # this job is already stricter than the pipeline it guards.
+            files="$(grep -E "^${pkg}/.*\.test\.(ts|tsx)$" "$RUNNER_TEMP/changed.txt" \
+              | sed "s|^${pkg}/||" | grep -v '\.browser\.test\.' || true)"
+            if [ -z "$files" ]; then
+              continue
+            fi
+            echo "::group::$pkg"
+            echo "$files"
+            if [ "$pkg" = "packages/app" ]; then
+              ( cd "$pkg" && npx vitest run --project unit $files ) || status=1
+            else
+              ( cd "$pkg" && npx vitest run $files ) || status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
