@@ -72,13 +72,18 @@
 //                           Kimi's own queue rather than interrupting that turn
 //                           — Kimi 2.1.1 ignores session/cancel for a turn no
 //                           ACP request started, so an interrupt could not stop
-//                           it anyway. A steer that arrives while a prompt of
-//                           Paseo's own is still in flight is refused instead:
-//                           the runtime answers a second concurrent prompt with
-//                           an error rather than queueing it, so sending one
-//                           would report the message accepted and then drop it.
-//                           An interrupt during a held turn reports a
-//                           cancellation, not an empty turn.
+//                           it anyway. Stopping such a turn closes Paseo's turn
+//                           as canceled and, while Kimi runs on, opens a fresh
+//                           one, so the agent never shows idle while it works.
+//                           A steer that arrives while a prompt of
+//                           Paseo's own is still in flight is held and sent
+//                           once that turn ends, as a turn of its own: the
+//                           runtime answers a second concurrent prompt with an
+//                           error rather than queueing it, and replacing the
+//                           turn would interrupt the work it is doing. A held
+//                           message that cannot be sent is reported as an error
+//                           entry in the timeline. An interrupt during a held
+//                           turn reports a cancellation, not an empty turn.
 //   reliability             Kimi ACP capability descriptors, log instead of
 //                           silently dropping session/staged events, and flag
 //                           Kimi turns that complete with no assistant output.
@@ -214,9 +219,29 @@ const MARKERS = [
     needle: "private async sendQueuedPrompt(",
   },
   {
-    label: "A steer with a prompt still in flight is refused rather than dropped",
+    label: "A steer with a prompt still in flight is held and sent after that turn",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
-    needle: ': Promise.resolve({ status: "unavailable" });',
+    needle: "this.heldQueuedPrompts.push({ prompt, options });",
+  },
+  {
+    label: "Stopping a Kimi turn Kimi runs on keeps the agent shown at work",
+    path: "packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts",
+    needle: "  noteInterrupted(): void {",
+  },
+  {
+    label: "The Kimi log directory follows KIMI_CODE_HOME, as Kimi does",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "firstNonEmpty(kimiHome, process.env.KIMI_CODE_HOME, process.env.KIMI_HOME)",
+  },
+  {
+    label: "A queued message the provider refuses is reported, not dropped silently",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "Queued message was not delivered:",
+  },
+  {
+    label: "A prompt logged before a turn was noted is not taken for its submission",
+    path: "packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts",
+    needle: "this.knownPromptTurnIds = new Set(this.prompts.keys());",
   },
   {
     label: "Kimi compaction chat notices are dropped in favour of the compaction divider",
@@ -239,9 +264,9 @@ const MARKERS = [
     needle: "this.compactionTrigger = record.source === \"manual\" ? \"manual\" : \"auto\";",
   },
   {
-    label: "Session log appends wake the tailer",
+    label: "Kimi session log polls once a second when idle",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-    needle: "private ensureWatcher(filePath: string): void {",
+    needle: "const IDLE_POLL_INTERVAL_MS = 1_000;",
   },
   {
     label: "ACP session mismatch recovery",
@@ -594,16 +619,6 @@ const MARKERS = [
     label: "An accepted Kimi prompt with no output gets a neutral diagnosis",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: 'error: "Kimi accepted this prompt but produced no timeline output",',
-  },
-  {
-    label: "A Kimi turn hold waits on the settle watermark",
-    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-    needle: "() => this.settledThroughTurn < generation",
-  },
-  {
-    label: "An archived agent loads its history without its working directory",
-    path: "packages/server/src/server/agent/agent-loading.ts",
-    needle: "if (!record.archivedAt && !existsSync(record.cwd)) {",
   },
   {
     label: "A prompt the runtime never accepted is named as such",

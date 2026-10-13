@@ -1,3 +1,53 @@
+diff --git a/packages/server/src/server/agent/agent-loading.test.ts b/packages/server/src/server/agent/agent-loading.test.ts
+index d75fa87..6206954 100644
+--- a/packages/server/src/server/agent/agent-loading.test.ts
++++ b/packages/server/src/server/agent/agent-loading.test.ts
+@@ -142,6 +142,45 @@ test("resuming a stored agent keeps its unread flag and its last-activity time",
+   }
+ });
+ 
++test("refuses to resume an active agent whose working directory is gone", async () => {
++  const root = await mkdtemp(path.join(tmpdir(), "agent-loading-gone-cwd-"));
++  const worktree = path.join(root, "managed-worktree");
++  await mkdir(worktree, { recursive: true });
++  const logger = createTestLogger();
++  const storage = new AgentStorage(path.join(root, "agents"), logger);
++  const manager = new AgentManager({
++    clients: createTestAgentClients(),
++    registry: storage,
++    logger,
++  });
++
++  const agentId = "00000000-0000-4000-8000-000000000502";
++
++  try {
++    const agent = await manager.createAgent({ provider: "codex", cwd: worktree }, agentId, {
++      workspaceId: "workspace-worktree",
++    });
++    await startAgentRun(manager, agent.id, "what did you change", logger, {});
++    const finished = await manager.waitForAgentEvent(agent.id);
++    expect(finished.status).toBe("idle");
++    await manager.closeAgent(agent.id);
++    await manager.flush();
++    await storage.flush();
++
++    await rm(worktree, { recursive: true, force: true });
++
++    await expect(
++      ensureAgentLoaded(agentId, { agentManager: manager, agentStorage: storage, logger }),
++    ).rejects.toThrow(`workspace directory no longer exists: ${worktree}`);
++    expect(manager.getAgent(agentId)).toBeNull();
++  } finally {
++    await manager.closeAgent(agentId).catch(() => undefined);
++    await manager.flush().catch(() => undefined);
++    await storage.flush().catch(() => undefined);
++    await rm(root, { recursive: true, force: true });
++  }
++});
++
+ test("loads an archived agent's history after its working directory is removed", async () => {
+   const root = await mkdtemp(path.join(tmpdir(), "agent-loading-missing-cwd-"));
+   const worktree = path.join(root, "managed-worktree");
 diff --git a/packages/server/src/server/agent/agent-loading.ts b/packages/server/src/server/agent/agent-loading.ts
 index 248e8d2..02c2003 100644
 --- a/packages/server/src/server/agent/agent-loading.ts
@@ -26,3 +76,21 @@ index 248e8d2..02c2003 100644
      const handle = toAgentPersistenceHandle(validProviders, record.persistence);
  
      let snapshot: ManagedAgent;
+diff --git a/packages/server/src/server/agent/import-sessions.test.ts b/packages/server/src/server/agent/import-sessions.test.ts
+index 9190e69..d117a74 100644
+--- a/packages/server/src/server/agent/import-sessions.test.ts
++++ b/packages/server/src/server/agent/import-sessions.test.ts
+@@ -708,7 +708,12 @@ class ProviderImportHarness {
+     importTestDirectories.push(directory);
+     const storage = new AgentStorage(path.join(directory, "agents"), createTestLogger());
+     await storage.initialize();
+-    const cwd = input.cwd ?? "/tmp/imported-agent";
++    // Restoring a session loads it again, and loading refuses a workspace
++    // directory that is gone, so the default workspace has to exist.
++    const cwd = input.cwd ?? path.join(directory, "imported-agent");
++    if (input.cwd === undefined) {
++      mkdirSync(cwd, { recursive: true });
++    }
+     const sessionId = input.sessionId ?? "thread-imported";
+     const snapshot = makeManagedAgent({
+       id: input.id,
