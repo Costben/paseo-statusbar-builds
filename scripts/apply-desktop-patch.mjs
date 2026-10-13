@@ -254,6 +254,16 @@ const MARKERS = [
     needle: 'text.startsWith("Context compaction started")',
   },
   {
+    label: "A compaction Kimi cancelled is dropped like the notices",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: 'text.startsWith("Compaction cancelled.")',
+  },
+  {
+    label: "A compaction Kimi refused because a turn was running is dropped",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: 'text.startsWith("Compaction is blocked by the current turn")',
+  },
+  {
     label: "A /compact Kimi only compacted in is not reported as an unrun prompt",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: "if (bridge.compactedSinceSubmission()) {",

@@ -7484,7 +7484,7 @@ index 5a14d991..c1f92b7b 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb0..aaa36654 100644
+index b388fdb0..89de568b 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -1,9 +1,18 @@
@@ -7509,7 +7509,7 @@ index b388fdb0..aaa36654 100644
  
  function modelConfigOption(currentValue: string): SessionConfigOption {
    return {
-@@ -239,3 +248,235 @@ describe("KimiACPAgentClient per-model thinking options", () => {
+@@ -239,3 +248,241 @@ describe("KimiACPAgentClient per-model thinking options", () => {
      expect(kimiK3?.defaultThinkingOptionId).toBeUndefined();
    });
  });
@@ -7605,6 +7605,12 @@ index b388fdb0..aaa36654 100644
 +        chunk(
 +          "Context compaction started — it runs in the background and the compacted context applies once it finishes.",
 +        ),
++      ),
++    ).toBe(true);
++    expect(isKimiCompactionNotice(chunk("Compaction cancelled."))).toBe(true);
++    expect(
++      isKimiCompactionNotice(
++        chunk("Compaction is blocked by the current turn; retry when the turn is idle."),
 +      ),
 +    ).toBe(true);
 +  });
@@ -7746,7 +7752,7 @@ index b388fdb0..aaa36654 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f6..06ba4bd3 100644
+index 7ae144f6..03c94e38 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,25 @@
@@ -7776,7 +7782,7 @@ index 7ae144f6..06ba4bd3 100644
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -88,6 +100,252 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -88,6 +100,256 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        providerId: options.providerId,
        label: options.label,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -7866,10 +7872,12 @@ index 7ae144f6..06ba4bd3 100644
 +
 +/**
 + * Kimi narrates a compaction to ACP clients as plain assistant text: a start
-+ * line and a token summary, or `Context compaction started` for a `/compact`.
-+ * The session log carries the same events and the bridge renders them as the
-+ * compaction divider, so the text would otherwise sit next to that divider as
-+ * chat. Dropped text is not turn output, but the divider it becomes is.
++ * line and a token summary, `Context compaction started` for a `/compact`, and
++ * a one-liner when the compaction was cancelled or refused because a turn was
++ * still running. The session log carries the compactions themselves and the
++ * bridge renders them as the compaction divider, so the text would otherwise
++ * sit next to that divider as chat. Dropped text is not turn output, but the
++ * divider it becomes is.
 + */
 +export function isKimiCompactionNotice(update: SessionUpdate): boolean {
 +  if (update.sessionUpdate !== "agent_message_chunk" || update.content.type !== "text") {
@@ -7879,7 +7887,9 @@ index 7ae144f6..06ba4bd3 100644
 +  return (
 +    text.startsWith("Compacting conversation context") ||
 +    text.startsWith("Context compaction started") ||
-+    text.startsWith("Compaction completed.\n- Messages compacted:")
++    text.startsWith("Compaction completed.\n- Messages compacted:") ||
++    text.startsWith("Compaction cancelled.") ||
++    text.startsWith("Compaction is blocked by the current turn")
 +  );
 +}
 +
