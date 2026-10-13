@@ -70,8 +70,13 @@
 //                           Kimi's own queue rather than interrupting that turn
 //                           — Kimi 2.1.1 ignores session/cancel for a turn no
 //                           ACP request started, so an interrupt could not stop
-//                           it anyway. An interrupt during a held turn reports
-//                           a cancellation, not an empty turn.
+//                           it anyway. A steer that arrives while a prompt of
+//                           Paseo's own is still in flight is refused instead:
+//                           the runtime answers a second concurrent prompt with
+//                           an error rather than queueing it, so sending one
+//                           would report the message accepted and then drop it.
+//                           An interrupt during a held turn reports a
+//                           cancellation, not an empty turn.
 //   reliability             Kimi ACP capability descriptors, log instead of
 //                           silently dropping session/staged events, and flag
 //                           Kimi turns that complete with no assistant output.
@@ -205,6 +210,11 @@ const MARKERS = [
     label: "A message sent during a Kimi turn is queued instead of interrupting",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "private async sendQueuedPrompt(",
+  },
+  {
+    label: "A steer with a prompt still in flight is refused rather than dropped",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: ': Promise.resolve({ status: "unavailable" });',
   },
   {
     label: "Kimi compaction chat notices are dropped in favour of the compaction divider",
