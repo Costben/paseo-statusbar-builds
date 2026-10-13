@@ -7504,10 +7504,10 @@ index 7ae144f6..ae2bc7f1 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 new file mode 100644
-index 00000000..7179863a
+index 00000000..8c6937aa
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
-@@ -0,0 +1,343 @@
+@@ -0,0 +1,369 @@
 +import { describe, expect, test } from "vitest";
 +
 +import { createTestLogger } from "../../../../test-utils/test-logger.js";
@@ -7821,8 +7821,34 @@ index 00000000..7179863a
 +      {
 +        type: "timeline",
 +        provider: "kimi",
-+        item: { type: "compaction", status: "loading", trigger: "auto" },
++        item: { type: "compaction", status: "completed", trigger: "auto" },
 +      },
++    ]);
++  });
++
++  test("keeps compaction to one row, so no reader is left holding an open marker", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      line({ type: "full_compaction.begin", source: "manual", agentId: "main", time: start }),
++    ]);
++
++    expect(events).toEqual([]);
++  });
++
++  test("renders a compaction whose start predates the bridge, without a trigger", () => {
++    const { renderer, events } = createHarness();
++
++    renderer.consume([
++      line({
++        type: "full_compaction.complete",
++        agentId: "main",
++        time: ATTACHED_AT + 5_000,
++      }),
++    ]);
++
++    expect(events).toEqual([
 +      { type: "timeline", provider: "kimi", item: { type: "compaction", status: "completed" } },
 +    ]);
 +  });
@@ -7853,10 +7879,10 @@ index 00000000..7179863a
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 new file mode 100644
-index 00000000..89ce59e0
+index 00000000..52e205f0
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
-@@ -0,0 +1,491 @@
+@@ -0,0 +1,502 @@
 +import { randomUUID } from "node:crypto";
 +
 +import type { Logger } from "pino";
@@ -7943,6 +7969,7 @@ index 00000000..89ce59e0
 +
 +  private current: RenderedTurn | null = null;
 +  private autonomousTurnId: string | null = null;
++  private compactionTrigger: "auto" | "manual" | null = null;
 +  private readonly calls = new Map<string, KimiSubagentCallRecord>();
 +  private readonly prompts = new Map<number, KimiPromptRecord>();
 +  private classifyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -8077,20 +8104,30 @@ index 00000000..89ce59e0
 +    }
 +  }
 +
-+  /** Kimi never sends compaction over ACP; its log is the only record of it. */
++  /**
++   * Kimi never sends compaction over ACP; its log is the only record of it.
++   *
++   * Only the finished row is written. The timeline is append-only, so a `loading`
++   * row could never be settled in place: every reader that loads the timeline
++   * from the store instead of watching it live would keep an open marker next to
++   * the finished one, and a later compaction's `completed` would then settle the
++   * wrong row and leave the newest marker open for good.
++   */
 +  private onCompaction(record: Record<string, unknown>, time: number | null): void {
 +    if (time === null || time < this.renderFrom) {
 +      return;
 +    }
 +    if (record.type === "full_compaction.begin") {
-+      this.emitItem({
-+        type: "compaction",
-+        status: "loading",
-+        trigger: record.source === "manual" ? "manual" : "auto",
-+      });
++      this.compactionTrigger = record.source === "manual" ? "manual" : "auto";
 +      return;
 +    }
-+    this.emitItem({ type: "compaction", status: "completed" });
++    const trigger = this.compactionTrigger;
++    this.compactionTrigger = null;
++    this.emitItem({
++      type: "compaction",
++      status: "completed",
++      ...(trigger ? { trigger } : {}),
++    });
 +  }
 +
 +  /** A prompt is over at its prompt-level `turn.ended`, or at `prompt.completed` for a user prompt. */

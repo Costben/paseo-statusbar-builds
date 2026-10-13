@@ -60,7 +60,9 @@
 //                           (kimi/main-turn-renderer.ts): a turn that starts
 //                           while Paseo is idle opens a turn of its own, and a
 //                           turn the ACP stream already delivered is left to
-//                           the stream. Compaction is rendered the same way.
+//                           the stream. Compaction is rendered the same way, as
+//                           one settled row: the timeline is append-only, so an
+//                           open marker could never be closed in place.
 //   kimi queued prompts     a prompt Kimi only queued holds its foreground turn
 //                           until the prompt has actually run, instead of being
 //                           judged empty after a fixed grace; it fails as
@@ -220,6 +222,11 @@ const MARKERS = [
     label: "Kimi compaction chat notices are dropped in favour of the compaction divider",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: "shouldDropSessionUpdate: isKimiCompactionNotice,",
+  },
+  {
+    label: "Kimi writes one settled compaction row, never an open one",
+    path: "packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts",
+    needle: "this.compactionTrigger = record.source === \"manual\" ? \"manual\" : \"auto\";",
   },
   {
     label: "Session log appends wake the tailer",
