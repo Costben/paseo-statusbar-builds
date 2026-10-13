@@ -2160,7 +2160,7 @@ index 34d36c9e..8602106a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 33c96969..73a7abc9 100644
+index 33c96969..9ef8c432 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2795,7 +2795,7 @@ index 33c96969..73a7abc9 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -2930,36 +3422,474 @@ describe("ACPAgentSession", () => {
+@@ -2930,36 +3422,574 @@ describe("ACPAgentSession", () => {
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
        () =>
@@ -3034,6 +3034,106 @@ index 33c96969..73a7abc9 100644
 +      expect(events).toContainEqual(
 +        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
 +      );
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  test("Kimi reliable mode re-arms the grace while the provider reports a running turn", async () => {
++    vi.useFakeTimers();
++    try {
++      let running = true;
++      const session = createSessionWithConfig(
++        { provider: "kimi", lateTimelineGraceMs: 250 },
++        createTestLogger(),
++        { kimiReliableQueue: true },
++        { isTurnStillRunning: () => running },
++      );
++      const events: AgentStreamEvent[] = [];
++      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++      asInternals<ACPSessionInternals>(session).connection = {
++        prompt: async () => ({ stopReason: "end_turn" }),
++      };
++      session.subscribe((event) => events.push(event));
++
++      const { turnId } = await session.startTurn("hello");
++      // Four graces pass while the provider still reports a turn of its own. The
++      // prompt was queued, so the output is coming — failing here would report a
++      // failure the provider never produced.
++      await vi.advanceTimersByTimeAsync(1_000);
++      expect(events.some((event) => event.type === "turn_failed")).toBe(false);
++
++      // The queued turn finally produces output, which ends the wait.
++      running = false;
++      await session.sessionUpdate({
++        sessionId: "session-1",
++        update: {
++          sessionUpdate: "agent_message_chunk",
++          messageId: "assistant-queued",
++          content: { type: "text", text: "queued output" },
++        } as SessionUpdate,
++      });
++      await flushMicrotasks();
++
++      expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  test("Kimi reliable mode stops re-arming at the ceiling while the provider still reports a turn", async () => {
++    vi.useFakeTimers();
++    try {
++      const session = createSessionWithConfig(
++        { provider: "kimi", lateTimelineGraceMs: 60_000 },
++        createTestLogger(),
++        { kimiReliableQueue: true },
++        { isTurnStillRunning: () => true },
++      );
++      const events: AgentStreamEvent[] = [];
++      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++      asInternals<ACPSessionInternals>(session).connection = {
++        prompt: async () => ({ stopReason: "end_turn" }),
++      };
++      session.subscribe((event) => events.push(event));
++
++      const { turnId } = await session.startTurn("hello");
++      await vi.advanceTimersByTimeAsync(16 * 60 * 1000);
++
++      expect(events).toContainEqual(
++        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
++      );
++    } finally {
++      vi.useRealTimers();
++    }
++  });
++
++  test("a compaction notification counts as this turn's output", async () => {
++    vi.useFakeTimers();
++    try {
++      const session = createSessionWithConfig(
++        { provider: "kimi", lateTimelineGraceMs: 250 },
++        createTestLogger(),
++        { kimiReliableQueue: true },
++      );
++      const events: AgentStreamEvent[] = [];
++      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++      asInternals<ACPSessionInternals>(session).connection = {
++        prompt: async () => ({ stopReason: "end_turn" }),
++      };
++      session.subscribe((event) => events.push(event));
++
++      const { turnId } = await session.startTurn("hello");
++      await session.extNotification("_paseo.dev/session/compaction", {
++        sessionId: "session-1",
++        status: "in_progress",
++        trigger: "auto",
++      });
++      await flushMicrotasks();
++      await vi.advanceTimersByTimeAsync(1_000);
++
++      expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
++      expect(events.some((event) => event.type === "turn_failed")).toBe(false);
 +    } finally {
 +      vi.useRealTimers();
 +    }
@@ -3287,7 +3387,7 @@ index 33c96969..73a7abc9 100644
    });
  
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
-@@ -4520,3 +5450,400 @@ describe("custom ACP provider with configured models", () => {
+@@ -4520,3 +5550,400 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -3689,7 +3789,7 @@ index 33c96969..73a7abc9 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 6bded49f..e50b6654 100644
+index 6bded49f..3a72555e 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -73,9 +73,11 @@ import {
@@ -3729,7 +3829,7 @@ index 6bded49f..e50b6654 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -315,6 +328,11 @@ export function buildACPClientCapabilities(
+@@ -315,6 +328,17 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -3738,10 +3838,16 @@ index 6bded49f..e50b6654 100644
 +// a turn the provider is still producing output for, so the verdict waits this
 +// long for a late notification before it stands.
 +const ACP_LATE_TIMELINE_GRACE_MS = 30_000;
++// The grace above is re-armed while the provider reports it is still inside a
++// turn of its own, because a prompt the provider only queued is answered at the
++// moment the *previous* turn ends and starts producing output later. This bounds
++// that re-arming: past it the turn is failed even if the provider still claims to
++// be busy, so a genuinely stuck turn cannot hold a client open forever.
++const ACP_LATE_TIMELINE_CEILING_MS = 15 * 60 * 1000;
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  // Archive and delete await close(). The ACP SDK does not reject a pending
  // request when the provider never answers, so these calls must be bounded
-@@ -454,6 +472,65 @@ export type ACPCatalogModelResolver = (
+@@ -454,6 +478,76 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -3793,6 +3899,17 @@ index 6bded49f..e50b6654 100644
 +    sawTimeline: boolean;
 +  }): Promise<void> | null;
 +  /**
++   * True while the provider's runtime is still inside a turn of its own.
++   *
++   * A prompt the provider only queued is answered with an immediate `end_turn`
++   * while the runtime is still working on the turn it was already in, and its
++   * output only starts arriving once that turn ends. A turn that produced no
++   * timeline output is therefore kept open, and its grace re-armed, for as long
++   * as this reports true — otherwise the provider is failed for work it is
++   * demonstrably still doing.
++   */
++  isTurnStillRunning?(ctx: ACPProviderHookContext): boolean;
++  /**
 +   * Explain a turn that ended with no timeline output, replacing the generic
 +   * "completed without producing any timeline output" failure. Return null to
 +   * keep that generic failure.
@@ -3807,7 +3924,7 @@ index 6bded49f..e50b6654 100644
  interface ACPAgentClientOptions {
    provider: string;
    logger: Logger;
-@@ -483,6 +560,7 @@ interface ACPAgentClientOptions {
+@@ -483,6 +577,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -3815,7 +3932,7 @@ index 6bded49f..e50b6654 100644
    now?: () => number;
  }
  
-@@ -518,7 +596,9 @@ interface ACPAgentSessionOptions {
+@@ -518,7 +613,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -3825,7 +3942,7 @@ index 6bded49f..e50b6654 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -615,6 +695,13 @@ class ACPImportHistoryCollector {
+@@ -615,6 +712,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -3839,7 +3956,7 @@ index 6bded49f..e50b6654 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -647,6 +734,8 @@ interface TerminalEntry {
+@@ -647,6 +751,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -3848,7 +3965,7 @@ index 6bded49f..e50b6654 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -945,6 +1034,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -945,6 +1051,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -3856,7 +3973,7 @@ index 6bded49f..e50b6654 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -975,6 +1065,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -975,6 +1082,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -3864,7 +3981,7 @@ index 6bded49f..e50b6654 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1015,6 +1106,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1015,6 +1123,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -3872,7 +3989,7 @@ index 6bded49f..e50b6654 100644
        },
      );
      await session.initializeNewSession();
-@@ -1074,6 +1166,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1074,6 +1183,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -3880,7 +3997,7 @@ index 6bded49f..e50b6654 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1681,6 +1774,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1681,6 +1791,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -3900,7 +4017,7 @@ index 6bded49f..e50b6654 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1744,9 +1850,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1744,9 +1867,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -3920,7 +4037,7 @@ index 6bded49f..e50b6654 100644
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
    private historyPending = false;
-@@ -1786,7 +1902,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1786,7 +1919,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -3931,7 +4048,7 @@ index 6bded49f..e50b6654 100644
    }
  
    get id(): string | null {
-@@ -1813,6 +1932,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1813,6 +1949,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -3939,7 +4056,7 @@ index 6bded49f..e50b6654 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1867,6 +1987,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1867,6 +2004,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -3947,7 +4064,7 @@ index 6bded49f..e50b6654 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1884,6 +2005,177 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1884,6 +2022,199 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -4082,6 +4199,28 @@ index 6bded49f..e50b6654 100644
 +  }
 +
 +  /**
++   * Ask the provider whether its runtime is still inside a turn of its own. A
++   * throwing hook must never hold a turn open, so a rejection reads as "not
++   * running" and lets the turn fail the way it would without the hook.
++   */
++  private isProviderTurnStillRunning(): boolean {
++    const hooks = this.providerHooks;
++    if (!hooks?.isTurnStillRunning) {
++      return false;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return false;
++    }
++    try {
++      return hooks.isTurnStillRunning(ctx) === true;
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook isTurnStillRunning failed");
++      return false;
++    }
++  }
++
++  /**
 +   * The failure to report for a turn that produced no timeline output, carrying
 +   * the provider's explanation when it has one.
 +   */
@@ -4125,7 +4264,7 @@ index 6bded49f..e50b6654 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1918,24 +2210,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1918,24 +2249,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -4174,7 +4313,7 @@ index 6bded49f..e50b6654 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2433,7 +2745,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2433,7 +2784,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -4186,7 +4325,7 @@ index 6bded49f..e50b6654 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2469,6 +2784,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2469,6 +2823,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -4203,7 +4342,7 @@ index 6bded49f..e50b6654 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2495,6 +2820,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2495,6 +2859,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.cancelPendingPermissions();
  
      if (this.activeForegroundTurnId) {
@@ -4211,7 +4350,7 @@ index 6bded49f..e50b6654 100644
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2504,9 +2830,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2504,9 +2869,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -4223,7 +4362,7 @@ index 6bded49f..e50b6654 100644
  
      this.cancelPendingPermissions();
  
-@@ -2551,6 +2879,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2551,6 +2918,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -4231,7 +4370,7 @@ index 6bded49f..e50b6654 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2613,10 +2942,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2613,10 +2981,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -4277,7 +4416,7 @@ index 6bded49f..e50b6654 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2633,6 +2997,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2633,6 +3036,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -4296,7 +4435,7 @@ index 6bded49f..e50b6654 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2658,6 +3034,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2658,6 +3073,52 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -4317,6 +4456,11 @@ index 6bded49f..e50b6654 100644
 +      }
 +      const item = mapCompactionExtension(params);
 +      if (item !== null) {
++        // Compaction is output this turn produced. Counting it as such keeps a
++        // turn that compacts mid-flight from being judged an empty one, and
++        // releases anything waiting for this turn to show something.
++        this.currentTurnSawTimeline = true;
++        this.releaseLateTimelineWaiters();
 +        this.deliverTranslatedEvents([this.wrapTimeline(item)]);
 +      }
 +      return;
@@ -4344,7 +4488,7 @@ index 6bded49f..e50b6654 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2744,6 +3161,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2744,6 +3205,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -4352,7 +4496,7 @@ index 6bded49f..e50b6654 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3018,7 +3436,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3018,7 +3480,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return this.handleUserMessageChunk(update);
      }
  
@@ -4376,7 +4520,7 @@ index 6bded49f..e50b6654 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3250,9 +3683,154 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3250,9 +3727,166 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -4426,6 +4570,13 @@ index 6bded49f..e50b6654 100644
 +   * keeps a live turn alive instead of reporting a failure the provider never
 +   * produced. The wait ends as soon as the turn shows output, the turn is
 +   * aborted, or the grace expires.
++   *
++   * The grace is re-armed while the provider reports it is still inside a turn
++   * of its own. A prompt the provider only queued is answered the moment the
++   * previous turn ends, and the queued turn's output can arrive well after one
++   * grace has passed; failing there reports a failure the provider never
++   * produced while it is still working. Re-arming stops at
++   * `ACP_LATE_TIMELINE_CEILING_MS` so a turn that is genuinely stuck still fails.
 +   */
 +  private async waitForLateTimeline(turnId: string, stopReason: string): Promise<void> {
 +    const graceMs = this.lateTimelineGraceMs;
@@ -4433,28 +4584,33 @@ index 6bded49f..e50b6654 100644
 +      return;
 +    }
 +    const signal = this.turnAbort?.signal;
-+    const deadline = Date.now() + graceMs;
++    const startedAt = Date.now();
 +    while (!this.currentTurnSawTimeline && this.activeForegroundTurnId === turnId) {
 +      if (signal?.aborted) {
 +        return;
 +      }
-+      const remaining = deadline - Date.now();
-+      if (remaining <= 0) {
-+        this.logger.warn(
-+          {
-+            agentId: this.agentId,
-+            provider: this.provider,
-+            turnId,
-+            stopReason,
-+            acpUpdates: this.currentTurnUpdateCount,
-+            mismatchedSessionUpdates: this.currentTurnMismatchedUpdateCount,
-+            waitedMs: graceMs,
-+          },
-+          "provider.acp.late_timeline_absent",
-+        );
++      if (await this.waitForTimelineSignal(signal, graceMs)) {
 +        return;
 +      }
-+      await this.waitForTimelineSignal(signal, remaining);
++      if (this.activeForegroundTurnId !== turnId) {
++        return;
++      }
++      if (this.isProviderTurnStillRunning() && Date.now() - startedAt < ACP_LATE_TIMELINE_CEILING_MS) {
++        continue;
++      }
++      this.logger.warn(
++        {
++          agentId: this.agentId,
++          provider: this.provider,
++          turnId,
++          stopReason,
++          acpUpdates: this.currentTurnUpdateCount,
++          mismatchedSessionUpdates: this.currentTurnMismatchedUpdateCount,
++          waitedMs: Date.now() - startedAt,
++        },
++        "provider.acp.late_timeline_absent",
++      );
++      return;
 +    }
 +  }
 +
@@ -4532,7 +4688,7 @@ index 6bded49f..e50b6654 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3351,6 +3929,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3351,6 +3985,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.cancelPendingPermissions();
      }
      this.activeForegroundTurnId = null;
@@ -4540,7 +4696,7 @@ index 6bded49f..e50b6654 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3611,7 +4190,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3611,7 +4246,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -4561,7 +4717,7 @@ index 6bded49f..e50b6654 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3677,6 +4268,7 @@ function mergeToolSnapshot(
+@@ -3677,6 +4324,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -4569,7 +4725,7 @@ index 6bded49f..e50b6654 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3686,6 +4278,27 @@ function mergeToolSnapshot(
+@@ -3686,6 +4334,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -4597,7 +4753,7 @@ index 6bded49f..e50b6654 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3702,10 +4315,18 @@ function mapToolSnapshotToTimeline(
+@@ -3702,10 +4371,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -4617,7 +4773,7 @@ index 6bded49f..e50b6654 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -3947,7 +4568,17 @@ function mapPermissionRequest(
+@@ -3947,7 +4624,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -4636,7 +4792,7 @@ index 6bded49f..e50b6654 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3956,11 +4587,11 @@ function mapPermissionRequest(
+@@ -3956,11 +4643,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -4650,7 +4806,7 @@ index 6bded49f..e50b6654 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3974,6 +4605,7 @@ function mapPermissionRequest(
+@@ -3974,6 +4661,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -4658,7 +4814,7 @@ index 6bded49f..e50b6654 100644
      },
    };
  }
-@@ -4002,6 +4634,65 @@ function selectPermissionOption(
+@@ -4002,6 +4690,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -4724,7 +4880,7 @@ index 6bded49f..e50b6654 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4016,16 +4707,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4016,16 +4763,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
    return false;
  }
  
@@ -6144,7 +6300,7 @@ index 5a14d991..c1f92b7b 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb0..dee1294f 100644
+index b388fdb0..b10080ca 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
@@ -6163,7 +6319,7 @@ index b388fdb0..dee1294f 100644
  
  function modelConfigOption(currentValue: string): SessionConfigOption {
    return {
-@@ -239,3 +244,75 @@ describe("KimiACPAgentClient per-model thinking options", () => {
+@@ -239,3 +244,89 @@ describe("KimiACPAgentClient per-model thinking options", () => {
      expect(kimiK3?.defaultThinkingOptionId).toBeUndefined();
    });
  });
@@ -6238,9 +6394,23 @@ index b388fdb0..dee1294f 100644
 +    expect(hooks.tryHandleOutOfBand?.("/goal", ctx)).not.toBeNull();
 +    expect(hooks.tryHandleOutOfBand?.("hello", ctx)).toBeNull();
 +  });
++
++  test("reports the runtime as still running only through a live bridge", () => {
++    const hooks = createKimiProviderHooks();
++    const ctx = {
++      acpSessionId: "session_no-bridge",
++      provider: "kimi-acp",
++      logger: createTestLogger(),
++      emit: () => {},
++    };
++
++    // Without a bridge there is nothing to read the runtime's turn state from,
++    // and an unknown state must not hold a turn open.
++    expect(hooks.isTurnStillRunning?.(ctx)).toBe(false);
++  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f6..0a4b5f79 100644
+index 7ae144f6..2ba183c9 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,24 @@
@@ -6269,7 +6439,7 @@ index 7ae144f6..0a4b5f79 100644
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -88,6 +99,200 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -88,6 +99,212 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        providerId: options.providerId,
        label: options.label,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -6458,6 +6628,18 @@ index 7ae144f6..0a4b5f79 100644
 +        diagnostic:
 +          "No inbound turn.prompt receipt was observed in the main session log after submission. Prompt acceptance could not be confirmed.",
 +      };
++    },
++    isTurnStillRunning(ctx) {
++      const bridge = bridges.get(ctx.acpSessionId);
++      if (!bridge) {
++        return false;
++      }
++      // A prompt the runtime has accepted but not yet answered is the case this
++      // guards: the ACP response arrived, the runtime is still inside the turn it
++      // was already in, and the queued turn's output has not started. Reporting
++      // "running" here re-arms the empty-turn grace instead of failing the turn
++      // while Kimi is demonstrably still working on it.
++      return bridge.wasPromptAccepted() && bridge.isTurnInProgress();
 +    },
 +  };
 +}

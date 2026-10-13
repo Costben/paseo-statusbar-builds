@@ -180,6 +180,11 @@ const MARKERS = [
     needle: 'code: explained?.code ?? "kimi_timeline_missing",',
   },
   {
+    label: "Kimi empty-turn grace re-arms while the runtime runs",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "private isProviderTurnStillRunning(): boolean {",
+  },
+  {
     label: "ACP session mismatch recovery",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: 'reason: "session_mismatch"',
