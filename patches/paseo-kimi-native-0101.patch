@@ -1635,7 +1635,7 @@ index 248e8d2b..bf89483e 100644
  
      let snapshot: ManagedAgent;
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 9e809a45..8a1599d7 100644
+index 9e809a45..3b03a7bf 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,8 @@ import {
@@ -1726,7 +1726,7 @@ index 9e809a45..8a1599d7 100644
      }
    }
  
-@@ -3648,7 +3670,12 @@ export class AgentManager {
+@@ -3648,7 +3670,13 @@ export class AgentManager {
        workspaceId: options?.workspaceId,
        owner: options?.owner,
        session,
@@ -1734,13 +1734,14 @@ index 9e809a45..8a1599d7 100644
 +      capabilities: {
 +        ...session.capabilities,
 +        // The session is the only thing that knows whether it can take a message
-+        // into the turn it is already running. ACP cannot, so Kimi Code cannot.
++        // into the turn it is already running, so it is asked rather than
++        // inferred from the provider.
 +        supportsSteering: session.steerActiveTurn !== undefined,
 +      },
        config,
        runtimeInfo: undefined,
        lifecycle: "initializing",
-@@ -3782,9 +3809,28 @@ export class AgentManager {
+@@ -3782,9 +3810,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -1769,7 +1770,7 @@ index 9e809a45..8a1599d7 100644
            return;
          }
          this.logger.trace(
-@@ -4313,46 +4359,9 @@ export class AgentManager {
+@@ -4313,46 +4360,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -1818,7 +1819,7 @@ index 9e809a45..8a1599d7 100644
        case "timeline":
          return this.onStreamTimelineEvent({ agent, event, options, flags });
        case "turn_completed":
-@@ -4396,7 +4405,68 @@ export class AgentManager {
+@@ -4396,7 +4406,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2044,7 +2045,7 @@ index 08bd66a7..44dd408c 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 0bcd4663..85c83da6 100644
+index 0bcd4663..61342f0f 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
 @@ -52,6 +52,14 @@ async function steerOrReplaceActiveRun(
@@ -2052,10 +2053,10 @@ index 0bcd4663..85c83da6 100644
      return null;
    }
 +  // Clients ask for a steer without knowing whether the provider can take one.
-+  // A provider that cannot — ACP, and so Kimi Code — is served by the interrupt
-+  // path instead. The shared admission would land in the same place, but only
-+  // after an admission step that can fail when the turn moves underneath it.
-+  // A caller that stubs the agent without capabilities reads as one that can.
++  // A provider that cannot is served by the interrupt path instead. The shared
++  // admission would land in the same place, but only after an admission step
++  // that can fail when the turn moves underneath it. A caller that stubs the
++  // agent without capabilities reads as one that can.
 +  if (agentManager.getAgent(agentId)?.capabilities?.supportsSteering === false) {
 +    return null;
 +  }
@@ -2160,7 +2161,7 @@ index 34d36c9e..8602106a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 33c96969..9ef8c432 100644
+index 33c96969..2a81a689 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2795,43 +2796,10 @@ index 33c96969..9ef8c432 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -2930,36 +3422,574 @@ describe("ACPAgentSession", () => {
-     let resolvePrompt!: (value: PromptResponse) => void;
-     const prompt = vi.fn(
-       () =>
--        new Promise((resolve) => {
-+        new Promise((resolve) => {
-+          resolvePrompt = resolve;
-+        }),
-+    );
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
-+
-+    session.subscribe((event) => {
-+      events.push(event as { type: string; turnId?: string });
-+    });
-+
-+    const { turnId } = await session.startTurn("hello");
-+
-+    expect(prompt).toHaveBeenCalledOnce();
-+    expect(events.find((event) => event.type === "turn_started")).toMatchObject({
-+      type: "turn_started",
-+      turnId,
-+    });
-+    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBe(turnId);
-+
-+    resolvePrompt({ stopReason: "end_turn", usage: { outputTokens: 3 } });
-+    await Promise.resolve();
-+    await Promise.resolve();
-+
-+    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
-+      type: "turn_completed",
-+      turnId,
-+    });
-+    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
-+  });
-+
+@@ -2962,6 +3454,485 @@ describe("ACPAgentSession", () => {
+     expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
+   });
+ 
 +  test("Kimi reliable mode fails explicitly when completion produces no timeline output", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 0 },
@@ -2977,6 +2945,47 @@ index 33c96969..9ef8c432 100644
 +    }
 +  });
 +
++  test("a dropped provider notice neither shows up nor counts as output of the turn", async () => {
++    const hooks: ACPProviderHooks = {
++      shouldDropSessionUpdate: (update) =>
++        update.sessionUpdate === "agent_message_chunk" &&
++        update.content.type === "text" &&
++        update.content.text === "provider notice",
++    };
++    const session = createSessionWithConfig(
++      { provider: "kimi", lateTimelineGraceMs: 0 },
++      createTestLogger(),
++      { kimiReliableQueue: true },
++      hooks,
++    );
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: async () => {
++        await session.sessionUpdate({
++          sessionId: "session-1",
++          update: {
++            sessionUpdate: "agent_message_chunk",
++            messageId: "notice",
++            content: { type: "text", text: "provider notice" },
++          } as SessionUpdate,
++        });
++        return { stopReason: "end_turn" };
++      },
++    };
++    session.subscribe((event) => events.push(event));
++
++    const { turnId } = await session.startTurn("hello");
++    await flushMicrotasks();
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type !== "user_message"),
++    ).toEqual([]);
++    expect(events).toContainEqual(
++      expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
++    );
++  });
++
 +  test("Kimi reliable mode keeps a turn alive when its prompt resolves before the turn's updates", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 1_000 },
@@ -3034,106 +3043,6 @@ index 33c96969..9ef8c432 100644
 +      expect(events).toContainEqual(
 +        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
 +      );
-+    } finally {
-+      vi.useRealTimers();
-+    }
-+  });
-+
-+  test("Kimi reliable mode re-arms the grace while the provider reports a running turn", async () => {
-+    vi.useFakeTimers();
-+    try {
-+      let running = true;
-+      const session = createSessionWithConfig(
-+        { provider: "kimi", lateTimelineGraceMs: 250 },
-+        createTestLogger(),
-+        { kimiReliableQueue: true },
-+        { isTurnStillRunning: () => running },
-+      );
-+      const events: AgentStreamEvent[] = [];
-+      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+      asInternals<ACPSessionInternals>(session).connection = {
-+        prompt: async () => ({ stopReason: "end_turn" }),
-+      };
-+      session.subscribe((event) => events.push(event));
-+
-+      const { turnId } = await session.startTurn("hello");
-+      // Four graces pass while the provider still reports a turn of its own. The
-+      // prompt was queued, so the output is coming — failing here would report a
-+      // failure the provider never produced.
-+      await vi.advanceTimersByTimeAsync(1_000);
-+      expect(events.some((event) => event.type === "turn_failed")).toBe(false);
-+
-+      // The queued turn finally produces output, which ends the wait.
-+      running = false;
-+      await session.sessionUpdate({
-+        sessionId: "session-1",
-+        update: {
-+          sessionUpdate: "agent_message_chunk",
-+          messageId: "assistant-queued",
-+          content: { type: "text", text: "queued output" },
-+        } as SessionUpdate,
-+      });
-+      await flushMicrotasks();
-+
-+      expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
-+    } finally {
-+      vi.useRealTimers();
-+    }
-+  });
-+
-+  test("Kimi reliable mode stops re-arming at the ceiling while the provider still reports a turn", async () => {
-+    vi.useFakeTimers();
-+    try {
-+      const session = createSessionWithConfig(
-+        { provider: "kimi", lateTimelineGraceMs: 60_000 },
-+        createTestLogger(),
-+        { kimiReliableQueue: true },
-+        { isTurnStillRunning: () => true },
-+      );
-+      const events: AgentStreamEvent[] = [];
-+      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+      asInternals<ACPSessionInternals>(session).connection = {
-+        prompt: async () => ({ stopReason: "end_turn" }),
-+      };
-+      session.subscribe((event) => events.push(event));
-+
-+      const { turnId } = await session.startTurn("hello");
-+      await vi.advanceTimersByTimeAsync(16 * 60 * 1000);
-+
-+      expect(events).toContainEqual(
-+        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
-+      );
-+    } finally {
-+      vi.useRealTimers();
-+    }
-+  });
-+
-+  test("a compaction notification counts as this turn's output", async () => {
-+    vi.useFakeTimers();
-+    try {
-+      const session = createSessionWithConfig(
-+        { provider: "kimi", lateTimelineGraceMs: 250 },
-+        createTestLogger(),
-+        { kimiReliableQueue: true },
-+      );
-+      const events: AgentStreamEvent[] = [];
-+      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+      asInternals<ACPSessionInternals>(session).connection = {
-+        prompt: async () => ({ stopReason: "end_turn" }),
-+      };
-+      session.subscribe((event) => events.push(event));
-+
-+      const { turnId } = await session.startTurn("hello");
-+      await session.extNotification("_paseo.dev/session/compaction", {
-+        sessionId: "session-1",
-+        status: "in_progress",
-+        trigger: "auto",
-+      });
-+      await flushMicrotasks();
-+      await vi.advanceTimersByTimeAsync(1_000);
-+
-+      expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
-+      expect(events.some((event) => event.type === "turn_failed")).toBe(false);
 +    } finally {
 +      vi.useRealTimers();
 +    }
@@ -3285,16 +3194,13 @@ index 33c96969..9ef8c432 100644
 +    const prompt = vi.fn(
 +      () =>
 +        new Promise<PromptResponse>((resolve) => {
-           resolvePrompt = resolve;
-         }),
-     );
--
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-     asInternals<ACPSessionInternals>(session).connection = { prompt };
++          resolvePrompt = resolve;
++        }),
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
 +    session.subscribe((event) => events.push(event));
- 
--    session.subscribe((event) => {
--      events.push(event as { type: string; turnId?: string });
++
 +    const { turnId } = await session.startTurn("hello");
 +    await session.sessionUpdate({
 +      sessionId: "session-2",
@@ -3303,8 +3209,8 @@ index 33c96969..9ef8c432 100644
 +        messageId: "assistant-recovered",
 +        content: { type: "text", text: "recovered" },
 +      } as SessionUpdate,
-     });
- 
++    });
++
 +    resolvePrompt({ stopReason: "end_turn" });
 +    await flushMicrotasks();
 +
@@ -3336,13 +3242,9 @@ index 33c96969..9ef8c432 100644
 +    internals.connection = { prompt };
 +    session.subscribe((event) => events.push(event));
 +
-     const { turnId } = await session.startTurn("hello");
++    const { turnId } = await session.startTurn("hello");
 +    internals.submittedUserMessageTurnId = null;
- 
--    expect(prompt).toHaveBeenCalledOnce();
--    expect(events.find((event) => event.type === "turn_started")).toMatchObject({
--      type: "turn_started",
--      turnId,
++
 +    await session.sessionUpdate({
 +      sessionId: "session-1",
 +      update: {
@@ -3357,20 +3259,11 @@ index 33c96969..9ef8c432 100644
 +        sessionUpdate: "available_commands_update",
 +        availableCommands: [],
 +      } as SessionUpdate,
-     });
--    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBe(turnId);
- 
--    resolvePrompt({ stopReason: "end_turn", usage: { outputTokens: 3 } });
--    await Promise.resolve();
--    await Promise.resolve();
++    });
++
 +    resolvePrompt({ stopReason: "end_turn" });
 +    await flushMicrotasks();
- 
--    expect(events.find((event) => event.type === "turn_completed")).toMatchObject({
--      type: "turn_completed",
--      turnId,
--    });
--    expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
++
 +    expect(events).toContainEqual(
 +      expect.objectContaining({
 +        type: "timeline",
@@ -3384,10 +3277,12 @@ index 33c96969..9ef8c432 100644
 +        turnId,
 +      }),
 +    );
-   });
- 
++  });
++
    test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
-@@ -4520,3 +5550,400 @@ describe("custom ACP provider with configured models", () => {
+     const session = createSession();
+     const events: AgentStreamEvent[] = [];
+@@ -4520,3 +5491,632 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -3788,11 +3683,243 @@ index 33c96969..9ef8c432 100644
 +    expect(holds).toEqual([true]);
 +  });
 +});
++
++describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
++  interface KimiLogHarness {
++    session: ACPAgentSession;
++    events: AgentStreamEvent[];
++    prompt: ReturnType<typeof vi.fn>;
++    cancel: ReturnType<typeof vi.fn>;
++    append(...records: Record<string, unknown>[]): Promise<void>;
++    waitFor(predicate: (event: AgentStreamEvent) => boolean): Promise<AgentStreamEvent>;
++    dispose(): Promise<void>;
++  }
++
++  async function createKimiLogHarness(): Promise<KimiLogHarness> {
++    const home = await mkdtemp(path.join(tmpdir(), "paseo-kimi-unstreamed-"));
++    const sessionId = "session_unstreamed-test";
++    const logDir = path.join(home, "sessions", "wd_test", sessionId, "agents", "main");
++    await mkdir(logDir, { recursive: true });
++    const wire = path.join(logDir, "wire.jsonl");
++    await writeFile(wire, "");
++    const hooks = createKimiProviderHooks({
++      kimiHome: home,
++      pollIntervalMs: 10,
++      watchFile: false,
++      submissionIdleGraceMs: 200,
++    });
++    const session = createSessionWithConfig(
++      { provider: "kimi", lateTimelineGraceMs: 0 },
++      createTestLogger(),
++      { kimiReliableQueue: true },
++      hooks,
++    );
++    // Kimi answers a prompt that arrives while it is busy at once, with no output.
++    const prompt = vi.fn(async () => ({ stopReason: "end_turn" as const }));
++    const cancel = vi.fn(async () => {});
++    asInternals<ACPSessionInternals>(session).sessionId = sessionId;
++    asInternals<ACPSessionInternals>(session).connection = { prompt, cancel };
++    const events: AgentStreamEvent[] = [];
++    session.subscribe((event) => events.push(event));
++    asInternals<{ notifyProviderSessionReady(): void }>(session).notifyProviderSessionReady();
++    return {
++      session,
++      events,
++      prompt,
++      cancel,
++      append: async (...records) => {
++        await appendFile(wire, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
++      },
++      waitFor: async (predicate) => {
++        const deadline = Date.now() + 5_000;
++        for (;;) {
++          const found = events.find(predicate);
++          if (found) return found;
++          if (Date.now() > deadline) throw new Error("timed out waiting for event");
++          await new Promise((resolve) => setTimeout(resolve, 10));
++        }
++      },
++      dispose: async () => {
++        asInternals<{ runProviderSessionCleanup(): void }>(session).runProviderSessionCleanup();
++        await rm(home, { recursive: true, force: true });
++      },
++    };
++  }
++
++  function textPart(turnId: number, text: string): Record<string, unknown> {
++    return {
++      type: "context.append_loop_event",
++      agentId: "main",
++      event: { type: "content.part", turnId: String(turnId), part: { type: "text", text } },
++      time: Date.now(),
++    };
++  }
++
++  function taskTurnStarted(turnId: number): Record<string, unknown>[] {
++    const time = Date.now();
++    return [
++      { turnId, type: "agent.turn.started", time, kind: "event" },
++      {
++        type: "turn.prompt",
++        agentId: "main",
++        input: [{ type: "text", text: "<notification />" }],
++        origin: { kind: "task", taskId: "bash-1", status: "completed" },
++        turnId,
++        time,
++      },
++    ];
++  }
++
++  function assistantTexts(events: AgentStreamEvent[], turnId: string): string[] {
++    return events.flatMap((event) =>
++      event.type === "timeline" &&
++      event.turnId === turnId &&
++      event.item.type === "assistant_message"
++        ? [event.item.text]
++        : [],
++    );
++  }
++
++  test("shows a turn Kimi starts on its own while Paseo is idle", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      await harness.append(...taskTurnStarted(1));
++      const started = await harness.waitFor((event) => event.type === "turn_started");
++      const turnId = started.type === "turn_started" ? started.turnId! : "";
++      expect(turnId).toMatch(/^kimi-turn-/);
++
++      await harness.append(textPart(1, "TASK_TURN_DONE"), {
++        turnId: 1,
++        outcome: "done",
++        type: "agent.turn.ended",
++        time: Date.now(),
++      });
++      await harness.waitFor((event) => event.type === "turn_completed" && event.turnId === turnId);
++
++      expect(assistantTexts(harness.events, turnId)).toEqual(["TASK_TURN_DONE"]);
++    } finally {
++      await harness.dispose();
++    }
++  });
++
++  test("holds a prompt Kimi queued until it has run, and shows its output", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      await harness.append(...taskTurnStarted(1));
++      await harness.waitFor((event) => event.type === "turn_started");
++
++      // Sent through the foreground path while Kimi is busy with its own turn.
++      const { turnId } = await harness.session.startTurn("PING-QUEUED");
++      await new Promise((resolve) => setTimeout(resolve, 300));
++      expect(
++        harness.events.some(
++          (event) =>
++            (event.type === "turn_failed" || event.type === "turn_completed") &&
++            event.turnId === turnId,
++        ),
++      ).toBe(false);
++
++      const now = Date.now();
++      await harness.append(
++        textPart(1, "TASK_TURN_DONE"),
++        { turnId: 1, outcome: "done", type: "agent.turn.ended", time: now },
++        { type: "turn.ended", agentId: "main", turnId: 1, reason: "completed", time: now },
++        { turnId: 2, type: "agent.turn.started", time: now, kind: "event" },
++        {
++          type: "turn.prompt",
++          agentId: "main",
++          input: [{ type: "text", text: "PING-QUEUED" }],
++          origin: { kind: "user" },
++          promptId: "msg_2",
++          turnId: 2,
++          time: now,
++        },
++        textPart(2, "PONG-QUEUED"),
++        { turnId: 2, outcome: "done", type: "agent.turn.ended", time: Date.now() },
++        { type: "turn.ended", agentId: "main", turnId: 2, reason: "completed", time: Date.now() },
++        { type: "prompt.completed", agentId: "main", promptId: "msg_2", time: Date.now() },
++      );
++      await harness.waitFor(
++        (event) =>
++          (event.type === "turn_completed" || event.type === "turn_failed") &&
++          event.turnId === turnId,
++      );
++
++      expect(harness.events).toContainEqual(
++        expect.objectContaining({ type: "turn_completed", turnId }),
++      );
++      expect(harness.events.some((event) => event.type === "turn_failed")).toBe(false);
++      expect(assistantTexts(harness.events, turnId)).toEqual(["TASK_TURN_DONE", "PONG-QUEUED"]);
++    } finally {
++      await harness.dispose();
++    }
++  });
++
++  test("reports a prompt an idle Kimi never ran as not accepted", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      const { turnId } = await harness.session.startTurn("lost prompt");
++      const terminal = await harness.waitFor(
++        (event) =>
++          (event.type === "turn_completed" || event.type === "turn_failed") &&
++          event.turnId === turnId,
++      );
++
++      expect(terminal).toMatchObject({ type: "turn_failed", code: "kimi_prompt_not_accepted" });
++    } finally {
++      await harness.dispose();
++    }
++  });
++
++  test("reports an interrupt during a held turn as a cancellation", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      await harness.append(...taskTurnStarted(1));
++      await harness.waitFor((event) => event.type === "turn_started");
++      const { turnId } = await harness.session.startTurn("PING-QUEUED");
++      await new Promise((resolve) => setTimeout(resolve, 100));
++
++      await harness.session.interrupt();
++      const terminal = await harness.waitFor(
++        (event) =>
++          (event.type === "turn_completed" ||
++            event.type === "turn_failed" ||
++            event.type === "turn_canceled") &&
++          event.turnId === turnId,
++      );
++
++      expect(terminal).toMatchObject({ type: "turn_canceled" });
++      expect(harness.cancel).toHaveBeenCalledTimes(1);
++    } finally {
++      await harness.dispose();
++    }
++  });
++
++  test("queues a message sent during Kimi's own turn instead of interrupting it", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      await harness.append(...taskTurnStarted(1));
++      await harness.waitFor((event) => event.type === "turn_started");
++      expect(harness.session.steerActiveTurn).toBeTypeOf("function");
++
++      const result = await harness.session.steerActiveTurn!("follow-up", { expectedTurnId: "any" });
++
++      expect(result).toEqual({ status: "accepted" });
++      expect(harness.prompt).toHaveBeenCalledTimes(1);
++      expect(harness.cancel).not.toHaveBeenCalled();
++      // No foreground turn is opened for a queued message.
++      expect(harness.events.filter((event) => event.type === "turn_started")).toHaveLength(1);
++      expect(createSessionWithConfig().steerActiveTurn).toBeUndefined();
++    } finally {
++      await harness.dispose();
++    }
++  });
++});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 6bded49f..3a72555e 100644
+index 6bded49f..780c9f4d 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -73,9 +73,11 @@ import {
+@@ -73,13 +73,17 @@ import {
    type AgentPermissionRequest,
    type AgentPermissionRequestKind,
    type AgentPermissionResponse,
@@ -3804,7 +3931,13 @@ index 6bded49f..3a72555e 100644
    type AgentResumePurpose,
    type AgentCreateSessionOptions,
    type AgentResumeSessionOptions,
-@@ -88,6 +90,7 @@ import {
+   type AgentRunOptions,
++  type SteerActiveTurnOptions,
++  type SteerResult,
+   type AgentRunResult,
+   type AgentRuntimeInfo,
+   type AgentSession,
+@@ -88,6 +92,7 @@ import {
    type AgentStreamEvent,
    type AgentTimelineItem,
    type AgentUsage,
@@ -3812,7 +3945,7 @@ index 6bded49f..3a72555e 100644
    type FetchCatalogOptions,
    type ProviderRefreshContext,
    type ImportableProviderSession,
-@@ -132,6 +135,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+@@ -132,6 +137,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
  
  const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
  
@@ -3829,7 +3962,7 @@ index 6bded49f..3a72555e 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -315,6 +328,17 @@ export function buildACPClientCapabilities(
+@@ -315,6 +330,11 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -3838,16 +3971,10 @@ index 6bded49f..3a72555e 100644
 +// a turn the provider is still producing output for, so the verdict waits this
 +// long for a late notification before it stands.
 +const ACP_LATE_TIMELINE_GRACE_MS = 30_000;
-+// The grace above is re-armed while the provider reports it is still inside a
-+// turn of its own, because a prompt the provider only queued is answered at the
-+// moment the *previous* turn ends and starts producing output later. This bounds
-+// that re-arming: past it the turn is failed even if the provider still claims to
-+// be busy, so a genuinely stuck turn cannot hold a client open forever.
-+const ACP_LATE_TIMELINE_CEILING_MS = 15 * 60 * 1000;
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  // Archive and delete await close(). The ACP SDK does not reject a pending
  // request when the provider never answers, so these calls must be bounded
-@@ -454,6 +478,76 @@ export type ACPCatalogModelResolver = (
+@@ -454,6 +474,102 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -3857,6 +3984,10 @@ index 6bded49f..3a72555e 100644
 +  provider: AgentProvider;
 +  logger: Logger;
 +  emit: (event: AgentStreamEvent) => void;
++  /** True while this session has a foreground turn open. */
++  isForegroundTurnActive?: () => boolean;
++  /** When the ACP stream last delivered agent output to this session, or null. */
++  lastStreamedContentAt?: () => number | null;
 +}
 +
 +/**
@@ -3899,16 +4030,38 @@ index 6bded49f..3a72555e 100644
 +    sawTimeline: boolean;
 +  }): Promise<void> | null;
 +  /**
-+   * True while the provider's runtime is still inside a turn of its own.
-+   *
-+   * A prompt the provider only queued is answered with an immediate `end_turn`
-+   * while the runtime is still working on the turn it was already in, and its
-+   * output only starts arriving once that turn ends. A turn that produced no
-+   * timeline output is therefore kept open, and its grace re-armed, for as long
-+   * as this reports true — otherwise the provider is failed for work it is
-+   * demonstrably still doing.
++   * Called when a foreground turn is about to send its prompt, with the prompt
++   * as it will be sent. Not called for a prompt queued through steering.
 +   */
-+  isTurnStillRunning?(ctx: ACPProviderHookContext): boolean;
++  onForegroundTurnStarting?(ctx: ACPProviderHookContext, prompt: AgentPromptInput): void;
++  /**
++   * Checked once the turn hold has settled, before the turn is reported. A
++   * provider that knows the prompt never ran returns the failure to report even
++   * though the turn showed output — output the runtime produced for other work.
++   */
++  verifyTurnOutcome?(ctx: ACPProviderHookContext): {
++    code: string;
++    error: string;
++    diagnostic?: string;
++  } | null;
++  /**
++   * True while the provider is running a turn of its own that this session has
++   * no foreground turn for. An interrupt then still has something to cancel.
++   */
++  isProviderTurnActive?(ctx: ACPProviderHookContext): boolean;
++  /**
++   * True for a session update that only narrates something the provider reports
++   * through its own channel as well, so showing both would show it twice. The
++   * update is dropped before it reaches the timeline and does not count as
++   * output of the turn.
++   */
++  shouldDropSessionUpdate?(update: SessionUpdate): boolean;
++  /**
++   * The provider queues a prompt that arrives while it is busy and runs it once
++   * the current turn ends. Enables steering: a message sent during a turn is
++   * handed to the provider's queue instead of interrupting that turn.
++   */
++  acceptsQueuedPrompts?: boolean;
 +  /**
 +   * Explain a turn that ended with no timeline output, replacing the generic
 +   * "completed without producing any timeline output" failure. Return null to
@@ -3924,7 +4077,7 @@ index 6bded49f..3a72555e 100644
  interface ACPAgentClientOptions {
    provider: string;
    logger: Logger;
-@@ -483,6 +577,7 @@ interface ACPAgentClientOptions {
+@@ -483,6 +599,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -3932,7 +4085,7 @@ index 6bded49f..3a72555e 100644
    now?: () => number;
  }
  
-@@ -518,7 +613,9 @@ interface ACPAgentSessionOptions {
+@@ -518,7 +635,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -3942,7 +4095,7 @@ index 6bded49f..3a72555e 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -615,6 +712,13 @@ class ACPImportHistoryCollector {
+@@ -615,6 +734,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -3956,7 +4109,7 @@ index 6bded49f..3a72555e 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -647,6 +751,8 @@ interface TerminalEntry {
+@@ -647,6 +773,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -3965,7 +4118,7 @@ index 6bded49f..3a72555e 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -945,6 +1051,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -945,6 +1073,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -3973,7 +4126,7 @@ index 6bded49f..3a72555e 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -975,6 +1082,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -975,6 +1104,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -3981,7 +4134,7 @@ index 6bded49f..3a72555e 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1015,6 +1123,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1015,6 +1145,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -3989,7 +4142,7 @@ index 6bded49f..3a72555e 100644
        },
      );
      await session.initializeNewSession();
-@@ -1074,6 +1183,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1074,6 +1205,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -3997,7 +4150,7 @@ index 6bded49f..3a72555e 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1681,6 +1791,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1681,6 +1813,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -4017,7 +4170,7 @@ index 6bded49f..3a72555e 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1744,9 +1867,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1744,11 +1889,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -4028,6 +4181,7 @@ index 6bded49f..3a72555e 100644
 +  private currentTurnUpdateCount = 0;
 +  private currentTurnMismatchedUpdateCount = 0;
 +  private currentTurnStartedAt = 0;
++  private lastStreamedContentAt: number | null = null;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
 +  private readonly providerHooks?: ACPProviderHooks;
 +  private providerSessionCleanup: (() => void) | null = null;
@@ -4036,8 +4190,15 @@ index 6bded49f..3a72555e 100644
 +  private turnAbort: AbortController | null = null;
    private fallbackAssistantMessageId: string | null = null;
    private closed = false;
++  /** Set only for providers that queue a prompt sent while they are busy. */
++  steerActiveTurn?: (
++    prompt: AgentPromptInput,
++    options: SteerActiveTurnOptions,
++  ) => Promise<SteerResult>;
    private historyPending = false;
-@@ -1786,7 +1919,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private replayingHistory = false;
+   private bootstrapThreadEventPending = false;
+@@ -1786,7 +1947,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -4045,10 +4206,13 @@ index 6bded49f..3a72555e 100644
 +    this.lateTimelineGraceMs = options.lateTimelineGraceMs ?? ACP_LATE_TIMELINE_GRACE_MS;
      this.extensionCommandsParser = options.extensionCommandsParser;
 +    this.providerHooks = options.providerHooks;
++    if (options.providerHooks?.acceptsQueuedPrompts) {
++      this.steerActiveTurn = (prompt, steerOptions) => this.sendQueuedPrompt(prompt, steerOptions);
++    }
    }
  
    get id(): string | null {
-@@ -1813,6 +1949,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1813,6 +1980,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -4056,7 +4220,7 @@ index 6bded49f..3a72555e 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1867,6 +2004,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1867,6 +2035,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -4064,7 +4228,7 @@ index 6bded49f..3a72555e 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1884,6 +2022,199 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1884,6 +2053,291 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -4077,8 +4241,73 @@ index 6bded49f..3a72555e 100644
 +      acpSessionId: sessionId,
 +      provider: this.provider,
 +      logger: this.logger,
-+      emit: (event) => this.pushEvent(event),
++      emit: (event) => this.pushProviderEvent(event),
++      isForegroundTurnActive: () => this.activeForegroundTurnId !== null,
++      lastStreamedContentAt: () => this.lastStreamedContentAt,
 +    };
++  }
++
++  /**
++   * An event a provider hook produced outside the ACP stream. Output it adds
++   * while a foreground turn is open is that turn's output, so it counts toward
++   * the empty-turn check the same way streamed output does.
++   */
++  private pushProviderEvent(event: AgentStreamEvent): void {
++    if (
++      event.type === "timeline" &&
++      event.item.type !== "user_message" &&
++      // A compaction marker is not something the agent said, so it cannot make
++      // an otherwise empty turn look like it produced output.
++      event.item.type !== "compaction" &&
++      this.activeForegroundTurnId !== null &&
++      (event.turnId === undefined || event.turnId === this.activeForegroundTurnId)
++    ) {
++      this.currentTurnSawTimeline = true;
++      this.releaseLateTimelineWaiters();
++      this.pushEvent(
++        event.turnId === undefined ? { ...event, turnId: this.activeForegroundTurnId } : event,
++      );
++      return;
++    }
++    this.pushEvent(event);
++  }
++
++  /**
++   * Hand a message to a provider that queues prompts sent while it is busy. No
++   * foreground turn is opened: the provider answers the request at once and
++   * runs the prompt from its queue, and its output reaches Paseo through the
++   * provider's own channel for turns it starts itself.
++   */
++  private async sendQueuedPrompt(
++    prompt: AgentPromptInput,
++    options: SteerActiveTurnOptions,
++  ): Promise<SteerResult> {
++    const connection = this.connection;
++    const sessionId = this.sessionId;
++    if (this.closed || !connection || !sessionId) {
++      return { status: "unavailable" };
++    }
++    const outgoing = this.applyProviderPromptTransform(prompt);
++    const messageId = options.clientMessageId ?? randomUUID();
++    void (async () => {
++      try {
++        const response = await connection.prompt({
++          sessionId,
++          messageId,
++          prompt: toACPContentBlocks(outgoing),
++        });
++        this.logger.debug(
++          { agentId: this.agentId, provider: this.provider, stopReason: response.stopReason },
++          "provider.acp.queued_prompt_answered",
++        );
++      } catch (error) {
++        this.logger.warn(
++          { agentId: this.agentId, provider: this.provider, err: error },
++          "provider.acp.queued_prompt_failed",
++        );
++      }
++    })();
++    return { status: "accepted" };
 +  }
 +
 +  private notifyProviderSessionReady(): void {
@@ -4198,24 +4427,51 @@ index 6bded49f..3a72555e 100644
 +    }
 +  }
 +
-+  /**
-+   * Ask the provider whether its runtime is still inside a turn of its own. A
-+   * throwing hook must never hold a turn open, so a rejection reads as "not
-+   * running" and lets the turn fail the way it would without the hook.
-+   */
-+  private isProviderTurnStillRunning(): boolean {
++  /** Ask the provider whether the prompt never ran. A throwing hook changes nothing. */
++  private verifyTurnOutcome(): { code: string; error: string; diagnostic?: string } | null {
 +    const hooks = this.providerHooks;
-+    if (!hooks?.isTurnStillRunning) {
-+      return false;
++    if (!hooks?.verifyTurnOutcome) {
++      return null;
 +    }
 +    const ctx = this.providerHookContext();
 +    if (!ctx) {
++      return null;
++    }
++    try {
++      return hooks.verifyTurnOutcome(ctx);
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook verifyTurnOutcome failed");
++      return null;
++    }
++  }
++
++  /** Tell the provider a foreground prompt is about to go out. */
++  private notifyForegroundTurnStarting(prompt: AgentPromptInput): void {
++    const hooks = this.providerHooks;
++    if (!hooks?.onForegroundTurnStarting) {
++      return;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return;
++    }
++    try {
++      hooks.onForegroundTurnStarting(ctx, prompt);
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook onForegroundTurnStarting failed");
++    }
++  }
++
++  private isProviderTurnActive(): boolean {
++    const hooks = this.providerHooks;
++    const ctx = hooks?.isProviderTurnActive ? this.providerHookContext() : null;
++    if (!hooks?.isProviderTurnActive || !ctx) {
 +      return false;
 +    }
 +    try {
-+      return hooks.isTurnStillRunning(ctx) === true;
++      return hooks.isProviderTurnActive(ctx) === true;
 +    } catch (error) {
-+      this.logger.warn({ err: error }, "ACP provider hook isTurnStillRunning failed");
++      this.logger.warn({ err: error }, "ACP provider hook isProviderTurnActive failed");
 +      return false;
 +    }
 +  }
@@ -4264,7 +4520,7 @@ index 6bded49f..3a72555e 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1918,24 +2249,44 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1918,24 +2372,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -4281,6 +4537,7 @@ index 6bded49f..3a72555e 100644
      this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
 -    this.emitSubmittedUserMessage(prompt, messageId, turnId, options?.clientMessageId);
 +    this.emitSubmittedUserMessage(outgoing, messageId, turnId, options?.clientMessageId);
++    this.notifyForegroundTurnStarting(outgoing);
  
      void this.connection
        .prompt({
@@ -4313,7 +4570,7 @@ index 6bded49f..3a72555e 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2433,7 +2784,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2433,7 +2908,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -4325,7 +4582,7 @@ index 6bded49f..3a72555e 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2469,6 +2823,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2469,6 +2947,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -4342,15 +4599,21 @@ index 6bded49f..3a72555e 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2495,6 +2859,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2495,6 +2983,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.cancelPendingPermissions();
  
      if (this.activeForegroundTurnId) {
 +      this.turnAbort?.abort();
++      await this.connection.cancel({ sessionId: this.sessionId });
++      return;
++    }
++    // A turn the provider started on its own has no foreground turn here, but
++    // stopping the agent must still stop it.
++    if (this.isProviderTurnActive()) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
    }
-@@ -2504,9 +2869,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2504,9 +2999,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -4362,7 +4625,7 @@ index 6bded49f..3a72555e 100644
  
      this.cancelPendingPermissions();
  
-@@ -2551,6 +2918,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2551,6 +3048,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -4370,7 +4633,7 @@ index 6bded49f..3a72555e 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2613,10 +2981,45 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2613,10 +3111,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -4413,10 +4676,16 @@ index 6bded49f..3a72555e 100644
  
      const events = this.translateSessionUpdate(params.update);
 +    this.currentTurnUpdateCount += 1;
++    if (
++      !this.replayingHistory &&
++      events.some((event) => event.type === "timeline" && event.item.type !== "user_message")
++    ) {
++      this.lastStreamedContentAt = Date.now();
++    }
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2633,6 +3036,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2633,6 +3172,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -4435,7 +4704,7 @@ index 6bded49f..3a72555e 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2658,6 +3073,52 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2658,6 +3209,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -4456,11 +4725,6 @@ index 6bded49f..3a72555e 100644
 +      }
 +      const item = mapCompactionExtension(params);
 +      if (item !== null) {
-+        // Compaction is output this turn produced. Counting it as such keeps a
-+        // turn that compacts mid-flight from being judged an empty one, and
-+        // releases anything waiting for this turn to show something.
-+        this.currentTurnSawTimeline = true;
-+        this.releaseLateTimelineWaiters();
 +        this.deliverTranslatedEvents([this.wrapTimeline(item)]);
 +      }
 +      return;
@@ -4488,7 +4752,7 @@ index 6bded49f..3a72555e 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2744,6 +3205,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2744,6 +3336,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -4496,7 +4760,14 @@ index 6bded49f..3a72555e 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3018,7 +3480,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3014,11 +3607,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
++    if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
++      return [];
++    }
+     if (update.sessionUpdate === "user_message_chunk") {
        return this.handleUserMessageChunk(update);
      }
  
@@ -4520,7 +4791,7 @@ index 6bded49f..3a72555e 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3250,9 +3727,166 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3250,9 +3861,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -4571,12 +4842,9 @@ index 6bded49f..3a72555e 100644
 +   * produced. The wait ends as soon as the turn shows output, the turn is
 +   * aborted, or the grace expires.
 +   *
-+   * The grace is re-armed while the provider reports it is still inside a turn
-+   * of its own. A prompt the provider only queued is answered the moment the
-+   * previous turn ends, and the queued turn's output can arrive well after one
-+   * grace has passed; failing there reports a failure the provider never
-+   * produced while it is still working. Re-arming stops at
-+   * `ACP_LATE_TIMELINE_CEILING_MS` so a turn that is genuinely stuck still fails.
++   * A prompt the provider only queued is not this case: its turn is held by the
++   * provider's `holdTurnWhile` until the prompt has actually run, so by the time
++   * this runs, output that is coming has had its chance to arrive.
 +   */
 +  private async waitForLateTimeline(turnId: string, stopReason: string): Promise<void> {
 +    const graceMs = this.lateTimelineGraceMs;
@@ -4585,33 +4853,24 @@ index 6bded49f..3a72555e 100644
 +    }
 +    const signal = this.turnAbort?.signal;
 +    const startedAt = Date.now();
-+    while (!this.currentTurnSawTimeline && this.activeForegroundTurnId === turnId) {
-+      if (signal?.aborted) {
-+        return;
-+      }
-+      if (await this.waitForTimelineSignal(signal, graceMs)) {
-+        return;
-+      }
-+      if (this.activeForegroundTurnId !== turnId) {
-+        return;
-+      }
-+      if (this.isProviderTurnStillRunning() && Date.now() - startedAt < ACP_LATE_TIMELINE_CEILING_MS) {
-+        continue;
-+      }
-+      this.logger.warn(
-+        {
-+          agentId: this.agentId,
-+          provider: this.provider,
-+          turnId,
-+          stopReason,
-+          acpUpdates: this.currentTurnUpdateCount,
-+          mismatchedSessionUpdates: this.currentTurnMismatchedUpdateCount,
-+          waitedMs: Date.now() - startedAt,
-+        },
-+        "provider.acp.late_timeline_absent",
-+      );
++    if (await this.waitForTimelineSignal(signal, graceMs)) {
 +      return;
 +    }
++    if (signal?.aborted || this.activeForegroundTurnId !== turnId) {
++      return;
++    }
++    this.logger.warn(
++      {
++        agentId: this.agentId,
++        provider: this.provider,
++        turnId,
++        stopReason,
++        acpUpdates: this.currentTurnUpdateCount,
++        mismatchedSessionUpdates: this.currentTurnMismatchedUpdateCount,
++        waitedMs: Date.now() - startedAt,
++      },
++      "provider.acp.late_timeline_absent",
++    );
 +  }
 +
 +  private async waitForTimelineSignal(
@@ -4656,6 +4915,10 @@ index 6bded49f..3a72555e 100644
 +    }
      this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
  
++    if (this.settleHeldTurn(response, turnId)) {
++      return;
++    }
++
 +    if (
 +      this.requiresTimelineOutput &&
 +      response.stopReason !== "cancelled" &&
@@ -4688,7 +4951,51 @@ index 6bded49f..3a72555e 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3351,6 +3985,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3278,6 +4038,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
++  /**
++   * Ends a turn that was held after its response when the hold itself decided
++   * the outcome, and reports whether it did.
++   *
++   * An interrupt that lands during the hold is a cancellation, not an empty
++   * turn: the response predates the interrupt. And a provider that knows the
++   * prompt never ran fails the turn even if it showed output for other work.
++   */
++  private settleHeldTurn(response: PromptResponse, turnId: string): boolean {
++    if (response.stopReason === "cancelled") {
++      return false;
++    }
++    if (this.turnAbort?.signal.aborted) {
++      this.synthesizeCanceledToolCalls();
++      this.finishTurn({
++        type: "turn_canceled",
++        provider: this.provider,
++        reason: "Interrupted",
++        turnId,
++      });
++      return true;
++    }
++    const refuted = this.verifyTurnOutcome();
++    if (refuted === null) {
++      return false;
++    }
++    this.finishTurn({
++      type: "turn_failed",
++      provider: this.provider,
++      error: refuted.error,
++      code: refuted.code,
++      diagnostic: this.collectDiagnostic(refuted.diagnostic ?? refuted.error),
++      turnId,
++    });
++    return true;
++  }
++
+   private wrapTimeline(item: AgentTimelineItem): AgentStreamEvent {
+     return {
+       type: "timeline",
+@@ -3351,6 +4148,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.cancelPendingPermissions();
      }
      this.activeForegroundTurnId = null;
@@ -4696,7 +5003,7 @@ index 6bded49f..3a72555e 100644
      this.fallbackAssistantMessageId = null;
      if (this.submittedUserMessageTurnId === event.turnId) {
        this.submittedUserMessageTurnId = null;
-@@ -3611,7 +4246,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3611,7 +4409,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -4717,7 +5024,7 @@ index 6bded49f..3a72555e 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3677,6 +4324,7 @@ function mergeToolSnapshot(
+@@ -3677,6 +4487,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -4725,7 +5032,7 @@ index 6bded49f..3a72555e 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3686,6 +4334,27 @@ function mergeToolSnapshot(
+@@ -3686,6 +4497,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -4753,7 +5060,7 @@ index 6bded49f..3a72555e 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3702,10 +4371,18 @@ function mapToolSnapshotToTimeline(
+@@ -3702,10 +4534,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -4773,7 +5080,7 @@ index 6bded49f..3a72555e 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -3947,7 +4624,17 @@ function mapPermissionRequest(
+@@ -3947,7 +4787,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -4792,7 +5099,7 @@ index 6bded49f..3a72555e 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -3956,11 +4643,11 @@ function mapPermissionRequest(
+@@ -3956,11 +4806,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -4806,7 +5113,7 @@ index 6bded49f..3a72555e 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -3974,6 +4661,7 @@ function mapPermissionRequest(
+@@ -3974,6 +4824,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -4814,7 +5121,7 @@ index 6bded49f..3a72555e 100644
      },
    };
  }
-@@ -4002,6 +4690,65 @@ function selectPermissionOption(
+@@ -4002,6 +4853,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -4880,7 +5187,7 @@ index 6bded49f..3a72555e 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4016,16 +4763,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4016,16 +4926,37 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
    return false;
  }
  
@@ -6300,10 +6607,12 @@ index 5a14d991..c1f92b7b 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb0..b10080ca 100644
+index b388fdb0..99df5280 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-@@ -2,8 +2,13 @@ import { SessionConfigOption } from "@agentclientprotocol/sdk";
+@@ -1,9 +1,15 @@
+-import { SessionConfigOption } from "@agentclientprotocol/sdk";
++import { SessionConfigOption, type SessionUpdate } from "@agentclientprotocol/sdk";
  import { describe, expect, test, vi } from "vitest";
  
  import { createTestLogger } from "../../../test-utils/test-logger.js";
@@ -6313,13 +6622,14 @@ index b388fdb0..b10080ca 100644
 +import { type ACPProviderHookContext, type SpawnedACPProcess } from "./acp-agent.js";
 +import {
 +  createKimiProviderHooks,
++  isKimiCompactionNotice,
 +  KimiACPAgentClient,
 +  transformKimiGoalPrompt,
 +} from "./kimi-acp-agent.js";
  
  function modelConfigOption(currentValue: string): SessionConfigOption {
    return {
-@@ -239,3 +244,89 @@ describe("KimiACPAgentClient per-model thinking options", () => {
+@@ -239,3 +245,110 @@ describe("KimiACPAgentClient per-model thinking options", () => {
      expect(kimiK3?.defaultThinkingOptionId).toBeUndefined();
    });
  });
@@ -6394,26 +6704,47 @@ index b388fdb0..b10080ca 100644
 +    expect(hooks.tryHandleOutOfBand?.("/goal", ctx)).not.toBeNull();
 +    expect(hooks.tryHandleOutOfBand?.("hello", ctx)).toBeNull();
 +  });
++});
 +
-+  test("reports the runtime as still running only through a live bridge", () => {
-+    const hooks = createKimiProviderHooks();
-+    const ctx = {
-+      acpSessionId: "session_no-bridge",
-+      provider: "kimi-acp",
-+      logger: createTestLogger(),
-+      emit: () => {},
-+    };
++describe("isKimiCompactionNotice", () => {
++  function chunk(text: string): SessionUpdate {
++    return { sessionUpdate: "agent_message_chunk", content: { type: "text", text } };
++  }
 +
-+    // Without a bridge there is nothing to read the runtime's turn state from,
-+    // and an unknown state must not hold a turn open.
-+    expect(hooks.isTurnStillRunning?.(ctx)).toBe(false);
++  test("recognizes the two notices Kimi narrates an automatic compaction with", () => {
++    expect(isKimiCompactionNotice(chunk("Compacting conversation context…"))).toBe(true);
++    expect(
++      isKimiCompactionNotice(
++        chunk(
++          "Compaction completed.\n- Messages compacted: 1,204\n- Tokens before: 233,180\n- Tokens after: 9,412",
++        ),
++      ),
++    ).toBe(true);
++  });
++
++  test("leaves everything the agent or the user wrote alone", () => {
++    expect(isKimiCompactionNotice(chunk("Compaction is a technique for..."))).toBe(false);
++    expect(
++      isKimiCompactionNotice(
++        chunk(
++          "Context compaction started — it runs in the background and the compacted context applies once it finishes.",
++        ),
++      ),
++    ).toBe(false);
++    expect(
++      isKimiCompactionNotice({
++        sessionUpdate: "agent_thought_chunk",
++        content: { type: "text", text: "Compacting conversation context…" },
++      }),
++    ).toBe(false);
++    expect(createKimiProviderHooks().shouldDropSessionUpdate).toBe(isKimiCompactionNotice);
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f6..2ba183c9 100644
+index 7ae144f6..ae2bc7f1 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-@@ -1,13 +1,24 @@
+@@ -1,13 +1,25 @@
  import type { Logger } from "pino";
  
 -import type { AgentModelDefinition } from "../agent-sdk-types.js";
@@ -6436,10 +6767,11 @@ index 7ae144f6..2ba183c9 100644
  import { toDiagnosticErrorMessage } from "./diagnostic-utils.js";
  import { GenericACPAgentClient } from "./generic-acp-agent.js";
 +import { KimiNativeBridge } from "./kimi/native-bridge.js";
++import type { SessionUpdate } from "@agentclientprotocol/sdk";
  
  interface KimiACPAgentClientOptions {
    logger: Logger;
-@@ -88,6 +99,212 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
+@@ -88,6 +100,248 @@ export class KimiACPAgentClient extends GenericACPAgentClient {
        providerId: options.providerId,
        label: options.label,
        catalogModelResolver: resolveKimiCatalogModels,
@@ -6527,17 +6859,44 @@ index 7ae144f6..2ba183c9 100644
 +  }
 +}
 +
++/**
++ * Kimi narrates an automatic compaction to ACP clients as plain assistant text:
++ * a start line and a token summary. The session log carries the same events,
++ * and the bridge renders them as the compaction divider, so the text would only
++ * appear next to it as chat. `Context compaction started` — the reply to a
++ * manual `/compact` — is the user's own command being answered and stays.
++ */
++export function isKimiCompactionNotice(update: SessionUpdate): boolean {
++  if (update.sessionUpdate !== "agent_message_chunk" || update.content.type !== "text") {
++    return false;
++  }
++  const text = update.content.text;
++  return (
++    text.startsWith("Compacting conversation context") ||
++    text.startsWith("Compaction completed.\n- Messages compacted:")
++  );
++}
++
 +export interface KimiProviderHooksOptions {
 +  kimiHome?: string;
 +  /** Overrides the bridge's poll cadence; see `KimiNativeBridgeOptions`. */
 +  pollIntervalMs?: number;
++  /** Disables the session log file watcher; see `KimiNativeBridgeOptions`. */
++  watchFile?: boolean;
++  /** See `KimiNativeBridgeOptions.submissionIdleGraceMs`. */
++  submissionIdleGraceMs?: number;
 +}
 +
 +/**
 + * Provider hooks for Kimi ACP: one native bridge per live session, `/goal`
 + * status handled out-of-band, create/control commands rewritten into prompts,
 + * and the ACP turn held open while Kimi keeps working after its response — on a
-+ * live goal, or on a turn the runtime has not ended yet.
++ * live goal, or on a prompt it queued and has not run yet.
++ *
++ * Kimi streams a turn over ACP only while a `session/prompt` request is waiting
++ * for its answer. Turns it runs on its own — background-task notifications,
++ * goal continuations, cron jobs, queued prompts — are rendered from its session
++ * log by the bridge instead, and a message sent during one is queued behind it.
 + */
 +export function createKimiProviderHooks(options: KimiProviderHooksOptions = {}): ACPProviderHooks {
 +  const bridges = new Map<string, KimiNativeBridge>();
@@ -6554,6 +6913,10 @@ index 7ae144f6..2ba183c9 100644
 +        provider: ctx.provider,
 +        emit: ctx.emit,
 +        pollIntervalMs: options.pollIntervalMs,
++        isForegroundTurnActive: ctx.isForegroundTurnActive,
++        lastStreamedContentAt: ctx.lastStreamedContentAt,
++        watchFile: options.watchFile,
++        submissionIdleGraceMs: options.submissionIdleGraceMs,
 +      });
 +      bridges.set(ctx.acpSessionId, bridge);
 +      bridge.start();
@@ -6583,32 +6946,49 @@ index 7ae144f6..2ba183c9 100644
 +        },
 +      };
 +    },
-+    transformPrompt(prompt, ctx) {
-+      // The prompt is about to be sent; snapshot what the session has accepted so
-+      // a turn that produces no output can be told apart from one the runtime
-+      // never started.
-+      bridges.get(ctx.acpSessionId)?.markPromptSubmitted();
++    transformPrompt(prompt) {
 +      return transformKimiGoalPrompt(prompt);
++    },
++    onForegroundTurnStarting(ctx, prompt) {
++      // Remember what is being sent, so the turn can be matched to the user
++      // prompt Kimi logs for it — immediately, or later if Kimi queues it.
++      const text = extractPromptText(prompt);
++      bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
 +    },
 +    holdTurnWhile(ctx) {
 +      const bridge = bridges.get(ctx.acpSessionId);
 +      if (!bridge) {
 +        return null;
 +      }
-+      if (bridge.isGoalLive()) {
-+        return bridge.waitForGoalSettled(KIMI_TURN_HOLD_TIMEOUT_MS, ctx.signal);
-+      }
-+      // Kimi acks a prompt it has only queued: the ACP response arrives with
-+      // `end_turn` and no output while the runtime is still inside the turn it
-+      // was already running. Holding keeps Paseo's turn open for as long as that
-+      // is true, so the next message replaces a live turn — which cancels the
-+      // wait and runs immediately — instead of queueing behind it and being
-+      // reported as an empty turn.
-+      if (ctx.sawTimeline || !bridge.isTurnInProgress()) {
++      return (async () => {
++        // Kimi answers a prompt that arrives while it is busy with an immediate
++        // `end_turn`, then runs it from its queue without streaming it. Hold the
++        // turn until that prompt has run; the bridge renders its output from the
++        // session log meanwhile.
++        if (!ctx.sawTimeline) {
++          await bridge.waitForSubmittedPromptSettled(ctx.signal);
++        }
++        if (bridge.isGoalLive()) {
++          await bridge.waitForGoalSettled(KIMI_TURN_HOLD_TIMEOUT_MS, ctx.signal);
++        }
++      })();
++    },
++    verifyTurnOutcome(ctx) {
++      const bridge = bridges.get(ctx.acpSessionId);
++      if (!bridge || bridge.getSubmissionOutcome() !== "not_accepted") {
 +        return null;
 +      }
-+      return bridge.waitForTurnSettled(KIMI_TURN_HOLD_TIMEOUT_MS, ctx.signal);
++      return {
++        code: "kimi_prompt_not_accepted",
++        error: "Kimi prompt acceptance was not confirmed",
++        diagnostic: "Kimi sat idle without ever logging the submitted prompt. It was not run.",
++      };
 +    },
++    isProviderTurnActive(ctx) {
++      return bridges.get(ctx.acpSessionId)?.hasOpenAutonomousTurn() ?? false;
++    },
++    shouldDropSessionUpdate: isKimiCompactionNotice,
++    acceptsQueuedPrompts: true,
 +    describeMissingTimeline(ctx) {
 +      const bridge = bridges.get(ctx.acpSessionId);
 +      if (!bridge) {
@@ -6629,18 +7009,6 @@ index 7ae144f6..2ba183c9 100644
 +          "No inbound turn.prompt receipt was observed in the main session log after submission. Prompt acceptance could not be confirmed.",
 +      };
 +    },
-+    isTurnStillRunning(ctx) {
-+      const bridge = bridges.get(ctx.acpSessionId);
-+      if (!bridge) {
-+        return false;
-+      }
-+      // A prompt the runtime has accepted but not yet answered is the case this
-+      // guards: the ACP response arrived, the runtime is still inside the turn it
-+      // was already in, and the queued turn's output has not started. Reporting
-+      // "running" here re-arms the empty-turn grace instead of failing the turn
-+      // while Kimi is demonstrably still working on it.
-+      return bridge.wasPromptAccepted() && bridge.isTurnInProgress();
-+    },
 +  };
 +}
 +
@@ -6652,12 +7020,860 @@ index 7ae144f6..2ba183c9 100644
 +  const reason = goal.terminalReason ? ` (${goal.terminalReason})` : "";
 +  return `Goal "${goal.objective}" is ${goal.status} (${counters})${reason}.`;
 +}
+diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
+new file mode 100644
+index 00000000..7179863a
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
+@@ -0,0 +1,343 @@
++import { describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import type { AgentStreamEvent } from "../../agent-sdk-types.js";
++import { KimiMainTurnRenderer } from "./main-turn-renderer.js";
++
++const ATTACHED_AT = 1_791_862_400_000;
++
++interface Harness {
++  renderer: KimiMainTurnRenderer;
++  events: AgentStreamEvent[];
++  setForeground(active: boolean): void;
++  setStreamedAt(at: number | null): void;
++}
++
++function createHarness(): Harness {
++  const events: AgentStreamEvent[] = [];
++  let foreground = false;
++  let streamedAt: number | null = null;
++  const renderer = new KimiMainTurnRenderer({
++    provider: "kimi",
++    emit: (event) => events.push(event),
++    logger: createTestLogger(),
++    renderFrom: ATTACHED_AT,
++    isForegroundTurnActive: () => foreground,
++    lastStreamedContentAt: () => streamedAt,
++    // Classify at once: the delay only covers a log record racing its ACP chunk.
++    classifyDelayMs: 0,
++  });
++  return {
++    renderer,
++    events,
++    setForeground: (active) => {
++      foreground = active;
++    },
++    setStreamedAt: (at) => {
++      streamedAt = at;
++    },
++  };
++}
++
++function line(record: Record<string, unknown>): string {
++  return JSON.stringify(record);
++}
++
++function turnStarted(turnId: number, time: number): string {
++  return line({ turnId, type: "agent.turn.started", time, kind: "event" });
++}
++
++function turnEnded(turnId: number, time: number, outcome = "done"): string {
++  return line({ turnId, outcome, type: "agent.turn.ended", time, kind: "event" });
++}
++
++function textPart(turnId: number, text: string, time: number): string {
++  return line({
++    type: "context.append_loop_event",
++    agentId: "main",
++    event: { type: "content.part", turnId: String(turnId), part: { type: "text", text } },
++    time,
++  });
++}
++
++function userPrompt(turnId: number, text: string, time: number): string {
++  return line({
++    type: "turn.prompt",
++    agentId: "main",
++    input: [{ type: "text", text }],
++    origin: { kind: "user" },
++    promptId: `msg_${turnId}`,
++    turnId,
++    time,
++  });
++}
++
++function timelineTexts(events: AgentStreamEvent[]): string[] {
++  return events.flatMap((event) =>
++    event.type === "timeline" && event.item.type === "assistant_message" ? [event.item.text] : [],
++  );
++}
++
++describe("KimiMainTurnRenderer", () => {
++  test("renders a turn the runtime starts on its own as a turn of its own", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      turnStarted(1, start),
++      line({
++        type: "context.append_loop_event",
++        agentId: "main",
++        event: { type: "content.part", turnId: "1", part: { type: "think", think: "planning" } },
++        time: start + 5_000,
++      }),
++      line({
++        type: "context.append_loop_event",
++        agentId: "main",
++        event: {
++          type: "tool.call",
++          turnId: "1",
++          toolCallId: "call-1",
++          name: "Bash",
++          args: { command: "sleep 25" },
++        },
++        time: start + 5_001,
++      }),
++      line({
++        type: "context.append_loop_event",
++        agentId: "main",
++        event: { type: "tool.result", toolCallId: "call-1", result: { output: "" } },
++        time: start + 30_000,
++      }),
++      textPart(1, "TASK_TURN_DONE", start + 31_000),
++      turnEnded(1, start + 31_001),
++    ]);
++
++    const turnId = events[0]?.type === "turn_started" ? events[0].turnId : undefined;
++    expect(turnId).toMatch(/^kimi-turn-/);
++    expect(events.map((event) => event.type)).toEqual([
++      "turn_started",
++      "timeline",
++      "timeline",
++      "timeline",
++      "timeline",
++      "turn_completed",
++    ]);
++    expect(events.every((event) => !("turnId" in event) || event.turnId === turnId)).toBe(true);
++    expect(
++      events.slice(1, 5).map((event) => (event.type === "timeline" ? event.item : null)),
++    ).toEqual([
++      { type: "reasoning", text: "planning" },
++      expect.objectContaining({
++        type: "tool_call",
++        callId: "call-1",
++        name: "Bash",
++        status: "running",
++      }),
++      expect.objectContaining({
++        type: "tool_call",
++        callId: "call-1",
++        name: "Bash",
++        status: "completed",
++      }),
++      { type: "assistant_message", text: "TASK_TURN_DONE" },
++    ]);
++    expect(renderer.hasOpenAutonomousTurn()).toBe(false);
++  });
++
++  test("shows a call Kimi displays as a command as a shell command", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      turnStarted(1, start),
++      line({
++        type: "context.append_loop_event",
++        agentId: "main",
++        event: {
++          type: "tool.call",
++          turnId: "1",
++          toolCallId: "call-2",
++          name: "Bash",
++          args: { command: "sleep 25" },
++          display: { kind: "command", command: "sleep 25", cwd: "/work", language: "bash" },
++        },
++        time: start + 1_000,
++      }),
++      line({
++        type: "context.append_loop_event",
++        agentId: "main",
++        event: { type: "tool.result", toolCallId: "call-2", result: { output: "done" } },
++        time: start + 26_000,
++      }),
++    ]);
++
++    const details = events.flatMap((event) =>
++      event.type === "timeline" && event.item.type === "tool_call" ? [event.item.detail] : [],
++    );
++    expect(details).toEqual([
++      { type: "shell", command: "sleep 25", cwd: "/work" },
++      { type: "shell", command: "sleep 25", cwd: "/work", output: "done" },
++    ]);
++  });
++
++  test("never renders what the log held before the bridge attached", () => {
++    const { renderer, events } = createHarness();
++    const before = ATTACHED_AT - 60_000;
++
++    renderer.consume([
++      turnStarted(3, before),
++      textPart(3, "history", before + 1_000),
++      turnEnded(3, before + 2_000),
++      line({
++        type: "full_compaction.begin",
++        source: "auto",
++        agentId: "main",
++        time: before + 3_000,
++      }),
++    ]);
++
++    expect(events).toEqual([]);
++  });
++
++  test("leaves a turn the ACP stream delivered to the stream", () => {
++    const { renderer, events, setForeground, setStreamedAt } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++    setForeground(true);
++    // Streamed chunks arrive before Kimi writes the finished part to its log.
++    setStreamedAt(start + 4_000);
++
++    renderer.consume([
++      turnStarted(1, start),
++      textPart(1, "streamed", start + 5_000),
++      turnEnded(1, start + 5_001),
++    ]);
++
++    expect(events).toEqual([]);
++  });
++
++  test("does not let the tail of the previous turn claim a queued turn", () => {
++    const { renderer, events, setStreamedAt } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++    // The previous turn's last chunk was processed just after the queued turn began.
++    setStreamedAt(start + 50);
++
++    renderer.consume([turnStarted(2, start), textPart(2, "PONG-QUEUED", start + 9_000)]);
++
++    expect(timelineTexts(events)).toEqual(["PONG-QUEUED"]);
++  });
++
++  test("puts output into the foreground turn without opening one of its own", () => {
++    const { renderer, events, setForeground } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++    setForeground(true);
++
++    renderer.consume([
++      turnStarted(2, start),
++      textPart(2, "PONG-QUEUED", start + 9_000),
++      turnEnded(2, start + 9_001),
++    ]);
++
++    expect(events).toEqual([
++      {
++        type: "timeline",
++        provider: "kimi",
++        item: { type: "assistant_message", text: "PONG-QUEUED" },
++      },
++    ]);
++  });
++
++  test("opens a turn of its own once the foreground turn ends mid-turn", () => {
++    const { renderer, events, setForeground } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++    setForeground(true);
++    renderer.consume([turnStarted(2, start)]);
++    expect(events).toEqual([]);
++
++    setForeground(false);
++    renderer.tick();
++    renderer.consume([
++      textPart(2, "after the foreground", start + 9_000),
++      turnEnded(2, start + 9_001),
++    ]);
++
++    expect(events.map((event) => event.type)).toEqual([
++      "turn_started",
++      "timeline",
++      "turn_completed",
++    ]);
++  });
++
++  test("closes its own turn when a foreground turn starts", () => {
++    const { renderer, events } = createHarness();
++    renderer.consume([turnStarted(1, ATTACHED_AT + 1_000)]);
++    expect(renderer.hasOpenAutonomousTurn()).toBe(true);
++
++    renderer.noteForegroundTurnStarting();
++
++    expect(events.map((event) => event.type)).toEqual(["turn_started", "turn_completed"]);
++    expect(renderer.hasOpenAutonomousTurn()).toBe(false);
++  });
++
++  test("reports an aborted turn as canceled and a failed one as failed", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      turnStarted(1, start),
++      turnEnded(1, start + 1_000, "aborted"),
++      turnStarted(2, start + 2_000),
++      turnEnded(2, start + 3_000, "failed"),
++    ]);
++
++    expect(events.map((event) => event.type)).toEqual([
++      "turn_started",
++      "turn_canceled",
++      "turn_started",
++      "turn_failed",
++    ]);
++  });
++
++  test("renders compaction, which Kimi never sends over ACP", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      line({ type: "full_compaction.begin", source: "auto", agentId: "main", time: start }),
++      line({ type: "full_compaction.complete", agentId: "main", time: start + 30_000 }),
++    ]);
++
++    expect(events).toEqual([
++      {
++        type: "timeline",
++        provider: "kimi",
++        item: { type: "compaction", status: "loading", trigger: "auto" },
++      },
++      { type: "timeline", provider: "kimi", item: { type: "compaction", status: "completed" } },
++    ]);
++  });
++
++  test("finds the submitted prompt by its text, and only among prompts logged after it was sent", () => {
++    const { renderer } = createHarness();
++    const sentAt = ATTACHED_AT + 10_000;
++
++    renderer.consume([
++      userPrompt(4, "PING-QUEUED", sentAt - 5_000),
++      userPrompt(5, "from another client", sentAt + 1_000),
++      userPrompt(6, "PING-QUEUED", sentAt + 2_000),
++      line({
++        type: "turn.ended",
++        agentId: "main",
++        turnId: 6,
++        reason: "completed",
++        time: sentAt + 9_000,
++      }),
++    ]);
++
++    expect(renderer.findSubmittedPrompt(sentAt, "PING-QUEUED")).toMatchObject({
++      promptTurnId: 6,
++      ended: true,
++    });
++    expect(renderer.findSubmittedPrompt(sentAt, null)).toMatchObject({ promptTurnId: 5 });
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
+new file mode 100644
+index 00000000..89ce59e0
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
+@@ -0,0 +1,491 @@
++import { randomUUID } from "node:crypto";
++
++import type { Logger } from "pino";
++
++import type { AgentProvider, AgentStreamEvent, AgentTimelineItem } from "../../agent-sdk-types.js";
++import { asRecord, readString } from "./session-log.js";
++import { mapKimiLoopEvent, type KimiSubagentCallRecord } from "./subagent-log.js";
++
++/**
++ * How long a turn's first output waits for the ACP stream to claim it. Kimi
++ * writes a content part to its log once the part is complete, after the ACP
++ * chunks for it have gone out, so a streamed turn is normally claimed long
++ * before this expires; the wait only covers a record that lands first.
++ */
++const CLASSIFY_DELAY_MS = 300;
++/**
++ * ACP content received this soon after a turn started may still be the tail of
++ * the turn before it — Kimi starts a queued turn the moment the previous one
++ * ends — so it does not claim the new turn.
++ */
++const STREAM_CLAIM_MARGIN_MS = 200;
++
++/** A main-agent prompt Kimi recorded, kept so a submitted prompt can be found. */
++export interface KimiPromptRecord {
++  promptTurnId: number;
++  promptId: string | null;
++  /** True when Kimi attributed the prompt to the user rather than to a task, cron job or trigger. */
++  fromUser: boolean;
++  text: string;
++  time: number;
++  ended: boolean;
++}
++
++export interface KimiMainTurnRendererOptions {
++  provider: AgentProvider;
++  emit: (event: AgentStreamEvent) => void;
++  logger: Logger;
++  /** Records stamped before this instant are history and are never rendered. */
++  renderFrom: number;
++  /** True while Paseo's ACP session has a foreground turn open. */
++  isForegroundTurnActive: () => boolean;
++  /** When the ACP stream last delivered agent output, or null if never. */
++  lastStreamedContentAt: () => number | null;
++  now?: () => number;
++  classifyDelayMs?: number;
++}
++
++type TurnSource = "skipped" | "pending" | "acp" | "wire";
++
++interface RenderedTurn {
++  turnId: number;
++  startedAt: number;
++  source: TurnSource;
++  pending: AgentTimelineItem[];
++  firstPendingAt: number | null;
++}
++
++/**
++ * Renders the main agent's turns that Kimi does not stream over ACP.
++ *
++ * Kimi's ACP server only streams a turn while one of Paseo's `session/prompt`
++ * requests is waiting for its answer. Turns the runtime starts on its own — a
++ * background task finishing, a goal continuing, a cron job, or a prompt it had
++ * queued while busy (whose request it already answered with `end_turn`) — are
++ * written to `wire.jsonl` and nowhere else. Without this, Paseo shows the agent
++ * idle while it works, and reports a queued prompt as an empty turn.
++ *
++ * Each turn is rendered from exactly one source. Its first output waits briefly
++ * for the ACP stream: a streamed turn's chunks arrive before its log record, so
++ * ACP output after the turn started claims it, and the log copy is dropped.
++ * Otherwise the turn is rendered from the log. A turn that starts while Paseo
++ * has no foreground turn is opened as a turn of its own, so Paseo shows the
++ * agent running and a message sent meanwhile is queued behind it.
++ */
++export class KimiMainTurnRenderer {
++  private readonly provider: AgentProvider;
++  private readonly emit: (event: AgentStreamEvent) => void;
++  private readonly logger: Logger;
++  private readonly renderFrom: number;
++  private readonly isForegroundTurnActive: () => boolean;
++  private readonly lastStreamedContentAt: () => number | null;
++  private readonly now: () => number;
++  private readonly classifyDelayMs: number;
++
++  private current: RenderedTurn | null = null;
++  private autonomousTurnId: string | null = null;
++  private readonly calls = new Map<string, KimiSubagentCallRecord>();
++  private readonly prompts = new Map<number, KimiPromptRecord>();
++  private classifyTimer: ReturnType<typeof setTimeout> | null = null;
++  private stopped = false;
++
++  constructor(options: KimiMainTurnRendererOptions) {
++    this.provider = options.provider;
++    this.emit = options.emit;
++    this.logger = options.logger;
++    this.renderFrom = options.renderFrom;
++    this.isForegroundTurnActive = options.isForegroundTurnActive;
++    this.lastStreamedContentAt = options.lastStreamedContentAt;
++    this.now = options.now ?? Date.now;
++    this.classifyDelayMs = options.classifyDelayMs ?? CLASSIFY_DELAY_MS;
++  }
++
++  /** Folds newly appended log lines, emitting whatever they render. */
++  consume(lines: Iterable<string>): void {
++    if (this.stopped) {
++      return;
++    }
++    for (const raw of lines) {
++      const line = raw.trim();
++      if (line.length === 0) {
++        continue;
++      }
++      let parsed: unknown;
++      try {
++        parsed = JSON.parse(line);
++      } catch {
++        continue;
++      }
++      const record = asRecord(parsed);
++      if (record !== null) {
++        this.apply(record);
++      }
++    }
++  }
++
++  /**
++   * Re-checks state that can change without a log record: a foreground turn
++   * ending while the runtime is still in a turn of its own leaves that turn
++   * needing one of its own, and a pending classification may be due.
++   */
++  tick(): void {
++    if (this.stopped) {
++      return;
++    }
++    const turn = this.current;
++    if (turn && turn.source !== "skipped" && this.autonomousTurnId === null) {
++      if (!this.isForegroundTurnActive()) {
++        this.openAutonomousTurn();
++      }
++    }
++    this.classifyPending();
++  }
++
++  /**
++   * A foreground turn is about to start. A turn of the runtime's own that is
++   * still open is closed first, so the two never overlap and the rest of the
++   * runtime's output lands in the foreground turn.
++   */
++  noteForegroundTurnStarting(): void {
++    if (this.autonomousTurnId !== null) {
++      this.closeAutonomousTurn("done");
++    }
++  }
++
++  /** True while a turn of the runtime's own is open in Paseo. */
++  hasOpenAutonomousTurn(): boolean {
++    return this.autonomousTurnId !== null;
++  }
++
++  /**
++   * The prompt Kimi logged for a submission sent at `sentAt`: one whose text
++   * matches what was sent, else the first user prompt, else the first inbound
++   * prompt of any origin (Kimi logs some submitted text, such as a forwarded
++   * task notification, under that origin). Kimi logs a queued prompt only when
++   * it starts, so a turn the runtime starts on its own can be logged first and
++   * taken for the submission; that is harmless, since the submission's own turn
++   * is still rendered when it runs. Both processes share a clock; the slack only
++   * absorbs millisecond rounding.
++   */
++  findSubmittedPrompt(sentAt: number, text: string | null): KimiPromptRecord | null {
++    let firstUser: KimiPromptRecord | null = null;
++    let firstAny: KimiPromptRecord | null = null;
++    for (const prompt of this.prompts.values()) {
++      if (prompt.time < sentAt - 1_000) {
++        continue;
++      }
++      if (text !== null && prompt.text.trim() === text.trim()) {
++        return prompt;
++      }
++      if (prompt.fromUser) {
++        firstUser ??= prompt;
++      }
++      firstAny ??= prompt;
++    }
++    return firstUser ?? firstAny;
++  }
++
++  stop(): void {
++    this.stopped = true;
++    this.clearClassifyTimer();
++  }
++
++  private apply(record: Record<string, unknown>): void {
++    const time = typeof record.time === "number" ? record.time : null;
++    switch (record.type) {
++      case "agent.turn.started":
++        this.onTurnStarted(record, time);
++        return;
++      case "agent.turn.ended":
++        this.onTurnEnded(record);
++        return;
++      case "context.append_loop_event":
++        this.onLoopEvent(record);
++        return;
++      case "full_compaction.begin":
++      case "full_compaction.complete":
++        this.onCompaction(record, time);
++        return;
++      case "turn.prompt":
++        this.onPrompt(record, time);
++        return;
++      case "turn.ended":
++      case "prompt.completed":
++        this.onPromptEnded(record);
++        return;
++      default:
++        return;
++    }
++  }
++
++  /** Kimi never sends compaction over ACP; its log is the only record of it. */
++  private onCompaction(record: Record<string, unknown>, time: number | null): void {
++    if (time === null || time < this.renderFrom) {
++      return;
++    }
++    if (record.type === "full_compaction.begin") {
++      this.emitItem({
++        type: "compaction",
++        status: "loading",
++        trigger: record.source === "manual" ? "manual" : "auto",
++      });
++      return;
++    }
++    this.emitItem({ type: "compaction", status: "completed" });
++  }
++
++  /** A prompt is over at its prompt-level `turn.ended`, or at `prompt.completed` for a user prompt. */
++  private onPromptEnded(record: Record<string, unknown>): void {
++    if (record.type === "turn.ended") {
++      const prompt =
++        typeof record.turnId === "number" ? this.prompts.get(record.turnId) : undefined;
++      if (prompt) {
++        prompt.ended = true;
++      }
++      return;
++    }
++    const promptId = readString(record.promptId);
++    if (promptId === undefined) {
++      return;
++    }
++    for (const prompt of this.prompts.values()) {
++      if (prompt.promptId === promptId) {
++        prompt.ended = true;
++      }
++    }
++  }
++
++  private onTurnStarted(record: Record<string, unknown>, time: number | null): void {
++    // A turn that never logged its end is over once the next one starts.
++    if (this.current) {
++      this.finishCurrentTurn("done");
++    }
++    const turnId = typeof record.turnId === "number" ? record.turnId : -1;
++    if (time === null || time < this.renderFrom) {
++      this.current = {
++        turnId,
++        startedAt: time ?? 0,
++        source: "skipped",
++        pending: [],
++        firstPendingAt: null,
++      };
++      return;
++    }
++    this.current = {
++      turnId,
++      startedAt: time,
++      source: "pending",
++      pending: [],
++      firstPendingAt: null,
++    };
++    if (!this.isForegroundTurnActive()) {
++      this.openAutonomousTurn();
++    }
++  }
++
++  private onTurnEnded(record: Record<string, unknown>): void {
++    if (!this.current) {
++      return;
++    }
++    const outcome = readString(record.outcome) ?? "done";
++    this.finishCurrentTurn(outcome);
++  }
++
++  private finishCurrentTurn(outcome: string): void {
++    const turn = this.current;
++    if (!turn) {
++      return;
++    }
++    // Output still waiting for the ACP stream at the turn's end was not claimed.
++    if (turn.source === "pending" && turn.pending.length > 0) {
++      this.settleClassification(turn, this.isClaimedByStream(turn) ? "acp" : "wire");
++    }
++    this.current = null;
++    this.clearClassifyTimer();
++    if (this.autonomousTurnId !== null) {
++      this.closeAutonomousTurn(outcome);
++    }
++  }
++
++  private onLoopEvent(record: Record<string, unknown>): void {
++    if (record.agentId !== undefined && record.agentId !== "main") {
++      return;
++    }
++    const event = asRecord(record.event);
++    if (event === null) {
++      return;
++    }
++    const items: AgentTimelineItem[] = [];
++    // Always folded, so a tool result can recover the call it answers.
++    mapKimiLoopEvent(event, this.calls, items);
++    const turn = this.current;
++    if (items.length === 0 || !turn) {
++      return;
++    }
++    switch (turn.source) {
++      case "skipped":
++      case "acp":
++        return;
++      case "wire":
++        for (const item of items) {
++          this.emitItem(item);
++        }
++        return;
++      case "pending":
++        turn.pending.push(...items);
++        turn.firstPendingAt ??= this.now();
++        this.classifyPending();
++        return;
++    }
++  }
++
++  private onPrompt(record: Record<string, unknown>, time: number | null): void {
++    // A record without a timestamp is taken as read now; Kimi stamps them all.
++    const at = time ?? this.now();
++    if (at < this.renderFrom || record.agentId !== "main" || typeof record.turnId !== "number") {
++      return;
++    }
++    const origin = asRecord(record.origin);
++    if (!isInboundOrigin(origin)) {
++      return;
++    }
++    this.prompts.set(record.turnId, {
++      promptTurnId: record.turnId,
++      promptId: readString(record.promptId) ?? null,
++      fromUser: origin?.kind === "user",
++      text: readPromptText(record.input),
++      time: at,
++      ended: false,
++    });
++    // Only the latest few matter: a submission is matched within seconds.
++    if (this.prompts.size > 64) {
++      const oldest = this.prompts.keys().next().value;
++      if (oldest !== undefined) {
++        this.prompts.delete(oldest);
++      }
++    }
++  }
++
++  private isClaimedByStream(turn: RenderedTurn): boolean {
++    const streamedAt = this.lastStreamedContentAt();
++    return streamedAt !== null && streamedAt > turn.startedAt + STREAM_CLAIM_MARGIN_MS;
++  }
++
++  private classifyPending(): void {
++    const turn = this.current;
++    if (!turn || turn.source !== "pending" || turn.firstPendingAt === null) {
++      return;
++    }
++    if (this.isClaimedByStream(turn)) {
++      this.settleClassification(turn, "acp");
++      return;
++    }
++    const waited = this.now() - turn.firstPendingAt;
++    if (waited >= this.classifyDelayMs) {
++      this.settleClassification(turn, "wire");
++      return;
++    }
++    if (this.classifyTimer === null) {
++      this.classifyTimer = setTimeout(() => {
++        this.classifyTimer = null;
++        this.classifyPending();
++      }, this.classifyDelayMs - waited);
++      this.classifyTimer.unref?.();
++    }
++  }
++
++  private settleClassification(turn: RenderedTurn, source: "acp" | "wire"): void {
++    this.clearClassifyTimer();
++    turn.source = source;
++    const pending = turn.pending;
++    turn.pending = [];
++    if (source === "wire") {
++      this.logger.debug(
++        { turnId: turn.turnId, items: pending.length },
++        "Kimi turn not streamed over ACP; rendering it from the session log",
++      );
++      for (const item of pending) {
++        this.emitItem(item);
++      }
++    }
++  }
++
++  private clearClassifyTimer(): void {
++    if (this.classifyTimer !== null) {
++      clearTimeout(this.classifyTimer);
++      this.classifyTimer = null;
++    }
++  }
++
++  private openAutonomousTurn(): void {
++    const turnId = `kimi-turn-${randomUUID()}`;
++    this.autonomousTurnId = turnId;
++    this.emit({ type: "turn_started", provider: this.provider, turnId });
++  }
++
++  private closeAutonomousTurn(outcome: string): void {
++    const turnId = this.autonomousTurnId;
++    if (turnId === null) {
++      return;
++    }
++    this.autonomousTurnId = null;
++    if (outcome === "aborted") {
++      this.emit({ type: "turn_canceled", provider: this.provider, reason: "Interrupted", turnId });
++      return;
++    }
++    if (outcome === "failed") {
++      this.emit({
++        type: "turn_failed",
++        provider: this.provider,
++        error: "Kimi ended this turn with a failure",
++        code: "kimi_turn_failed",
++        turnId,
++      });
++      return;
++    }
++    this.emit({ type: "turn_completed", provider: this.provider, turnId });
++  }
++
++  private emitItem(item: AgentTimelineItem): void {
++    this.emit({
++      type: "timeline",
++      provider: this.provider,
++      item,
++      ...(this.autonomousTurnId !== null ? { turnId: this.autonomousTurnId } : {}),
++    });
++  }
++}
++
++/** Origins that start a prompt of their own, mirroring the session log's receipt rules. */
++function isInboundOrigin(origin: Record<string, unknown> | null): boolean {
++  switch (origin?.kind) {
++    case "user":
++    case "task":
++    case "cron_job":
++      return true;
++    case "skill_activation":
++      return origin.trigger === "user-slash";
++    case "system_trigger":
++      return origin.name === "goal_continuation";
++    default:
++      return false;
++  }
++}
++
++function readPromptText(input: unknown): string {
++  if (typeof input === "string") {
++    return input;
++  }
++  if (!Array.isArray(input)) {
++    return "";
++  }
++  const parts: string[] = [];
++  for (const part of input) {
++    const record = asRecord(part);
++    const text = record?.type === "text" ? readString(record.text) : undefined;
++    if (text !== undefined) {
++      parts.push(text);
++    }
++  }
++  return parts.join("\n");
++}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 00000000..92e74966
+index 00000000..4bdc0cfa
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,255 @@
++import { setTimeout as delay } from "node:timers/promises";
++
 +import type { Logger } from "pino";
 +
 +import {
@@ -6666,7 +7882,25 @@ index 00000000..92e74966
 +  type AgentProvider,
 +  type AgentStreamEvent,
 +} from "../../agent-sdk-types.js";
++import { KimiMainTurnRenderer } from "./main-turn-renderer.js";
 +import { KimiSessionLog } from "./session-log.js";
++
++/** How often a held turn re-checks its submitted prompt. */
++const SUBMISSION_POLL_MS = 250;
++/**
++ * How long the runtime may sit idle without ever starting a submitted prompt
++ * before that prompt counts as dropped. Idle is the only state in which it
++ * should already have run: while the runtime works, the prompt is queued.
++ */
++const SUBMISSION_IDLE_GRACE_MS = 30_000;
++
++export type KimiSubmissionOutcome = "completed" | "not_accepted" | "aborted";
++
++interface KimiSubmission {
++  sentAt: number;
++  text: string | null;
++  outcome: KimiSubmissionOutcome | null;
++}
 +
 +/**
 + * Native goal/usage/subagent bridge for one live Kimi ACP session.
@@ -6693,19 +7927,41 @@ index 00000000..92e74966
 +  emit: (event: AgentStreamEvent) => void;
 +  /** Provider id, for the events' `provider` field. */
 +  provider: AgentProvider;
++  /** True while the owning ACP session has a foreground turn open. */
++  isForegroundTurnActive?: () => boolean;
++  /** When the owning ACP session last received agent output, or null. */
++  lastStreamedContentAt?: () => number | null;
++  /** Disables the log file watcher; tests drive the poll cadence directly. */
++  watchFile?: boolean;
++  /** Overrides how long an idle runtime may leave a submitted prompt unstarted. */
++  submissionIdleGraceMs?: number;
 +}
 +
 +export class KimiNativeBridge {
 +  private readonly log: KimiSessionLog;
++  private readonly renderer: KimiMainTurnRenderer;
 +  private readonly emit: (event: AgentStreamEvent) => void;
 +  private readonly provider: AgentProvider;
 +  private started = false;
 +  private stopped = false;
 +  private promptBaseline: number | null = null;
++  private submission: KimiSubmission | null = null;
++  private readonly submissionIdleGraceMs: number;
 +
 +  constructor(options: KimiNativeBridgeOptions) {
 +    this.emit = options.emit;
++    this.submissionIdleGraceMs = options.submissionIdleGraceMs ?? SUBMISSION_IDLE_GRACE_MS;
 +    this.provider = options.provider;
++    this.renderer = new KimiMainTurnRenderer({
++      provider: options.provider,
++      emit: options.emit,
++      logger: options.logger,
++      // Anything Kimi logged before this bridge attached is history: the ACP
++      // session replays it, and rendering it again would duplicate it.
++      renderFrom: Date.now(),
++      isForegroundTurnActive: options.isForegroundTurnActive ?? (() => false),
++      lastStreamedContentAt: options.lastStreamedContentAt ?? (() => null),
++    });
 +    this.log = new KimiSessionLog({
 +      kimiSessionId: options.kimiSessionId,
 +      kimiHome: options.kimiHome,
@@ -6723,6 +7979,9 @@ index 00000000..92e74966
 +      onBackgroundTasks: (backgroundTasks) => {
 +        this.emit({ type: "background_tasks_updated", provider: this.provider, backgroundTasks });
 +      },
++      onLines: (lines) => this.renderer.consume(lines),
++      onTick: () => this.renderer.tick(),
++      watchFile: options.watchFile,
 +    });
 +  }
 +
@@ -6742,6 +8001,7 @@ index 00000000..92e74966
 +    }
 +    this.stopped = true;
 +    this.log.stop();
++    this.renderer.stop();
 +  }
 +
 +  /** Latest known goal, or null. */
@@ -6776,21 +8036,96 @@ index 00000000..92e74966
 +  }
 +
 +  /**
-+   * Records how many prompts the session had accepted, so a later
-+   * `wasPromptAccepted()` can tell whether the prompt just sent ever landed.
++   * Records the foreground prompt about to be sent, so the turn can later be
++   * matched to the user prompt Kimi logs for it. `text` is what was sent; it
++   * tells the prompt apart from one another client sent at the same moment.
 +   */
-+  markPromptSubmitted(): void {
++  markPromptSubmitted(text: string | null = null): void {
 +    this.promptBaseline = this.log.getAcceptedPromptCount();
++    this.submission = { sentAt: Date.now(), text, outcome: null };
++    this.renderer.noteForegroundTurnStarting();
 +  }
 +
 +  /**
-+   * True when the session accepted a prompt since `markPromptSubmitted()`, or
-+   * when no baseline was taken: an unknown baseline must not accuse the runtime
-+   * of dropping a prompt.
++   * True when Kimi logged the submitted prompt, or when nothing was submitted:
++   * an unknown submission must not accuse the runtime of dropping a prompt.
 +   */
 +  wasPromptAccepted(): boolean {
-+    return this.promptBaseline === null || this.log.getAcceptedPromptCount() > this.promptBaseline;
++    const submission = this.submission;
++    if (submission === null) {
++      return (
++        this.promptBaseline === null || this.log.getAcceptedPromptCount() > this.promptBaseline
++      );
++    }
++    if (submission.outcome === "not_accepted") {
++      return false;
++    }
++    return this.renderer.findSubmittedPrompt(submission.sentAt, submission.text) !== null;
 +  }
++
++  /** How the last submitted prompt's wait ended, or null if it has not. */
++  getSubmissionOutcome(): KimiSubmissionOutcome | null {
++    return this.submission?.outcome ?? null;
++  }
++
++  /** True while a turn the runtime started on its own is open in Paseo. */
++  hasOpenAutonomousTurn(): boolean {
++    return this.renderer.hasOpenAutonomousTurn();
++  }
++
++  /**
++   * Resolves once the submitted prompt's own turn has ended in Kimi.
++   *
++   * Kimi answers a prompt that arrives while it is busy with an immediate
++   * `end_turn` and runs it later from its queue, without streaming it over ACP.
++   * Holding the foreground turn until the prompt actually ran keeps Paseo from
++   * calling it empty; its output reaches the turn through the log renderer.
++   *
++   * There is no fixed ceiling, because a queued prompt legitimately waits for
++   * however long the turn ahead of it runs. The wait instead ends as
++   * `not_accepted` when the runtime has sat idle for a while without the prompt
++   * ever appearing — idle is the one state in which it should already have run.
++   */
++  async waitForSubmittedPromptSettled(signal?: AbortSignal): Promise<KimiSubmissionOutcome> {
++    const submission = this.submission;
++    if (submission === null || this.stopped) {
++      return "completed";
++    }
++    let idleSince: number | null = null;
++    while (!this.stopped) {
++      if (signal?.aborted) {
++        submission.outcome = "aborted";
++        return "aborted";
++      }
++      const prompt = this.renderer.findSubmittedPrompt(submission.sentAt, submission.text);
++      if (prompt?.ended) {
++        submission.outcome = "completed";
++        return "completed";
++      }
++      if (this.log.isTurnInProgress()) {
++        idleSince = null;
++      } else if (prompt) {
++        // Logged and no longer running: its turn is over even if the prompt's
++        // own end record has not been read yet.
++        submission.outcome = "completed";
++        return "completed";
++      } else {
++        idleSince ??= Date.now();
++        if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
++          submission.outcome = "not_accepted";
++          return "not_accepted";
++        }
++      }
++      await delayOrAbort(SUBMISSION_POLL_MS, signal);
++    }
++    submission.outcome = "aborted";
++    return "aborted";
++  }
++}
++
++/** Waits `ms`, or less if `signal` aborts first. Never rejects. */
++async function delayOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
++  await delay(ms, undefined, signal ? { signal } : undefined).catch(() => undefined);
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
@@ -8648,10 +9983,10 @@ index 00000000..6d7eccd3
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 00000000..ec47596c
+index 00000000..d1e598b2
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1865 @@
+@@ -0,0 +1,1966 @@
 +import {
 +  closeSync,
 +  createReadStream,
@@ -8660,6 +9995,8 @@ index 00000000..ec47596c
 +  readdirSync,
 +  readFileSync,
 +  readSync,
++  watch,
++  type FSWatcher,
 +} from "node:fs";
 +import { readFile, stat } from "node:fs/promises";
 +import os from "node:os";
@@ -9273,6 +10610,13 @@ index 00000000..ec47596c
 +
 +const EMPTY_TICK_READ: TickRead = Object.freeze({ bytes: 0, lines: 0, backlogBytes: 0 });
 +
++/**
++ * How soon a file-change notification brings the next tick forward. Short
++ * enough that a turn the runtime starts on its own shows up at once, long
++ * enough to batch the burst of records one step appends.
++ */
++const WATCH_TICK_DELAY_MS = 50;
++
 +export interface KimiSessionLogOptions {
 +  kimiSessionId: string;
 +  kimiHome?: string;
@@ -9288,6 +10632,15 @@ index 00000000..ec47596c
 +  onUsage?: (usage: AgentUsage) => void;
 +  onSubagent?: (event: ProviderSubagentInputEvent) => void;
 +  onBackgroundTasks?: (tasks: AgentBackgroundTasks) => void;
++  /** Every newly read log line, in order, after the derived state has folded them. */
++  onLines?: (lines: string[]) => void;
++  /** Called at the end of every tick. */
++  onTick?: () => void;
++  /**
++   * Bring the next tick forward when the log file changes, instead of waiting
++   * out the poll interval. Defaults to true; polling stays as the fallback.
++   */
++  watchFile?: boolean;
 +}
 +
 +/**
@@ -9323,6 +10676,12 @@ index 00000000..ec47596c
 +  private readonly onUsage: ((usage: AgentUsage) => void) | undefined;
 +  private readonly onSubagent: ((event: ProviderSubagentInputEvent) => void) | undefined;
 +  private readonly onBackgroundTasks: ((tasks: AgentBackgroundTasks) => void) | undefined;
++  private readonly onLines: ((lines: string[]) => void) | undefined;
++  private readonly onTick: (() => void) | undefined;
++  private readonly watchEnabled: boolean;
++  private watcher: FSWatcher | null = null;
++  private watchedPath: string | null = null;
++  private nextTickAt = 0;
 +
 +  private resolvedPath: string | null = null;
 +  private offset = 0;
@@ -9379,6 +10738,9 @@ index 00000000..ec47596c
 +    this.onUsage = options.onUsage;
 +    this.onSubagent = options.onSubagent;
 +    this.onBackgroundTasks = options.onBackgroundTasks;
++    this.onLines = options.onLines;
++    this.onTick = options.onTick;
++    this.watchEnabled = options.watchFile ?? true;
 +  }
 +
 +  /** Idempotent. Starts tailing. */
@@ -9397,6 +10759,7 @@ index 00000000..ec47596c
 +    }
 +    this.stopped = true;
 +    this.clearTimer();
++    this.closeWatcher();
 +    this.pending = "";
 +  }
 +
@@ -9512,6 +10875,7 @@ index 00000000..ec47596c
 +    if (this.stopped) {
 +      return;
 +    }
++    this.nextTickAt = Date.now() + delayMs;
 +    this.timer = setTimeout(() => {
 +      this.timer = null;
 +      void this.tick();
@@ -9541,6 +10905,7 @@ index 00000000..ec47596c
 +    if (this.stopped) {
 +      return;
 +    }
++    this.notifyTick();
 +    this.publishGoal();
 +    await this.publishUsage();
 +    if (this.stopped) {
@@ -9639,7 +11004,78 @@ index 00000000..ec47596c
 +      { sessionId: this.kimiSessionId },
 +    );
 +    await this.applyLines(merged);
++    this.notifyLines(merged);
++    this.ensureWatcher(filePath);
 +    return { bytes: end - start, lines: merged.length, backlogBytes: size - end };
++  }
++
++  private notifyLines(lines: string[]): void {
++    if (!this.onLines || lines.length === 0) {
++      return;
++    }
++    try {
++      this.onLines(lines);
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log line consumer failed",
++      );
++    }
++  }
++
++  private notifyTick(): void {
++    if (!this.onTick) {
++      return;
++    }
++    try {
++      this.onTick();
++    } catch (error) {
++      this.logger.warn(
++        { err: error, sessionId: this.kimiSessionId },
++        "Kimi session log tick consumer failed",
++      );
++    }
++  }
++
++  /**
++   * Watches the log so an append is read within milliseconds rather than at the
++   * next poll. A watcher that fails is dropped and polling carries on alone.
++   */
++  private ensureWatcher(filePath: string): void {
++    if (!this.watchEnabled || this.stopped || this.watchedPath === filePath) {
++      return;
++    }
++    this.closeWatcher();
++    try {
++      const watcher = watch(filePath, { persistent: false }, () => this.onFileChanged());
++      watcher.on("error", () => this.closeWatcher());
++      this.watcher = watcher;
++      this.watchedPath = filePath;
++    } catch {
++      this.watcher = null;
++      this.watchedPath = null;
++    }
++  }
++
++  private closeWatcher(): void {
++    const watcher = this.watcher;
++    this.watcher = null;
++    this.watchedPath = null;
++    try {
++      watcher?.close();
++    } catch {
++      // Already closed.
++    }
++  }
++
++  private onFileChanged(): void {
++    // A tick in flight has cleared the timer and reschedules itself when done.
++    if (this.stopped || this.timer === null) {
++      return;
++    }
++    if (this.nextTickAt - Date.now() > WATCH_TICK_DELAY_MS) {
++      this.scheduleTick(WATCH_TICK_DELAY_MS);
++    }
 +  }
 +
 +  private resolvePath(): string | null {
@@ -10829,10 +12265,10 @@ index 00000000..fc0af579
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 00000000..63dc7f66
+index 00000000..c3e67089
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,279 @@
 +import { stat } from "node:fs/promises";
 +import path from "node:path";
 +
@@ -10879,6 +12315,8 @@ index 00000000..63dc7f66
 +export interface KimiSubagentCallRecord {
 +  name: string;
 +  input: unknown;
++  /** Set when Kimi displays the call as a shell command. */
++  shell?: { command: string; cwd?: string };
 +}
 +
 +/**
@@ -10921,7 +12359,7 @@ index 00000000..63dc7f66
 +  return items;
 +}
 +
-+function mapKimiLoopEvent(
++export function mapKimiLoopEvent(
 +  event: Record<string, unknown>,
 +  calls: Map<string, KimiSubagentCallRecord>,
 +  items: AgentTimelineItem[],
@@ -10945,45 +12383,12 @@ index 00000000..63dc7f66
 +      }
 +      return;
 +    }
-+    case "tool.call": {
-+      const callId = readString(event.toolCallId);
-+      if (callId === undefined) {
-+        return;
-+      }
-+      const name = readString(event.name) ?? "tool";
-+      const input = event.args ?? null;
-+      calls.set(callId, { name, input });
-+      items.push({
-+        type: "tool_call",
-+        callId,
-+        name,
-+        detail: { type: "unknown", input, output: null },
-+        status: "running",
-+        error: null,
-+      });
++    case "tool.call":
++      mapKimiToolCall(event, calls, items);
 +      return;
-+    }
-+    case "tool.result": {
-+      const callId = readString(event.toolCallId);
-+      if (callId === undefined) {
-+        return;
-+      }
-+      const call = calls.get(callId);
-+      const result = asRecord(event.result);
-+      items.push({
-+        type: "tool_call",
-+        callId,
-+        name: call?.name ?? "tool",
-+        detail: {
-+          type: "unknown",
-+          input: call?.input ?? null,
-+          output: result?.output ?? null,
-+        },
-+        status: "completed",
-+        error: null,
-+      });
++    case "tool.result":
++      mapKimiToolResult(event, calls, items);
 +      return;
-+    }
 +    default:
 +      return;
 +  }
@@ -11073,6 +12478,75 @@ index 00000000..63dc7f66
 +    }
 +    return items;
 +  }
++}
++
++function mapKimiToolCall(
++  event: Record<string, unknown>,
++  calls: Map<string, KimiSubagentCallRecord>,
++  items: AgentTimelineItem[],
++): void {
++  const callId = readString(event.toolCallId);
++  if (callId === undefined) {
++    return;
++  }
++  const name = readString(event.name) ?? "tool";
++  const input = event.args ?? null;
++  const shell = readShellDisplay(event.display);
++  calls.set(callId, { name, input, ...(shell ? { shell } : {}) });
++  items.push({
++    type: "tool_call",
++    callId,
++    name,
++    detail: shell ? { type: "shell", ...shell } : { type: "unknown", input, output: null },
++    status: "running",
++    error: null,
++  });
++}
++
++/**
++ * A `tool.result` record carries neither the tool name nor its arguments, so
++ * both are re-supplied from the recorded call; the client merges a tool call by
++ * spreading the new item over the old one.
++ */
++function mapKimiToolResult(
++  event: Record<string, unknown>,
++  calls: Map<string, KimiSubagentCallRecord>,
++  items: AgentTimelineItem[],
++): void {
++  const callId = readString(event.toolCallId);
++  if (callId === undefined) {
++    return;
++  }
++  const call = calls.get(callId);
++  const result = asRecord(event.result);
++  const output = result?.output ?? null;
++  items.push({
++    type: "tool_call",
++    callId,
++    name: call?.name ?? "tool",
++    detail: call?.shell
++      ? { type: "shell", ...call.shell, ...(typeof output === "string" ? { output } : {}) }
++      : { type: "unknown", input: call?.input ?? null, output },
++    status: "completed",
++    error: null,
++  });
++}
++
++/**
++ * Kimi describes how it shows a call; a `command` display is a shell command,
++ * which renders as one rather than as an opaque tool with raw arguments.
++ */
++function readShellDisplay(display: unknown): { command: string; cwd?: string } | null {
++  const record = asRecord(display);
++  if (record?.kind !== "command") {
++    return null;
++  }
++  const command = readString(record.command);
++  if (command === undefined || command.length === 0) {
++    return null;
++  }
++  const cwd = readString(record.cwd);
++  return cwd !== undefined ? { command, cwd } : { command };
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
 index 9886a368..080d3cae 100644

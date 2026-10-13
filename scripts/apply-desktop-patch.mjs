@@ -50,21 +50,28 @@
 //                           own `goal_status` record is read from the session
 //                           transcript as well: that is what puts the pill up
 //                           the moment `/goal` is set, before the turn ends.
-//   kimi cut-in             a message sent while the Kimi runtime is still
-//                           working replaces the turn instead of queueing
-//                           behind it. Without this the runtime answered the
-//                           prompt with an immediate end_turn, the turn looked
-//                           finished while the work was not, and the next
-//                           message queued instead of interrupting.
-//   kimi send behavior      steering means putting a message into the turn that
-//                           is already running, which the ACP channel Kimi Code
-//                           speaks cannot do. The daemon used to accept the
-//                           request and quietly fall through to an interrupt, so
-//                           the composer offered a third option that could never
-//                           be honoured. The session now reports whether it can
-//                           be steered, the daemon dispatches a steer as an
-//                           interrupt when it cannot, and the composer shows
-//                           queue / interrupt only.
+//   kimi unstreamed turns   Kimi Code streams a turn over ACP only while one
+//                           of Paseo's session/prompt requests awaits its
+//                           answer. Turns it runs on its own — background-task
+//                           notifications, goal continuations, cron jobs, and a
+//                           prompt it queued while busy (answered at once with
+//                           end_turn) — exist only in its session log. The
+//                           bridge renders those turns from the log
+//                           (kimi/main-turn-renderer.ts): a turn that starts
+//                           while Paseo is idle opens a turn of its own, and a
+//                           turn the ACP stream already delivered is left to
+//                           the stream. Compaction is rendered the same way.
+//   kimi queued prompts     a prompt Kimi only queued holds its foreground turn
+//                           until the prompt has actually run, instead of being
+//                           judged empty after a fixed grace; it fails as
+//                           kimi_prompt_not_accepted only if the runtime sits
+//                           idle without ever starting it. A message sent
+//                           during a turn Kimi started itself is steered into
+//                           Kimi's own queue rather than interrupting that turn
+//                           — Kimi 2.1.1 ignores session/cancel for a turn no
+//                           ACP request started, so an interrupt could not stop
+//                           it anyway. An interrupt during a held turn reports
+//                           a cancellation, not an empty turn.
 //   reliability             Kimi ACP capability descriptors, log instead of
 //                           silently dropping session/staged events, and flag
 //                           Kimi turns that complete with no assistant output.
@@ -180,9 +187,34 @@ const MARKERS = [
     needle: 'code: explained?.code ?? "kimi_timeline_missing",',
   },
   {
-    label: "Kimi empty-turn grace re-arms while the runtime runs",
+    label: "Kimi turns not streamed over ACP are rendered from the session log",
+    path: "packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts",
+    needle: "export class KimiMainTurnRenderer {",
+  },
+  {
+    label: "Session log lines reach the turn renderer",
+    path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
+    needle: "onLines: (lines) => this.renderer.consume(lines),",
+  },
+  {
+    label: "A Kimi prompt queued while busy holds its turn until it has run",
+    path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
+    needle: "async waitForSubmittedPromptSettled(signal?: AbortSignal): Promise<KimiSubmissionOutcome> {",
+  },
+  {
+    label: "A message sent during a Kimi turn is queued instead of interrupting",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
-    needle: "private isProviderTurnStillRunning(): boolean {",
+    needle: "private async sendQueuedPrompt(",
+  },
+  {
+    label: "Kimi compaction chat notices are dropped in favour of the compaction divider",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: "shouldDropSessionUpdate: isKimiCompactionNotice,",
+  },
+  {
+    label: "Session log appends wake the tailer",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "private ensureWatcher(filePath: string): void {",
   },
   {
     label: "ACP session mismatch recovery",
