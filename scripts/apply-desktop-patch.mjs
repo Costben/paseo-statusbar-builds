@@ -601,6 +601,11 @@ const MARKERS = [
     needle: "() => this.settledThroughTurn < generation",
   },
   {
+    label: "An archived agent loads its history without its working directory",
+    path: "packages/server/src/server/agent/agent-loading.ts",
+    needle: "if (!record.archivedAt && !existsSync(record.cwd)) {",
+  },
+  {
     label: "A prompt the runtime never accepted is named as such",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: 'code: "kimi_prompt_not_accepted"',
