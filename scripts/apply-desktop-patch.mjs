@@ -224,6 +224,16 @@ const MARKERS = [
     needle: "shouldDropSessionUpdate: isKimiCompactionNotice,",
   },
   {
+    label: "The /compact reply is dropped like the automatic notices",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: 'text.startsWith("Context compaction started")',
+  },
+  {
+    label: "A /compact Kimi only compacted in is not reported as an unrun prompt",
+    path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
+    needle: "if (bridge.compactedSinceSubmission()) {",
+  },
+  {
     label: "Kimi writes one settled compaction row, never an open one",
     path: "packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts",
     needle: "this.compactionTrigger = record.source === \"manual\" ? \"manual\" : \"auto\";",
