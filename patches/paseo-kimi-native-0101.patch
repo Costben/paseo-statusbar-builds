@@ -1946,7 +1946,7 @@ index 05f932ae..8a1848d3 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 08bd66a7..44dd408c 100644
+index 08bd66a7..31b22a0a 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -12,6 +12,8 @@ import {
@@ -1958,7 +1958,7 @@ index 08bd66a7..44dd408c 100644
    waitForAgentRunStartWithTimeout,
  } from "./agent-prompt.js";
  import type { AgentManagerEvent, ManagedAgent } from "./agent-manager.js";
-@@ -264,6 +266,85 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
+@@ -264,6 +266,76 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
    expect(isSystemInjectedEnvelope("hello world")).toBe(false);
  });
  
@@ -1984,15 +1984,6 @@ index 08bd66a7..44dd408c 100644
 +  };
 +  return { controller, calls };
 +}
-+
-+test("a steer is dispatched as an interrupt for an agent that cannot steer", async () => {
-+  const { controller, calls } = createRunController({ supportsSteering: false });
-+  await startAgentRun(controller, "agent-1", "hello", createTestLogger(), {
-+    replaceRunning: true,
-+    activeTurnBehavior: "steer",
-+  });
-+  expect(calls).toEqual(["replace"]);
-+});
 +
 +test("a steer still reaches the steer path for an agent that can steer", async () => {
 +  const { controller, calls } = createRunController({ supportsSteering: true });
@@ -2045,25 +2036,10 @@ index 08bd66a7..44dd408c 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-prompt.ts b/packages/server/src/server/agent/agent-prompt.ts
-index 0bcd4663..61342f0f 100644
+index 0bcd4663..bffe48b8 100644
 --- a/packages/server/src/server/agent/agent-prompt.ts
 +++ b/packages/server/src/server/agent/agent-prompt.ts
-@@ -52,6 +52,14 @@ async function steerOrReplaceActiveRun(
-   if (options?.activeTurnBehavior !== "steer") {
-     return null;
-   }
-+  // Clients ask for a steer without knowing whether the provider can take one.
-+  // A provider that cannot is served by the interrupt path instead. The shared
-+  // admission would land in the same place, but only after an admission step
-+  // that can fail when the turn moves underneath it. A caller that stubs the
-+  // agent without capabilities reads as one that can.
-+  if (agentManager.getAgent(agentId)?.capabilities?.supportsSteering === false) {
-+    return null;
-+  }
-   const steerOptions = options.clearPendingPermissions
-     ? { ...options.runOptions, clearPendingPermissions: true }
-     : options.runOptions;
-@@ -215,7 +223,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+@@ -215,7 +215,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
    return `<paseo-system>\n${reason}\n</paseo-system>`;
  }
  

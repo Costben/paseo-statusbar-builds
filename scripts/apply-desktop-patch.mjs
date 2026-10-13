@@ -536,11 +536,6 @@ const MARKERS = [
     needle: "isTurnInProgress(): boolean",
   },
   {
-    label: "A steer request is dispatched as an interrupt for an agent that cannot steer",
-    path: "packages/server/src/server/agent/agent-prompt.ts",
-    needle: "capabilities?.supportsSteering === false",
-  },
-  {
     label: "The agent snapshot reports whether the agent can be steered",
     path: "packages/server/src/server/agent/agent-manager.ts",
     needle: "supportsSteering: session.steerActiveTurn !== undefined,",
