@@ -603,7 +603,7 @@ const MARKERS = [
   {
     label: "A Kimi background task is not upserted a second time as a subagent",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-    needle: "if (subagent.runInBackground === true) continue;",
+    needle: "if (subagent.runInBackground === true) {",
   },
   {
     label: "A Kimi background task's transcript and summary land on its own row",
