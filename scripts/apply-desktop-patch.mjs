@@ -375,6 +375,11 @@ const MARKERS = [
     needle: 'type: "provider_subagent"',
   },
   {
+    label: "Kimi subagent rows carry their model, thinking effort and tokens",
+    path: "packages/server/src/server/agent/providers/kimi/subagent-presentation.ts",
+    needle: "export function buildKimiSubagentSubtitle(",
+  },
+  {
     label: "Kimi provider hooks",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: "export function createKimiProviderHooks(",

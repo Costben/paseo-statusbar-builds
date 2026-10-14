@@ -9245,10 +9245,10 @@ index 00000000..df599177
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 00000000..29b10320
+index 00000000..fb1d22f3
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1808 @@
+@@ -0,0 +1,1893 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -9400,6 +9400,10 @@ index 00000000..29b10320
 +  parentToolCallId?: string | null;
 +  /** Null omits the field, which is how a log that never recorded it looks. */
 +  runInBackground?: boolean | null;
++  /** Null omits the field, which is how a log that never recorded it looks. */
++  model?: string | null;
++  /** Null omits the field, which is how a log that never recorded it looks. */
++  thinkingEffort?: string | null;
 +  time?: number;
 +}
 +
@@ -9410,6 +9414,9 @@ index 00000000..29b10320
 +    overrides.parentToolCallId === null
 +      ? undefined
 +      : (overrides.parentToolCallId ?? "call_01_parent");
++  const model = overrides.model === null ? undefined : (overrides.model ?? OTHER_MODEL_ALIAS);
++  const thinkingEffort =
++    overrides.thinkingEffort === null ? undefined : (overrides.thinkingEffort ?? "high");
 +  return JSON.stringify({
 +    type: "subagent.spawned",
 +    subagentId: overrides.subagentId ?? SUBAGENT_ID,
@@ -9419,8 +9426,8 @@ index 00000000..29b10320
 +    callerAgentId: "main",
 +    description: overrides.description ?? "Explore Paseo daemon goal model",
 +    runInBackground,
-+    model: OTHER_MODEL_ALIAS,
-+    thinkingEffort: "high",
++    model,
++    thinkingEffort,
 +    taskId: "agent-jc0tdk7g",
 +    time: overrides.time ?? SUBAGENT_TIME,
 +  });
@@ -9492,6 +9499,18 @@ index 00000000..29b10320
 +  });
 +}
 +
++/** A `usage.record` line as the subagent's own log writes it. */
++function subagentUsageLine(usage: UsageParts, time = SUBAGENT_TIME + 2): string {
++  return JSON.stringify({
++    type: "usage.record",
++    agentId: SUBAGENT_ID,
++    model: OTHER_MODEL_ALIAS,
++    usage,
++    usageScope: "turn",
++    time,
++  });
++}
++
 +function writeSubagentLog(sessionDir: string, subagentId: string, contents: string): string {
 +  const file = path.join(sessionDir, "agents", subagentId, "wire.jsonl");
 +  mkdirSync(path.dirname(file), { recursive: true });
@@ -9529,6 +9548,16 @@ index 00000000..29b10320
 +    }
 +  }
 +  return statuses;
++}
++
++function upsertSubtitles(events: ProviderSubagentInputEvent[]): Array<string | null | undefined> {
++  const subtitles: Array<string | null | undefined> = [];
++  for (const event of events) {
++    if (event.type === "upsert") {
++      subtitles.push(event.subtitle);
++    }
++  }
++  return subtitles;
 +}
 +
 +function assistantTimelineTexts(events: ProviderSubagentInputEvent[]): string[] {
@@ -9899,6 +9928,8 @@ index 00000000..29b10320
 +        resultSummary: SUBAGENT_SUMMARY,
 +        turn: 0,
 +        runInBackground: false,
++        model: OTHER_MODEL_ALIAS,
++        thinkingEffort: "high",
 +      },
 +    ]);
 +  });
@@ -9940,6 +9971,8 @@ index 00000000..29b10320
 +        resultSummary: SUBAGENT_SUMMARY,
 +        turn: 0,
 +        runInBackground: null,
++        model: null,
++        thinkingEffort: null,
 +      },
 +    ]);
 +  });
@@ -10009,6 +10042,8 @@ index 00000000..29b10320
 +        resultSummary: null,
 +        turn: 0,
 +        runInBackground: false,
++        model: OTHER_MODEL_ALIAS,
++        thinkingEffort: "high",
 +      },
 +    ]);
 +  });
@@ -10742,6 +10777,56 @@ index 00000000..29b10320
 +    expect(log.getGoal()).toBeNull();
 +  });
 +
++  test("builds the row subtitle from the spawn's model and thinking effort", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++
++    expect(events[0]).toMatchObject({
++      type: "upsert",
++      id: SUBAGENT_ID,
++      subtitle: `explore · ${OTHER_MODEL_ALIAS} · High`,
++    });
++  });
++
++  test("leaves out the subtitle parts a spawn did not record", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine({ model: null, thinkingEffort: null })}\n`);
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    await waitFor(() => events.length > 0);
++
++    expect(events[0]).toMatchObject({ type: "upsert", id: SUBAGENT_ID, subtitle: "explore" });
++  });
++
++  test("adds the context tokens of the subagent's own log to its row", async () => {
++    const { home, file, sessionDir } = createSessionHome(SESSION_ID);
++    appendFileSync(file, `${subagentSpawnedLine()}\n`);
++    const subagentLog = writeSubagentLog(
++      sessionDir,
++      SUBAGENT_ID,
++      `${subagentUsageLine({ inputOther: 40_000, output: 2_000 })}\n`,
++    );
++
++    const events: ProviderSubagentInputEvent[] = [];
++    const log = createLog(home, { onSubagent: (event) => events.push(event) });
++    log.start();
++    const firstSubtitle = `explore · ${OTHER_MODEL_ALIAS} · High · 42k tokens`;
++    await waitFor(() => upsertSubtitles(events).includes(firstSubtitle));
++
++    appendFileSync(subagentLog, `${subagentUsageLine({ inputOther: 60_000, output: 3_800 })}\n`);
++
++    const grownSubtitle = `explore · ${OTHER_MODEL_ALIAS} · High · 63.8k tokens`;
++    await waitFor(() => upsertSubtitles(events).includes(grownSubtitle));
++    expect(upsertSubtitles(events)).toContain(firstSubtitle);
++  });
++
 +  test("does not repeat an unchanged subagent upsert", async () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
 +    appendFileSync(file, `${subagentSpawnedLine()}\n`);
@@ -11059,10 +11144,10 @@ index 00000000..29b10320
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 00000000..9644da98
+index 00000000..5c11fbc4
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1889 @@
+@@ -0,0 +1,1943 @@
 +import {
 +  closeSync,
 +  createReadStream,
@@ -11091,6 +11176,7 @@ index 00000000..9644da98
 +} from "../../agent-sdk-types.js";
 +import type { ProviderSubagentInputEvent } from "../../provider-subagents/store.js";
 +import { KimiSubagentLogTailer } from "./subagent-log.js";
++import { buildKimiSubagentSubtitle } from "./subagent-presentation.js";
 +
 +/**
 + * Kimi Code writes one JSON object per line to
@@ -11212,6 +11298,10 @@ index 00000000..9644da98
 +  turn: number;
 +  /** From the spawn record. Null when the log did not say, which is treated as foreground. */
 +  runInBackground: boolean | null;
++  /** Model id the spawn record named. Shown raw, because Kimi has no label table here. */
++  model: string | null;
++  /** Thinking level the spawn record named, e.g. "high"; the subtitle expands it. */
++  thinkingEffort: string | null;
 +}
 +
 +/** A provider-owned task that intentionally outlives the ACP turn. */
@@ -11542,6 +11632,8 @@ index 00000000..9644da98
 +      updatedAt: time,
 +      turn,
 +      runInBackground: readBoolean(entry.runInBackground),
++      model: readString(entry.model),
++      thinkingEffort: readString(entry.thinkingEffort),
 +    }),
 +  );
 +}
@@ -11611,6 +11703,8 @@ index 00000000..9644da98
 +  resultSummary?: string;
 +  turn: number;
 +  runInBackground?: boolean;
++  model?: string;
++  thinkingEffort?: string;
 +}
 +
 +/**
@@ -11634,6 +11728,8 @@ index 00000000..9644da98
 +    resultSummary: stickyField(patch.resultSummary, existing?.resultSummary),
 +    turn: patch.turn,
 +    runInBackground: stickyField(patch.runInBackground, existing?.runInBackground),
++    model: stickyField(patch.model, existing?.model),
++    thinkingEffort: stickyField(patch.thinkingEffort, existing?.thinkingEffort),
 +  };
 +}
 +
@@ -11784,6 +11880,8 @@ index 00000000..9644da98
 +   * is how a recycled id is told apart from a repeated record.
 +   */
 +  private readonly subagentIncarnations = new Map<string, string | null>();
++  /** Context tokens of each subagent's latest logged step, as the subtitle reports them. */
++  private readonly subagentTokens = new Map<string, number>();
 +
 +  private timer: ReturnType<typeof setTimeout> | null = null;
 +  private started = false;
@@ -12281,25 +12379,7 @@ index 00000000..9644da98
 +        this.summarisedSubagents.delete(subagent.id);
 +      }
 +      this.subagentIncarnations.set(subagent.id, subagent.toolCallId);
-+
-+      // A background task already has its row, announced above under its own
-+      // `background:` id. Upserting it again under its subagent id would put a
-+      // second row on the track for one task.
-+      if (subagent.runInBackground === true) continue;
-+
-+      const signature = subagentValueSignature(subagent);
-+      if (this.subagentSignatures.get(subagent.id) === signature) {
-+        continue;
-+      }
-+      this.subagentSignatures.set(subagent.id, signature);
-+      this.emitSubagent({
-+        type: "upsert",
-+        id: subagent.id,
-+        title: subagent.name,
-+        description: subagent.description,
-+        toolCallId: subagent.toolCallId,
-+        status: subagent.status,
-+      });
++      this.publishSubagentRow(subagent);
 +    }
 +
 +    const tailed = selectTailedSubagents(this.subagents);
@@ -12335,10 +12415,50 @@ index 00000000..9644da98
 +        if (items.some((item) => item.type === "assistant_message")) {
 +          this.subagentsWithText.add(subagent.id);
 +        }
++        // The row is published before this read, because its timeline needs an
++        // existing row to land on. The token figure only exists once the log has
++        // been read, so the row is re-published when the count moves.
++        const tokens = tailer.totalTokens;
++        if (tokens !== null && tokens !== this.subagentTokens.get(subagent.id)) {
++          this.subagentTokens.set(subagent.id, tokens);
++        }
++        this.publishSubagentRow(subagent);
 +      }
 +    }
 +
 +    this.publishSubagentSummaries(this.subagents);
++  }
++
++  /**
++   * Upsert one subagent row, carrying the subtitle its facts and its own log add
++   * up to. A background task already has its row under its own `background:` id,
++   * so upserting it here would put a second row on the track for one task.
++   */
++  private publishSubagentRow(subagent: KimiSubagentRecord): void {
++    if (subagent.runInBackground === true) {
++      return;
++    }
++    const tokens = this.subagentTokens.get(subagent.id);
++    const signature = subagentValueSignature(subagent, tokens ?? null);
++    if (this.subagentSignatures.get(subagent.id) === signature) {
++      return;
++    }
++    this.subagentSignatures.set(subagent.id, signature);
++    this.emitSubagent({
++      type: "upsert",
++      id: subagent.id,
++      title: subagent.name,
++      description: subagent.description,
++      toolCallId: subagent.toolCallId,
++      status: subagent.status,
++      subtitle:
++        buildKimiSubagentSubtitle({
++          name: subagent.name ?? undefined,
++          model: subagent.model ?? undefined,
++          thinkingEffort: subagent.thinkingEffort ?? undefined,
++          totalTokens: tokens,
++        }) ?? null,
++    });
 +  }
 +
 +  /**
@@ -12699,15 +12819,20 @@ index 00000000..9644da98
 +
 +/**
 + * Change detector for subagent upserts, covering the fields the client renders.
-+ * The timestamps are excluded for the same reason as in the goal signature.
++ * The timestamps are excluded for the same reason as in the goal signature, and
++ * the token count is a parameter because it comes from the subagent's own log
++ * rather than from the record.
 + */
-+function subagentValueSignature(subagent: KimiSubagentRecord): string {
++function subagentValueSignature(subagent: KimiSubagentRecord, tokens: number | null): string {
 +  return JSON.stringify([
 +    subagent.status,
 +    subagent.name,
 +    subagent.description,
 +    subagent.toolCallId,
 +    subagent.resultSummary !== null,
++    subagent.model,
++    subagent.thinkingEffort,
++    tokens,
 +  ]);
 +}
 +
@@ -12804,6 +12929,20 @@ index 00000000..9644da98
 +/** The context size this record reports, or the previous value when it reports none. */
 +function nextContextUsage(entry: Record<string, unknown>, previous: number | null): number | null {
 +  return stepContextUsage(entry) ?? previous;
++}
++
++/**
++ * Context tokens a `usage.record` line reports, or null for any other record.
++ * The same step is also written as a `step.end` loop event carrying an
++ * identical `usage`, so a caller scanning whole lines must count
++ * `usage.record` only. A `session`-scoped record is a running total rather
++ * than one step, so it is skipped.
++ */
++export function kimiUsageRecordContextTokens(entry: Record<string, unknown>): number | null {
++  if (entry.type !== "usage.record" || readString(entry.usageScope) === "session") {
++    return null;
++  }
++  return stepContextUsage(entry);
 +}
 +
 +/**
@@ -12954,10 +13093,10 @@ index 00000000..9644da98
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 00000000..fc0af579
+index 00000000..3bb1d92f
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
-@@ -0,0 +1,304 @@
+@@ -0,0 +1,403 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -12967,6 +13106,7 @@ index 00000000..fc0af579
 +import type { AgentTimelineItem } from "../../agent-sdk-types.js";
 +import {
 +  KimiSubagentLogTailer,
++  kimiSubagentLatestContextTokens,
 +  mapKimiSubagentLogLines,
 +  resolveKimiSubagentLogPath,
 +  type KimiSubagentCallRecord,
@@ -12999,6 +13139,24 @@ index 00000000..fc0af579
 +    type: "tool.result",
 +    toolCallId: callId,
 +    result: { output, durationMs: 222 },
++  });
++}
++
++interface SubagentUsage {
++  inputOther: number;
++  inputCacheRead?: number;
++  inputCacheCreation?: number;
++  output?: number;
++}
++
++function usageRecordLine(usage: SubagentUsage, usageScope = "turn", time = TIME): string {
++  return JSON.stringify({
++    type: "usage.record",
++    agentId: SUBAGENT_ID,
++    model: "erlapi/deepseek-flash",
++    usage,
++    usageScope,
++    time,
 +  });
 +}
 +
@@ -13153,6 +13311,33 @@ index 00000000..fc0af579
 +  });
 +});
 +
++describe("kimiSubagentLatestContextTokens", () => {
++  test("keeps the maximum across the lines it is given", () => {
++    const lines = [
++      usageRecordLine({ inputOther: 40_000, output: 2_000 }),
++      usageRecordLine({ inputOther: 30_000, output: 1_000 }),
++      usageRecordLine({ inputOther: 60_000, output: 3_800 }),
++    ];
++
++    expect(kimiSubagentLatestContextTokens(lines)).toBe(63_800);
++  });
++
++  test("ignores a session-scoped record and unparseable lines", () => {
++    const lines = [
++      "not json",
++      usageRecordLine({ inputOther: 9_000_000 }, "session"),
++      usageRecordLine({ inputOther: 1_200, output: 300 }),
++    ];
++
++    expect(kimiSubagentLatestContextTokens(lines)).toBe(1_500);
++  });
++
++  test("returns null when no line reports step usage", () => {
++    expect(kimiSubagentLatestContextTokens([textPartLine("hi"), "{}"])).toBeNull();
++    expect(kimiSubagentLatestContextTokens([])).toBeNull();
++  });
++});
++
 +describe("KimiSubagentLogTailer", () => {
 +  function createTailer(
 +    file: string,
@@ -13261,13 +13446,66 @@ index 00000000..fc0af579
 +
 +    expect(items).toEqual([{ type: "assistant_message", text: "tail" }]);
 +  });
++
++  test("accumulates the context tokens its log reports", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${usageRecordLine({ inputOther: 40_000, output: 2_000 })}\n`);
++    const tailer = createTailer(file);
++
++    await tailer.readAppended();
++
++    expect(tailer.totalTokens).toBe(42_000);
++
++    appendFileSync(file, `${usageRecordLine({ inputOther: 60_000, output: 3_800 })}\n`);
++    await tailer.readAppended();
++
++    expect(tailer.totalTokens).toBe(63_800);
++  });
++
++  test("keeps the maximum when a later record reports less", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${usageRecordLine({ inputOther: 63_800 })}\n`);
++    const tailer = createTailer(file);
++    await tailer.readAppended();
++
++    appendFileSync(file, `${usageRecordLine({ inputOther: 1_200 })}\n`);
++    await tailer.readAppended();
++
++    expect(tailer.totalTokens).toBe(63_800);
++  });
++
++  test("ignores a session-scoped usage record", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${usageRecordLine({ inputOther: 9_000_000 }, "session")}\n`);
++    const tailer = createTailer(file);
++
++    await tailer.readAppended();
++
++    expect(tailer.totalTokens).toBeNull();
++  });
++
++  test("resets the token count when the log is truncated", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${usageRecordLine({ inputOther: 63_800 })}\n${textPartLine("old")}\n`);
++    const tailer = createTailer(file);
++    await tailer.readAppended();
++
++    expect(tailer.totalTokens).toBe(63_800);
++
++    writeFileSync(file, `${textPartLine("fresh")}\n`);
++
++    const items = await tailer.readAppended();
++
++    expect(items).toEqual([{ type: "assistant_message", text: "fresh" }]);
++    expect(tailer.totalTokens).toBeNull();
++  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 00000000..c3e67089
+index 00000000..0bb3ea29
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,326 @@
 +import { stat } from "node:fs/promises";
 +import path from "node:path";
 +
@@ -13280,6 +13518,7 @@ index 00000000..c3e67089
 +  alignRangeEndToNewline,
 +  asRecord,
 +  capPendingFragment,
++  kimiUsageRecordContextTokens,
 +  mergePendingFragment,
 +  nextPendingFragment,
 +  readLinesFromRange,
@@ -13358,6 +13597,37 @@ index 00000000..c3e67089
 +  return items;
 +}
 +
++/**
++ * Context tokens of the latest step this subagent's log reports, or null.
++ *
++ * Maximum rather than last: the figure is monotonic in practice, and a maximum
++ * cannot be dragged down by a line being re-read.
++ */
++export function kimiSubagentLatestContextTokens(lines: Iterable<string>): number | null {
++  let tokens: number | null = null;
++  for (const raw of lines) {
++    const line = raw.trim();
++    if (line.length === 0) {
++      continue;
++    }
++    let parsed: unknown;
++    try {
++      parsed = JSON.parse(line);
++    } catch {
++      continue;
++    }
++    const record = asRecord(parsed);
++    if (record === null) {
++      continue;
++    }
++    const contextTokens = kimiUsageRecordContextTokens(record);
++    if (contextTokens !== null && (tokens === null || contextTokens > tokens)) {
++      tokens = contextTokens;
++    }
++  }
++  return tokens;
++}
++
 +export function mapKimiLoopEvent(
 +  event: Record<string, unknown>,
 +  calls: Map<string, KimiSubagentCallRecord>,
@@ -13420,11 +13690,18 @@ index 00000000..c3e67089
 +  private offset = 0;
 +  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
 +  private pending = "";
++  /** Context tokens of the latest step seen so far; null until a record reports one. */
++  private tokens: number | null = null;
 +
 +  constructor(options: KimiSubagentLogTailerOptions) {
 +    this.subagentId = options.subagentId;
 +    this.sessionDir = options.sessionDir;
 +    this.logger = options.logger;
++  }
++
++  /** Context tokens of the latest step this subagent's log reports, or null. */
++  get totalTokens(): number | null {
++    return this.tokens;
 +  }
 +
 +  /**
@@ -13452,6 +13729,7 @@ index 00000000..c3e67089
 +      );
 +      this.offset = 0;
 +      this.pending = "";
++      this.tokens = null;
 +    }
 +    if (size === this.offset) {
 +      return [];
@@ -13474,6 +13752,13 @@ index 00000000..c3e67089
 +      }
 +      const chunk = merged.slice(index, index + PARSE_LINES_PER_CHUNK);
 +      items.push(...mapKimiSubagentLogLines(chunk, this.calls));
++      // Keep the maximum rather than the last value: the figure is monotonic in
++      // practice, and a maximum cannot be dragged down by a smaller later step
++      // or by the same line being read again.
++      const chunkTokens = kimiSubagentLatestContextTokens(chunk);
++      if (chunkTokens !== null && (this.tokens === null || chunkTokens > this.tokens)) {
++        this.tokens = chunkTokens;
++      }
 +    }
 +    return items;
 +  }
@@ -13546,6 +13831,125 @@ index 00000000..c3e67089
 +  }
 +  const cwd = readString(record.cwd);
 +  return cwd !== undefined ? { command, cwd } : { command };
++}
+diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
+new file mode 100644
+index 00000000..bb16a2b8
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
+@@ -0,0 +1,62 @@
++import { describe, expect, test } from "vitest";
++
++import { buildKimiSubagentSubtitle } from "./subagent-presentation.js";
++
++describe("buildKimiSubagentSubtitle", () => {
++  test("formats Kimi facts into one compact provider-owned label", () => {
++    expect(
++      buildKimiSubagentSubtitle({
++        name: "explore",
++        model: "erlapi/deepseek-flash",
++        thinkingEffort: "high",
++        totalTokens: 63_800,
++      }),
++    ).toBe("explore · erlapi/deepseek-flash · High · 63.8k tokens");
++  });
++
++  test("drops each fact the spawn did not record", () => {
++    expect(
++      buildKimiSubagentSubtitle({
++        model: "erlapi/deepseek-flash",
++        thinkingEffort: "high",
++        totalTokens: 63_800,
++      }),
++    ).toBe("erlapi/deepseek-flash · High · 63.8k tokens");
++    expect(
++      buildKimiSubagentSubtitle({
++        name: "explore",
++        thinkingEffort: "high",
++        totalTokens: 63_800,
++      }),
++    ).toBe("explore · High · 63.8k tokens");
++    expect(
++      buildKimiSubagentSubtitle({
++        name: "explore",
++        model: "erlapi/deepseek-flash",
++        totalTokens: 63_800,
++      }),
++    ).toBe("explore · erlapi/deepseek-flash · 63.8k tokens");
++    expect(
++      buildKimiSubagentSubtitle({
++        name: "explore",
++        model: "erlapi/deepseek-flash",
++        thinkingEffort: "high",
++      }),
++    ).toBe("explore · erlapi/deepseek-flash · High");
++  });
++
++  test("maps xhigh to Extra High", () => {
++    expect(buildKimiSubagentSubtitle({ thinkingEffort: "xhigh" })).toBe("Extra High");
++  });
++
++  test("formats token counts at the abbreviation boundary", () => {
++    expect(buildKimiSubagentSubtitle({ totalTokens: 999 })).toBe("999 tokens");
++    expect(buildKimiSubagentSubtitle({ totalTokens: 1_000 })).toBe("1k tokens");
++    expect(buildKimiSubagentSubtitle({ totalTokens: 63_800 })).toBe("63.8k tokens");
++  });
++
++  test("returns undefined when no fact is present", () => {
++    expect(buildKimiSubagentSubtitle({})).toBeUndefined();
++    expect(buildKimiSubagentSubtitle({ name: "  ", totalTokens: 0 })).toBeUndefined();
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
+new file mode 100644
+index 00000000..99488f6d
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
+@@ -0,0 +1,45 @@
++export interface KimiSubagentPresentationFacts {
++  /** Subagent type as Kimi names it, e.g. "explore". */
++  name?: string;
++  /** Raw model id from the spawn record. Kimi exposes no label table at translation time. */
++  model?: string;
++  /** Thinking level, e.g. "high", "xhigh". */
++  thinkingEffort?: string;
++  /** Context tokens of the subagent's latest logged step. */
++  totalTokens?: number;
++}
++
++/** Build the complete compact subtitle Kimi exposes to provider-neutral clients. */
++export function buildKimiSubagentSubtitle(
++  facts: KimiSubagentPresentationFacts,
++): string | undefined {
++  const parts = [
++    readPart(facts.name),
++    readPart(facts.model),
++    formatEffort(facts.thinkingEffort),
++    formatTokens(facts.totalTokens),
++  ].filter((part): part is string => part !== undefined);
++  return parts.length > 0 ? parts.join(" · ") : undefined;
++}
++
++function readPart(value: string | undefined): string | undefined {
++  const trimmed = value?.trim();
++  return trimmed ? trimmed : undefined;
++}
++
++function formatEffort(effort: string | undefined): string | undefined {
++  const normalized = readPart(effort);
++  if (!normalized) return undefined;
++  if (normalized === "xhigh") return "Extra High";
++  return normalized
++    .split(/[-_\s]+/)
++    .filter(Boolean)
++    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
++    .join(" ");
++}
++
++function formatTokens(totalTokens: number | undefined): string | undefined {
++  if (typeof totalTokens !== "number" || totalTokens <= 0) return undefined;
++  if (totalTokens < 1000) return `${Math.round(totalTokens)} tokens`;
++  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
 index 9886a368..080d3cae 100644
