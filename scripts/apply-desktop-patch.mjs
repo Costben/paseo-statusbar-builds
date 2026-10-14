@@ -234,6 +234,11 @@ const MARKERS = [
     needle: "firstNonEmpty(kimiHome, process.env.KIMI_CODE_HOME, process.env.KIMI_HOME)",
   },
   {
+    label: "A Kimi poll spends one shared byte budget on every log it reads",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "export function createTickBudget(): TickBudget {",
+  },
+  {
     label: "A queued message the provider refuses is reported, not dropped silently",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "Queued message was not delivered:",
@@ -480,9 +485,9 @@ const MARKERS = [
     needle: "next = { ...next, endedAt: time };",
   },
   {
-    label: "A session log tick reads at most one budget",
+    label: "A session log tick shares one byte budget across every log it reads",
     path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
-    needle: "export const MAX_BYTES_PER_TICK = 512 * 1024;",
+    needle: "export const TICK_READ_BUDGET_BYTES = 128 * 1024;",
   },
   {
     label: "A long stretch of lines is parsed in chunks that yield",

@@ -9245,10 +9245,10 @@ index 00000000..df599177
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 00000000..fb1d22f3
+index 00000000..1c304496
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-@@ -0,0 +1,1893 @@
+@@ -0,0 +1,2035 @@
 +import {
 +  appendFileSync,
 +  mkdirSync,
@@ -9268,12 +9268,15 @@ index 00000000..fb1d22f3
 +  EMPTY_KIMI_SESSION_LOG_STATE,
 +  KimiSessionLog,
 +  MAX_BYTES_PER_TICK,
++  TICK_DRAIN_INTERVAL_MS,
 +  alignRangeEndToNewline,
 +  loadKimiModelContextWindows,
 +  mergePendingFragment,
 +  nextPendingFragment,
++  nextTickIntervalMs,
 +  parseKimiSessionLogLines,
 +  readLinesFromRange,
++  readRunningTasksFromSessionDir,
 +  resolveKimiWireLogPath,
 +} from "./session-log.js";
 +
@@ -10276,7 +10279,10 @@ index 00000000..fb1d22f3
 +    expect(Buffer.byteLength(filler)).toBeGreaterThan(MAX_BYTES_PER_TICK);
 +
 +    // The goal opens before the filler and its counter lands after it, so both
-+    // sides of every chunk seam have to have been parsed.
++    // sides of every chunk seam have to have been parsed. The filler is about
++    // twelve ticks at the per-file cap, drained at `TICK_DRAIN_INTERVAL_MS` or
++    // at the poll cadence when a tick runs long, so the goal lands inside the
++    // default wait either way.
 +    appendFileSync(file, `${goalCreateLine()}\n${filler}\n${tokensUpdateLine(74)}\n`);
 +
 +    const log = new KimiSessionLog({
@@ -10294,6 +10300,109 @@ index 00000000..fb1d22f3
 +    } finally {
 +      log.stop();
 +    }
++  });
++});
++
++describe("nextTickIntervalMs", () => {
++  // Explicit cadences, so each assertion reads as the number it expects rather
++  // than as whichever constants the module happens to use.
++  const cadences = { activeIntervalMs: 1_000, liveIntervalMs: 2_000, idleIntervalMs: 10_000 };
++
++  test("drains a backlog sooner while the tick itself stays cheap", () => {
++    expect(
++      nextTickIntervalMs({
++        readNewBytes: true,
++        deferred: true,
++        lastTickMs: 3,
++        live: true,
++        ...cadences,
++      }),
++    ).toBe(TICK_DRAIN_INTERVAL_MS);
++  });
++
++  test("keeps the normal cadence once the tick has already run long", () => {
++    // Well past twice the tick budget: this session is the one holding the event
++    // loop, so calling it back sooner would only add congestion.
++    expect(
++      nextTickIntervalMs({
++        readNewBytes: true,
++        deferred: true,
++        lastTickMs: 200,
++        live: true,
++        ...cadences,
++      }),
++    ).toBe(1_000);
++  });
++
++  test("polls at the active cadence after the log grew", () => {
++    expect(
++      nextTickIntervalMs({
++        readNewBytes: true,
++        deferred: false,
++        lastTickMs: 3,
++        live: false,
++        ...cadences,
++      }),
++    ).toBe(1_000);
++  });
++
++  test("uses the live cadence for a live goal and the idle one otherwise", () => {
++    const quiet = { readNewBytes: false, deferred: false, lastTickMs: 3, ...cadences };
++
++    expect(nextTickIntervalMs({ ...quiet, live: true })).toBe(2_000);
++    expect(nextTickIntervalMs({ ...quiet, live: false })).toBe(10_000);
++  });
++});
++
++describe("readRunningTasksFromSessionDir", () => {
++  test("returns only the running tasks, with their fields mapped", async () => {
++    const { sessionDir } = createSessionHome(SESSION_ID);
++    const tasksDir = path.join(sessionDir, "agents", "main", "tasks");
++    mkdirSync(tasksDir, { recursive: true });
++    writeFileSync(
++      path.join(tasksDir, "task-1.json"),
++      JSON.stringify({
++        taskId: "task-1",
++        description: "build the daemon",
++        status: "running",
++        command: "npm run build:server",
++        startedAt: 1_790_000_000_000,
++        pid: 4321,
++      }),
++    );
++    writeFileSync(
++      path.join(tasksDir, "task-2.json"),
++      JSON.stringify({ taskId: "task-2", status: "completed" }),
++    );
++    writeFileSync(path.join(tasksDir, "task-3.json"), "{ not json");
++
++    expect(await readRunningTasksFromSessionDir(sessionDir)).toEqual([
++      {
++        id: "task-1",
++        command: "npm run build:server",
++        description: "build the daemon",
++        status: "running",
++        startedAt: 1_790_000_000_000,
++        pid: 4321,
++      },
++    ]);
++  });
++
++  test("falls back to the file name and nulls the fields a task did not record", async () => {
++    const { sessionDir } = createSessionHome(SESSION_ID);
++    const tasksDir = path.join(sessionDir, "agents", "main", "tasks");
++    mkdirSync(tasksDir, { recursive: true });
++    writeFileSync(path.join(tasksDir, "task-9.json"), JSON.stringify({ status: "running" }));
++
++    expect(await readRunningTasksFromSessionDir(sessionDir)).toEqual([
++      { id: "task-9", command: null, description: null, status: "running", startedAt: null },
++    ]);
++  });
++
++  test("returns nothing when the task directory does not exist", async () => {
++    const { sessionDir } = createSessionHome(SESSION_ID);
++
++    expect(await readRunningTasksFromSessionDir(sessionDir)).toEqual([]);
 +  });
 +});
 +
@@ -10862,6 +10971,39 @@ index 00000000..fb1d22f3
 +    expect(events.some((event) => event.id === SUBAGENT_ID)).toBe(false);
 +  });
 +
++  test("scans the task directory on its own cadence rather than every tick", async () => {
++    const { home, sessionDir } = createSessionHome(SESSION_ID);
++    const tasksDir = path.join(sessionDir, "agents", "main", "tasks");
++    mkdirSync(tasksDir, { recursive: true });
++    writeFileSync(
++      path.join(tasksDir, "a.json"),
++      JSON.stringify({ taskId: "a", status: "running", command: "sleep 30", startedAt: 1 }),
++    );
++
++    const counts: number[] = [];
++    const log = createLog(home, {
++      onBackgroundTasks: (tasks) => {
++        counts.push(tasks.count);
++      },
++    });
++    log.start();
++    try {
++      await waitFor(() => counts.length === 1);
++
++      writeFileSync(
++        path.join(tasksDir, "b.json"),
++        JSON.stringify({ taskId: "b", status: "running", command: "sleep 30", startedAt: 2 }),
++      );
++      // Many ticks land inside this window and none of them may scan the
++      // directory: a scan on every tick of every session is what this pins down.
++      await delay(500);
++
++      expect(counts).toEqual([1]);
++    } finally {
++      log.stop();
++    }
++  });
++
 +  test("publishes a background task and a foreground subagent as two rows", async () => {
 +    const { home, file } = createSessionHome(SESSION_ID);
 +    appendFileSync(
@@ -11144,20 +11286,12 @@ index 00000000..fb1d22f3
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 00000000..5c11fbc4
+index 00000000..8bc6adf6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
-@@ -0,0 +1,1943 @@
-+import {
-+  closeSync,
-+  createReadStream,
-+  existsSync,
-+  openSync,
-+  readdirSync,
-+  readFileSync,
-+  readSync,
-+} from "node:fs";
-+import { readFile, stat } from "node:fs/promises";
+@@ -0,0 +1,2058 @@
++import { closeSync, createReadStream, existsSync, openSync, readdirSync, readSync } from "node:fs";
++import { readFile, readdir, stat } from "node:fs/promises";
 +import os from "node:os";
 +import path from "node:path";
 +import { createInterface } from "node:readline";
@@ -11216,15 +11350,41 @@ index 00000000..5c11fbc4
 +/** Reading every subagent log from byte 0 is unbounded; tail only the newest few. */
 +const TAILED_SUBAGENT_LIMIT = 8;
 +/**
-+ * Bytes one tick may read, so no single poll can monopolize the event loop.
-+ * Measured on a real 82 MB wire log, streaming and parsing 512 KiB takes ~2.6ms,
-+ * while a live session appends a few kilobytes per step — so this is orders of
-+ * magnitude more than one cadence needs and the budget only binds while catching
-+ * up on a long pre-existing log. The upper end of that range is the right one
-+ * because the budget also sets catch-up throughput (budget per active cadence),
-+ * and a cold replay starts at byte 0.
++ * Bytes one file read may take in a single tick, so no single read can
++ * monopolize the event loop. Measured on a real 82 MB wire log, streaming and
++ * parsing 512 KiB takes ~2.6ms, while a live session appends a few kilobytes per
++ * step — so this is orders of magnitude more than one cadence needs and the cap
++ * only binds while catching up on a long pre-existing log. Catch-up throughput
++ * comes from `TICK_READ_BUDGET_BYTES` and `TICK_DRAIN_INTERVAL_MS`, not from
++ * this per-file cap.
 + */
-+export const MAX_BYTES_PER_TICK = 512 * 1024;
++export const MAX_BYTES_PER_TICK = 64 * 1024;
++/**
++ * Bytes every read in one tick shares, the main log and the subagent logs
++ * together. The per-file cap alone bounded nothing: one tick reads the main log
++ * plus up to `TAILED_SUBAGENT_LIMIT` subagent logs, so eight files at the old
++ * 512 KiB cap let a single tick read ~4.5 MiB.
++ */
++export const TICK_READ_BUDGET_BYTES = 128 * 1024;
++/**
++ * Wall clock a tick may spend before it stops starting new reads. The byte
++ * budget bounds the reads, this bounds the awaits between them: a stat or a read
++ * that stalls on a loaded machine would otherwise let the tick keep going long
++ * after the bytes ran out.
++ */
++export const TICK_BUDGET_MS = 16;
++/**
++ * Cadence to drain a backlog at. A tick that ran cheap yet left unread bytes
++ * behind is not the one holding the event loop, so it may come back sooner and
++ * finish the catch-up in many small slices instead of a few second-long ones.
++ */
++export const TICK_DRAIN_INTERVAL_MS = 80;
++/**
++ * How often a session's task directory is scanned for running background tasks.
++ * The scan used to run on every tick of every session, which nothing about a
++ * task file warrants.
++ */
++const BACKGROUND_TASK_SCAN_INTERVAL_MS = 3_000;
 +/**
 + * Lines handed to the parser between two yields. Parsing is the expensive half
 + * of a tick, and this caps how long it can run before the loop gets a turn.
@@ -11785,6 +11945,71 @@ index 00000000..5c11fbc4
 +
 +const EMPTY_TICK_READ: TickRead = Object.freeze({ bytes: 0, lines: 0, backlogBytes: 0 });
 +
++/**
++ * What every read in one tick draws from. `bytesLeft` is shared by the main log
++ * and every subagent log, so eight subagent logs cannot add up to eight budgets;
++ * `deferred` records that the tick stopped with bytes left unread, which is what
++ * earns the drain cadence for the next one.
++ */
++export interface TickBudget {
++  /** Wall clock at which this tick stops starting new reads. */
++  readonly deadlineMs: number;
++  /** Bytes the reads still to come in this tick may take, together. */
++  bytesLeft: number;
++  /** Set when the tick stopped with bytes left unread. */
++  deferred: boolean;
++}
++
++export function createTickBudget(): TickBudget {
++  return {
++    deadlineMs: Date.now() + TICK_BUDGET_MS,
++    bytesLeft: TICK_READ_BUDGET_BYTES,
++    deferred: false,
++  };
++}
++
++/** Whether this tick is out of either budget, so no read may start. */
++export function budgetExhausted(budget: TickBudget): boolean {
++  return budget.bytesLeft <= 0 || Date.now() >= budget.deadlineMs;
++}
++
++/** Bytes one file may take out of what is left of the tick's budget. */
++export function fileReadAllowance(budget: TickBudget): number {
++  return Math.min(MAX_BYTES_PER_TICK, Math.max(0, budget.bytesLeft));
++}
++
++/** What a tailer knows about the tick that just finished, for the next cadence. */
++export interface NextTickIntervalInput {
++  /** Whether the log grew this tick. */
++  readNewBytes: boolean;
++  /** Whether the tick stopped with bytes left unread. */
++  deferred: boolean;
++  /** Wall clock the tick took. */
++  lastTickMs: number;
++  /** Whether a goal is live, which is polled at its own cadence. */
++  live: boolean;
++  activeIntervalMs: number;
++  liveIntervalMs: number;
++  idleIntervalMs: number;
++}
++
++/**
++ * Cadence for the next tick. A tick that left unread bytes behind may come back
++ * sooner, but only while it is itself cheap: a catch-up made of fast small
++ * slices is shorter than the same bytes spread over second-long cadences, while
++ * a session whose tick already ran long is the one holding the event loop, and
++ * calling it back sooner would only add congestion.
++ */
++export function nextTickIntervalMs(input: NextTickIntervalInput): number {
++  if (input.deferred && input.lastTickMs <= TICK_BUDGET_MS * 2) {
++    return TICK_DRAIN_INTERVAL_MS;
++  }
++  if (input.readNewBytes) {
++    return input.activeIntervalMs;
++  }
++  return input.live ? input.liveIntervalMs : input.idleIntervalMs;
++}
++
 +export interface KimiSessionLogOptions {
 +  kimiSessionId: string;
 +  kimiHome?: string;
@@ -11814,11 +12039,14 @@ index 00000000..5c11fbc4
 + * goal created before the tailer attached is still picked up because the first
 + * read starts at byte 0.
 + *
-+ * One tick is bounded twice over: it reads at most `MAX_BYTES_PER_TICK` bytes,
-+ * and it parses them in `PARSE_LINES_PER_CHUNK`-line chunks with an event-loop
-+ * turn between chunks. Without both, a tick read and parsed everything appended
-+ * since the last one — unbounded on a long replay, and enough to hold the main
-+ * thread off the event loop for as long as the log had grown.
++ * One tick is bounded three ways: every file it reads shares
++ * `TICK_READ_BUDGET_BYTES`, each file takes at most `MAX_BYTES_PER_TICK` of it,
++ * and it stops starting new reads once `TICK_BUDGET_MS` of wall clock has gone.
++ * The lines it did read are parsed in `PARSE_LINES_PER_CHUNK`-line chunks with an
++ * event-loop turn between chunks. Without all three, a tick read and parsed
++ * everything appended since the last one — unbounded on a long replay, and
++ * enough to hold the main thread off the event loop for as long as the log had
++ * grown.
 + *
 + * Usage needs both numbers: the used side comes from the log, the max side from
 + * the model alias plus `<kimiHome>/config.toml`. While either is unknown nothing
@@ -11847,6 +12075,10 @@ index 00000000..5c11fbc4
 +  /** Bytes of an unterminated trailing line, held until the next tick completes it. */
 +  private pending = "";
 +  private backgroundTasksSignature = "";
++  /** Wall clock the last tick took, which decides whether it may come back sooner. */
++  private lastTickMs = 0;
++  /** Last time the background task directory was scanned. */
++  private backgroundTaskScanAt = 0;
 +  private goal: AgentGoal | null = null;
 +  private contextWindowUsedTokens: number | null = null;
 +  private modelAlias: string | null = null;
@@ -12030,9 +12262,10 @@ index 00000000..5c11fbc4
 +
 +  private async tick(): Promise<void> {
 +    const startedAt = Date.now();
++    const budget = createTickBudget();
 +    let read = EMPTY_TICK_READ;
 +    try {
-+      read = await this.readAppended();
++      read = await this.readAppended(budget);
 +    } catch (error) {
 +      this.logger.warn(
 +        { err: error, sessionId: this.kimiSessionId },
@@ -12048,16 +12281,17 @@ index 00000000..5c11fbc4
 +    if (this.stopped) {
 +      return;
 +    }
-+    this.publishBackgroundTasks();
++    await this.publishBackgroundTasks();
 +    if (this.stopped) {
 +      return;
 +    }
-+    await this.publishSubagents();
++    await this.publishSubagents(budget);
 +    if (this.stopped) {
 +      return;
 +    }
 +    this.reportSlowTick(startedAt, read);
-+    this.scheduleTick(this.nextIntervalMs(read.bytes > 0));
++    this.lastTickMs = Date.now() - startedAt;
++    this.scheduleTick(this.nextIntervalMs(read.bytes > 0, budget));
 +  }
 +
 +  /**
@@ -12085,24 +12319,34 @@ index 00000000..5c11fbc4
 +  /**
 +   * A log that just grew is polled at the active cadence, so a step's number
 +   * lands while the turn is still running; otherwise a live goal and an idle
-+   * session each use their own cadence, all equal by default.
++   * session each use their own cadence, all equal by default. A tick that left
++   * a backlog behind is the exception, and `nextTickIntervalMs` says when.
 +   */
-+  private nextIntervalMs(readNewBytes: boolean): number {
-+    if (readNewBytes) {
-+      return this.activeIntervalMs;
-+    }
-+    return this.isLive() ? this.liveIntervalMs : this.idleIntervalMs;
++  private nextIntervalMs(readNewBytes: boolean, budget: TickBudget): number {
++    return nextTickIntervalMs({
++      readNewBytes,
++      deferred: budget.deferred,
++      lastTickMs: this.lastTickMs,
++      live: this.isLive(),
++      activeIntervalMs: this.activeIntervalMs,
++      liveIntervalMs: this.liveIntervalMs,
++      idleIntervalMs: this.idleIntervalMs,
++    });
 +  }
 +
 +  /**
-+   * Reads at most `MAX_BYTES_PER_TICK` bytes, aligned to a line boundary, and
-+   * reports what it consumed. The offset advances only over bytes actually read,
-+   * so an unread range is simply this tick's `backlogBytes` and the next tick
-+   * resumes there; a range that still ends mid-line — only a record longer than
-+   * the budget plus the alignment window — is held as `pending` and joined onto
-+   * the next read.
++   * Reads up to what is left of this tick's budget — `MAX_BYTES_PER_TICK` for
++   * this file, and never more than the whole tick shares — aligned to a line
++   * boundary, and reports what it consumed. The offset advances only over bytes
++   * actually read, so an unread range is simply this tick's `backlogBytes` and
++   * the next tick resumes there; a range that still ends mid-line — only a
++   * record longer than the budget plus the alignment window — is held as
++   * `pending` and joined onto the next read.
 +   */
-+  private async readAppended(): Promise<TickRead> {
++  private async readAppended(budget: TickBudget): Promise<TickRead> {
++    if (budgetExhausted(budget)) {
++      return EMPTY_TICK_READ;
++    }
 +    const filePath = this.resolvePath();
 +    if (!filePath) {
 +      return EMPTY_TICK_READ;
@@ -12127,7 +12371,7 @@ index 00000000..5c11fbc4
 +      return EMPTY_TICK_READ;
 +    }
 +    const start = this.offset;
-+    const budgetEnd = Math.min(size, start + MAX_BYTES_PER_TICK);
++    const budgetEnd = Math.min(size, start + fileReadAllowance(budget));
 +    // Cut on a line boundary unless the file ends first, so a budget-sized read
 +    // never splits a line — and so never splits a multi-byte character across
 +    // two reads, which would put a replacement character in the middle of a
@@ -12135,6 +12379,10 @@ index 00000000..5c11fbc4
 +    const end = budgetEnd === size ? size : alignRangeEndToNewline(filePath, budgetEnd, size);
 +    const { lines, fragment } = await readLinesFromRange(filePath, start, end);
 +    this.offset = end;
++    budget.bytesLeft -= end - start;
++    if (size > end) {
++      budget.deferred = true;
++    }
 +    const merged = mergePendingFragment(this.pending, lines);
 +    this.pending = capPendingFragment(
 +      nextPendingFragment(this.pending, lines, fragment),
@@ -12267,15 +12515,20 @@ index 00000000..5c11fbc4
 +    }
 +  }
 +
-+  private publishBackgroundTasks(): void {
++  private async publishBackgroundTasks(): Promise<void> {
 +    if (!this.onBackgroundTasks) {
++      return;
++    }
++    const now = Date.now();
++    if (now - this.backgroundTaskScanAt < BACKGROUND_TASK_SCAN_INTERVAL_MS) {
 +      return;
 +    }
 +    const sessionDir = this.resolveSessionDir();
 +    if (sessionDir === null) {
 +      return;
 +    }
-+    const runningTasks = readRunningTasksFromSessionDir(sessionDir);
++    this.backgroundTaskScanAt = now;
++    const runningTasks = await readRunningTasksFromSessionDir(sessionDir);
 +    const signature = JSON.stringify(runningTasks.map((t) => [t.id, t.startedAt]));
 +    if (signature === this.backgroundTasksSignature) {
 +      return;
@@ -12357,7 +12610,7 @@ index 00000000..5c11fbc4
 +   * Replaying every subagent log from byte 0 is unbounded, so only the most
 +   * recently spawned are tailed; the rest keep a lifecycle row and no timeline.
 +   */
-+  private async publishSubagents(): Promise<void> {
++  private async publishSubagents(budget: TickBudget): Promise<void> {
 +    for (const task of this.backgroundTasks) {
 +      const signature = JSON.stringify([task.status, task.title, task.description]);
 +      if (this.backgroundTaskSignatures.get(task.id) === signature) continue;
@@ -12395,10 +12648,14 @@ index 00000000..5c11fbc4
 +    const sessionDir = this.resolveSessionDir();
 +    if (sessionDir !== null) {
 +      for (const subagent of tailed) {
++        if (budgetExhausted(budget)) {
++          budget.deferred = true;
++          break;
++        }
 +        const tailer = this.attachSubagentTailer(subagent.id, sessionDir);
 +        let items: AgentTimelineItem[];
 +        try {
-+          items = await tailer.readAppended();
++          items = await tailer.readAppended(budget);
 +        } catch (error) {
 +          this.logger.warn(
 +            { err: error, sessionId: this.kimiSessionId, subagentId: subagent.id },
@@ -13057,15 +13314,15 @@ index 00000000..5c11fbc4
 +  pid?: number;
 +}
 +
-+export function readRunningTasksFromSessionDir(sessionDir: string): AgentBackgroundTask[] {
++export async function readRunningTasksFromSessionDir(
++  sessionDir: string,
++): Promise<AgentBackgroundTask[]> {
 +  const tasksDir = path.join(sessionDir, "agents", "main", "tasks");
-+  if (!existsSync(tasksDir)) {
-+    return [];
-+  }
 +  let entries: string[];
 +  try {
-+    entries = readdirSync(tasksDir);
++    entries = await readdir(tasksDir);
 +  } catch {
++    // No task directory yet, or it is gone; either way there is nothing running.
 +    return [];
 +  }
 +  const runningTasks: AgentBackgroundTask[] = [];
@@ -13073,7 +13330,7 @@ index 00000000..5c11fbc4
 +    if (!entry.endsWith(".json")) continue;
 +    try {
 +      const fullPath = path.join(tasksDir, entry);
-+      const content = readFileSync(fullPath, "utf8");
++      const content = await readFile(fullPath, "utf8");
 +      const record = JSON.parse(content) as KimiTaskFileRecord;
 +      if (record && record.status === "running") {
 +        runningTasks.push({
@@ -13093,10 +13350,10 @@ index 00000000..5c11fbc4
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 00000000..3bb1d92f
+index 00000000..38364a3a
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
-@@ -0,0 +1,403 @@
+@@ -0,0 +1,449 @@
 +import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -13447,6 +13704,52 @@ index 00000000..3bb1d92f
 +    expect(items).toEqual([{ type: "assistant_message", text: "tail" }]);
 +  });
 +
++  test("stops a read at the caller's budget and leaves the rest for the next call", async () => {
++    const { file } = createTailerHome();
++    const lines = Array.from({ length: 20 }, (_, index) => textPartLine(`part ${index}`));
++    appendFileSync(file, `${lines.join("\n")}\n`);
++    const tailer = createTailer(file);
++
++    const budget = { deadlineMs: Date.now() + 60_000, bytesLeft: 200, deferred: false };
++    const first = await tailer.readAppended(budget);
++
++    expect(first.length).toBeGreaterThan(0);
++    expect(first.length).toBeLessThan(lines.length);
++    expect(budget.deferred).toBe(true);
++
++    const rest: AgentTimelineItem[] = [];
++    // A fresh budget bounded only by the per-file cap, so it can finish the log
++    // the first one left half-read.
++    const generous = { deadlineMs: Date.now() + 60_000, bytesLeft: 1_000_000, deferred: false };
++    for (let call = 0; call < 5; call++) {
++      rest.push(...(await tailer.readAppended(generous)));
++    }
++
++    // Nothing lost, nothing repeated, and the same order as a read that was
++    // never held back.
++    const unbudgeted = createTailer(file);
++    const all = await unbudgeted.readAppended();
++
++    expect(all).toHaveLength(lines.length);
++    expect([...first, ...rest]).toEqual(all);
++  });
++
++  test("starts no read at all with a budget that is already spent", async () => {
++    const { file } = createTailerHome();
++    appendFileSync(file, `${textPartLine("one")}\n${textPartLine("two")}\n`);
++    const tailer = createTailer(file);
++
++    const spent = { deadlineMs: Date.now() + 60_000, bytesLeft: 0, deferred: false };
++    expect(await tailer.readAppended(spent)).toEqual([]);
++    expect(spent.deferred).toBe(true);
++
++    // The offset did not move, so the bytes are still there for the next call.
++    expect(await tailer.readAppended()).toEqual([
++      { type: "assistant_message", text: "one" },
++      { type: "assistant_message", text: "two" },
++    ]);
++  });
++
 +  test("accumulates the context tokens its log reports", async () => {
 +    const { file } = createTailerHome();
 +    appendFileSync(file, `${usageRecordLine({ inputOther: 40_000, output: 2_000 })}\n`);
@@ -13502,10 +13805,10 @@ index 00000000..3bb1d92f
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 00000000..0bb3ea29
+index 00000000..936b1b44
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,340 @@
 +import { stat } from "node:fs/promises";
 +import path from "node:path";
 +
@@ -13513,17 +13816,20 @@ index 00000000..0bb3ea29
 +
 +import type { AgentTimelineItem } from "../../agent-sdk-types.js";
 +import {
-+  MAX_BYTES_PER_TICK,
 +  PARSE_LINES_PER_CHUNK,
 +  alignRangeEndToNewline,
 +  asRecord,
++  budgetExhausted,
 +  capPendingFragment,
++  createTickBudget,
++  fileReadAllowance,
 +  kimiUsageRecordContextTokens,
 +  mergePendingFragment,
 +  nextPendingFragment,
 +  readLinesFromRange,
 +  readString,
 +  yieldToEventLoop,
++  type TickBudget,
 +} from "./session-log.js";
 +
 +/**
@@ -13677,10 +13983,12 @@ index 00000000..0bb3ea29
 + * subagent that finished before the tailer attached is replayed in full instead
 + * of showing up empty.
 + *
-+ * One call is bounded the same way the main tailer's tick is: at most
-+ * `MAX_BYTES_PER_TICK` bytes, parsed in `PARSE_LINES_PER_CHUNK`-line chunks with
-+ * an event-loop turn between them. Subagent logs are read on the main tailer's
-+ * tick, so an unbounded read here is an unbounded read there.
++ * One call is bounded the same way the main tailer's tick is: it draws from the
++ * caller's tick budget — at most `TICK_READ_BUDGET_BYTES` for every file
++ * together, of which this one may take `MAX_BYTES_PER_TICK` — and parses what it
++ * read in `PARSE_LINES_PER_CHUNK`-line chunks with an event-loop turn between
++ * them. Subagent logs are read on the main tailer's tick, so an unbounded read
++ * here is an unbounded read there.
 + */
 +export class KimiSubagentLogTailer {
 +  private readonly subagentId: string;
@@ -13706,10 +14014,15 @@ index 00000000..0bb3ea29
 +
 +  /**
 +   * Returns the items produced by bytes appended since the previous call, up to
-+   * one tick's byte budget. What is left over is read by the next call, which
-+   * resumes at the offset this one stopped at.
++   * what the caller's tick budget has left. What is left over is read by the next
++   * call, which resumes at the offset this one stopped at. Called without a
++   * budget it draws one of its own, which is what a single-file caller wants.
 +   */
-+  async readAppended(): Promise<AgentTimelineItem[]> {
++  async readAppended(budget: TickBudget = createTickBudget()): Promise<AgentTimelineItem[]> {
++    if (budgetExhausted(budget)) {
++      budget.deferred = true;
++      return [];
++    }
 +    const filePath = resolveKimiSubagentLogPath(this.sessionDir, this.subagentId);
 +    if (filePath === null) {
 +      return [];
@@ -13735,10 +14048,14 @@ index 00000000..0bb3ea29
 +      return [];
 +    }
 +    const start = this.offset;
-+    const budgetEnd = Math.min(size, start + MAX_BYTES_PER_TICK);
++    const budgetEnd = Math.min(size, start + fileReadAllowance(budget));
 +    const end = budgetEnd === size ? size : alignRangeEndToNewline(filePath, budgetEnd, size);
 +    const { lines, fragment } = await readLinesFromRange(filePath, start, end);
 +    this.offset = end;
++    budget.bytesLeft -= end - start;
++    if (size > end) {
++      budget.deferred = true;
++    }
 +    const merged = mergePendingFragment(this.pending, lines);
 +    this.pending = capPendingFragment(
 +      nextPendingFragment(this.pending, lines, fragment),
