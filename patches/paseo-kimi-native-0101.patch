@@ -7266,7 +7266,7 @@ index 8c5cc1a41..ed0ed9abd 100644
    contents: string[];
    workflowContents: string[];
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 16d13b9d6..fea78585d 100644
+index 16d13b9d6..d9b397038 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -20,6 +20,8 @@ import {
@@ -7278,10 +7278,11 @@ index 16d13b9d6..fea78585d 100644
  } from "./models.js";
  
  describe("getClaudeContextWindowMaxTokens", () => {
-@@ -988,5 +990,76 @@ describe("Claude model discovery process", () => {
-     );
-     await expect(result).rejects.toBe(failure);
+@@ -990,3 +992,77 @@ describe("Claude model discovery process", () => {
      expect(closed).toBe(true);
+   });
+ });
++
 +describe("resolveClaudeContextWindowMaxTokens", () => {
 +  it("uses the manifest window for a model it knows", () => {
 +    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8", undefined)).toBe(200_000);
@@ -7353,8 +7354,8 @@ index 16d13b9d6..fea78585d 100644
 +    expect(readClaudeSettingsEnvSync(path.join(brokenDir, "settings.json"))).toBeUndefined();
 +    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "settings.json"))).toBeUndefined();
 +    expect(readClaudeSettingsEnvSync(path.join(noEnvDir, "not-settings.json"))).toBeUndefined();
-   });
- });
++  });
++});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
 index 2a9b801fd..a04739be1 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
