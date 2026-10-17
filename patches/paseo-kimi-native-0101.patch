@@ -6754,10 +6754,14 @@ index d07b0572b..6623b5c86 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 8c5cc1a41..31085e580 100644
+index 8c5cc1a41..ed0ed9abd 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
-@@ -34,6 +34,8 @@ import {
+@@ -31,9 +31,12 @@ import {
+   readTaskNotificationToolUseIdFromHistoryRecord,
+ } from "./task-notification-tool-call.js";
+ import {
++  findClaudeModel,
    getClaudeContextWindowMaxTokens,
    getClaudeModelsWithSettings,
    normalizeClaudeRuntimeModelId,
@@ -6766,7 +6770,7 @@ index 8c5cc1a41..31085e580 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -117,6 +119,7 @@ import {
+@@ -117,6 +120,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -6774,7 +6778,7 @@ index 8c5cc1a41..31085e580 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2210,6 +2213,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2210,6 +2214,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -6806,7 +6810,7 @@ index 8c5cc1a41..31085e580 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2289,7 +2317,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2289,7 +2318,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -6815,7 +6819,7 @@ index 8c5cc1a41..31085e580 100644
      );
      const handle = options.handle;
  
-@@ -2621,7 +2649,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2621,7 +2650,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -6824,7 +6828,7 @@ index 8c5cc1a41..31085e580 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3457,6 +3485,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3457,6 +3486,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -6849,7 +6853,7 @@ index 8c5cc1a41..31085e580 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4357,16 +4403,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4357,16 +4404,7 @@ class ClaudeAgentSession implements AgentSession {
      // Subagent identity and lifecycle are announced by Claude Code's task protocol, so they are
      // read rather than inferred from sidechain frames. `task_started` precedes the child's first
      // frame, so the descriptor exists before any timeline item lands on it.
@@ -6867,7 +6871,7 @@ index 8c5cc1a41..31085e580 100644
      if (message.type !== "system") {
        const sessionCapture = this.captureSessionIdFromMessage(message);
        if (sessionCapture.notice) {
-@@ -4387,6 +4424,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4387,6 +4425,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -6880,7 +6884,7 @@ index 8c5cc1a41..31085e580 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4404,6 +4447,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4404,6 +4448,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -6888,7 +6892,7 @@ index 8c5cc1a41..31085e580 100644
          break;
        }
        case "stream_event":
-@@ -4430,6 +4474,217 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4430,6 +4475,217 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7106,7 +7110,7 @@ index 8c5cc1a41..31085e580 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -4751,6 +5006,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4751,6 +5007,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7114,7 +7118,7 @@ index 8c5cc1a41..31085e580 100644
      const usage = this.convertUsage(message);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -6140,6 +6396,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -6140,6 +6397,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
