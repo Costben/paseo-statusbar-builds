@@ -1,10 +1,10 @@
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 4f1302f..4a15f6b 100644
+index 731046489..0cd5e6040 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
-@@ -29,4 +29,16 @@ describe("formatThinkingOptionLabel", () => {
-     expect(formatThinkingOptionLabel({ id: "think-hard", label: "think-hard" })).toBe("Think hard");
-     expect(formatThinkingOptionLabel({ id: "xhigh", label: "XHigh" })).toBe("Extra high");
+@@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
+     expect(formatThinkingOptionLabel({ id: "xhigh" })).toBe("Extra high");
+     expect(formatThinkingOptionLabel({ id: "xhigh", label: "Extra high" })).toBe("Extra high");
    });
 +
 +  it("drops the prefix agents already caption the option with", () => {
@@ -20,10 +20,10 @@ index 4f1302f..4a15f6b 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index ff32aaf..d329cdd 100644
+index 704298f78..dd1da9eeb 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
-@@ -32,6 +32,14 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
+@@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
    return formatControlLabel(mode, mode.label == null);
  }
  
@@ -36,20 +36,23 @@ index ff32aaf..d329cdd 100644
 +}
 +
  export function formatThinkingOptionLabel(option: ControlLabelInput): string {
-   const rawLabel = (option.label ?? option.id).trim();
-   const compactId = option.id.replace(/[\s_-]+/g, "").toLowerCase();
-@@ -41,5 +49,5 @@ export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+-  const rawLabel = (option.label ?? option.id).trim();
+-  const compactLabel = rawLabel.replace(/[\s_-]+/g, "").toLowerCase();
++  const label = stripThinkingPrefix((option.label ?? option.id).trim());
++  const compactLabel = label.replace(/[\s_-]+/g, "").toLowerCase();
+ 
+   if (compactLabel === "xhigh" || compactLabel === "extrahigh") {
      return i18n.t("agentControls.thinking.extraHigh");
    }
  
 -  return formatControlLabel(option, true);
-+  return formatControlLabel({ id: option.id, label: stripThinkingPrefix(rawLabel) }, true);
++  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index bca5a25..bd04c2f 100644
+index 6929b447e..e3839792b 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -410,7 +410,8 @@ const styles = StyleSheet.create((theme) => ({
+@@ -408,7 +408,8 @@ const styles = StyleSheet.create((theme) => ({
      gap: theme.spacing[1],
    },
    triggerThinking: {
@@ -60,10 +63,10 @@ index bca5a25..bd04c2f 100644
      fontSize: theme.fontSize.base,
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index c46e2ac..e374170 100644
+index 10d670fca..d17bd6967 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -274,6 +274,9 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
+@@ -280,6 +280,9 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
        contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
        totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
        model: agent?.model ?? null,
@@ -73,7 +76,7 @@ index c46e2ac..e374170 100644
      };
    };
  }
-@@ -1543,10 +1546,12 @@ function ComposerContentImpl({
+@@ -1531,10 +1534,12 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -88,7 +91,7 @@ index c46e2ac..e374170 100644
    );
  
    useEffect(() => {
-@@ -1610,6 +1615,7 @@ function ComposerContentImpl({
+@@ -1598,6 +1603,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -97,10 +100,10 @@ index c46e2ac..e374170 100644
    const hasAgent = agentState.status !== null;
  
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index 5503ea1..7ec4799 100644
+index 6f2cdef74..680c85db8 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
-@@ -190,9 +190,15 @@ describe("dictation transcript behavior", () => {
+@@ -193,9 +193,15 @@ describe("dictation transcript behavior", () => {
  
  describe("composer send behavior", () => {
    it("sends immediately when queue mode cannot advance past a permission", () => {
@@ -120,7 +123,7 @@ index 5503ea1..7ec4799 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index a63aeb0..8c20c16 100644
+index 698965b5a..aadb22dd2 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -140,7 +143,7 @@ index a63aeb0..8c20c16 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c8..69a9923 100644
+index 3ab03c877..69a992346 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -155,10 +158,10 @@ index 3ab03c8..69a9923 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index a4f8836..e358268 100644
+index c8fe60ff6..c7ebdd0b9 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -378,6 +378,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -380,6 +380,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -168,10 +171,10 @@ index a4f8836..e358268 100644
    .catchall(z.boolean());
  
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index 6930fe1..afe2cce 100644
+index ab597b5ac..0b0599945 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
-@@ -42,6 +42,12 @@ function humanizeToolName(name: string): string {
+@@ -43,6 +43,12 @@ function humanizeToolName(name: string): string {
    if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
      return trimmed;
    }

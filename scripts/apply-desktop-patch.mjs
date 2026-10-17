@@ -351,7 +351,7 @@ const MARKERS = [
   },
   {
     label: "Harness reminder envelopes stay out of the timeline",
-    path: "packages/server/src/server/agent/agent-prompt.ts",
+    path: "packages/server/src/server/agent/agent-messages/index.ts",
     needle: "<system-reminder>[\\s\\S]*<\\/system-reminder>",
   },
   {
