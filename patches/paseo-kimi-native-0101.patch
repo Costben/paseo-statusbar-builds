@@ -1111,7 +1111,7 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 10d670fca..550e8a0e5 100644
+index 10d670fca..f0b81d2c8 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -54,6 +54,8 @@ import {
@@ -1185,7 +1185,7 @@ index 10d670fca..550e8a0e5 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2054,18 +2077,30 @@ function ComposerContentImpl({
+@@ -2054,18 +2077,32 @@ function ComposerContentImpl({
    );
  
    const contextWindowMeterGlyphSize = isCompactLayout ? ICON_SIZE.md : buttonIconSize;
@@ -1197,6 +1197,9 @@ index 10d670fca..550e8a0e5 100644
 +    () => <BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />,
 +    [agentState.backgroundTasks],
 +  );
++  // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
++  const backgroundTaskVoiceReplacement =
++    agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
    const beforeVoiceContent = useMemo(
      () =>
        hasAgent ? (
@@ -1210,7 +1213,6 @@ index 10d670fca..550e8a0e5 100644
 -            glyphSize={contextWindowMeterGlyphSize}
 -          />
 +        <View style={styles.composerToolbarSlot}>
-+          {backgroundTaskPill}
 +          {goalPill}
 +          <View style={styles.contextWindowMeterSlot}>
 +            <ContextWindowMeter
@@ -1225,16 +1227,23 @@ index 10d670fca..550e8a0e5 100644
          </View>
        ) : null,
      [
-@@ -2076,6 +2111,8 @@ function ComposerContentImpl({
+@@ -2076,6 +2113,7 @@ function ComposerContentImpl({
        agentState.contextWindowUsedTokens,
        agentState.totalCostUsd,
        contextWindowMeterGlyphSize,
 +      goalPill,
-+      backgroundTaskPill,
      ],
    );
  
-@@ -2581,6 +2618,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2460,6 +2498,7 @@ function ComposerContentImpl({
+                   disabled={isSubmitLoading}
+                   leftContent={leftContent}
+                   beforeVoiceContent={beforeVoiceContent}
++                  voiceButtonReplacement={backgroundTaskVoiceReplacement}
+                   rightContent={rightContent}
+                   activeActionContent={activeActionContent}
+                   voiceServerId={serverId}
+@@ -2581,6 +2620,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: theme.spacing[1],
    },
@@ -1247,6 +1256,84 @@ index 10d670fca..550e8a0e5 100644
    contextWindowMeterSlot: {
      width: 28,
      height: 28,
+diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
+index c6c267a38..bf9a888f0 100644
+--- a/packages/app/src/composer/input/input.tsx
++++ b/packages/app/src/composer/input/input.tsx
+@@ -150,6 +150,8 @@ export interface MessageInputProps {
+   leftContent?: React.ReactNode;
+   /** Content to render on the right side before the voice button (e.g., context window meter) */
+   beforeVoiceContent?: React.ReactNode;
++  /** Replaces the dictation/voice button in the composer toolbar when provided. */
++  voiceButtonReplacement?: React.ReactNode;
+   /** Auxiliary content to render on the right side after the voice button. */
+   rightContent?: React.ReactNode;
+   /** Primary action to render when the agent is active and the composer has no sendable content. */
+@@ -1098,6 +1100,7 @@ interface ResolvedMessageInputProps {
+   disabled: boolean;
+   leftContent: React.ReactNode;
+   beforeVoiceContent: React.ReactNode;
++  voiceButtonReplacement: React.ReactNode;
+   rightContent: React.ReactNode;
+   activeActionContent: React.ReactNode;
+   voiceServerId: string | undefined;
+@@ -1145,6 +1148,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+     disabled: props.disabled ?? false,
+     leftContent: props.leftContent,
+     beforeVoiceContent: props.beforeVoiceContent,
++    voiceButtonReplacement: props.voiceButtonReplacement,
+     rightContent: props.rightContent,
+     activeActionContent: props.activeActionContent,
+     voiceServerId: props.voiceServerId,
+@@ -1222,6 +1226,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+       disabled,
+       leftContent,
+       beforeVoiceContent,
++      voiceButtonReplacement,
+       rightContent,
+       activeActionContent,
+       voiceServerId,
+@@ -2062,18 +2067,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+           {/* Right: voice button, contextual button (realtime/send/cancel) */}
+           <View style={styles.rightButtonGroup}>
+             {beforeVoiceContent}
+-            <VoiceButtonTooltip
+-              visible={mode.showVoice}
+-              onVoicePress={handleVoicePress}
+-              isDictationStartEnabled={isDictationStartEnabled}
+-              voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
+-              voiceButtonStyle={voiceButtonStyle}
+-              renderVoiceButtonIcon={renderVoiceButtonIcon}
+-              voiceTooltipText={voiceTooltipText}
+-              isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
+-              voiceMuteToggleKeys={voiceMuteToggleKeys}
+-              dictationToggleKeys={dictationToggleKeys}
+-            />
++            {voiceButtonReplacement ?? (
++              <VoiceButtonTooltip
++                visible={mode.showVoice}
++                onVoicePress={handleVoicePress}
++                isDictationStartEnabled={isDictationStartEnabled}
++                voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
++                voiceButtonStyle={voiceButtonStyle}
++                renderVoiceButtonIcon={renderVoiceButtonIcon}
++                voiceTooltipText={voiceTooltipText}
++                isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
++                voiceMuteToggleKeys={voiceMuteToggleKeys}
++                dictationToggleKeys={dictationToggleKeys}
++              />
++            )}
+             {rightContent}
+             {sendButton}
+           </View>
+@@ -2089,6 +2096,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         t,
+         leftContent,
+         beforeVoiceContent,
++        voiceButtonReplacement,
+         mode.showVoice,
+         handleVoicePress,
+         isDictationStartEnabled,
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
 index 6f2cdef74..680c85db8 100644
 --- a/packages/app/src/composer/input/state.test.ts

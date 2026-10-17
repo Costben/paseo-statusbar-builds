@@ -62,21 +62,211 @@ index 6929b447e..e3839792b 100644
      color: theme.colors.foregroundExtraMuted,
      fontSize: theme.fontSize.base,
      fontWeight: theme.fontWeight.normal,
+diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
+new file mode 100644
+index 000000000..612c2a3e4
+--- /dev/null
++++ b/packages/app/src/composer/background-task-pill.tsx
+@@ -0,0 +1,175 @@
++import { useCallback, type ReactElement } from "react";
++import { Text, View } from "react-native";
++import { Terminal } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import type { AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
++import {
++  MenuRoot,
++  MenuSurface,
++  MenuTrigger,
++  menuRowContentInset,
++  type MenuTriggerState,
++} from "@/components/ui/menu";
++import { formatDuration } from "@/utils/time";
++
++const ThemedTerminal = withUnistyles(Terminal);
++
++const blueMapping = () => ({ color: "#3b82f6" });
++
++const taskPillStyles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.borderAccent,
++    backgroundColor: theme.colors.surface1,
++    minWidth: 0,
++    flexShrink: 0,
++  },
++  pillActive: {
++    backgroundColor: theme.colors.surface2,
++  },
++  count: {
++    color: "#3b82f6",
++    fontSize: 12,
++    fontWeight: theme.fontWeight.medium,
++    lineHeight: 14,
++  },
++  detailContainer: {
++    paddingVertical: theme.spacing[2],
++    gap: theme.spacing[2],
++  },
++  taskItem: {
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[2],
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: theme.colors.border,
++    gap: 4,
++  },
++  taskHeader: {
++    flexDirection: "row",
++    alignItems: "center",
++    justifyContent: "space-between",
++  },
++  taskId: {
++    fontSize: 11,
++    fontWeight: theme.fontWeight.medium,
++    color: "#3b82f6",
++    fontFamily: theme.fontFamily.mono,
++  },
++  taskElapsed: {
++    fontSize: 11,
++    color: theme.colors.foregroundExtraMuted,
++  },
++  taskCommand: {
++    fontSize: 12,
++    color: theme.colors.foreground,
++    fontFamily: theme.fontFamily.mono,
++  },
++  taskDesc: {
++    fontSize: 12,
++    color: theme.colors.foregroundMuted,
++  },
++  emptyText: {
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[3],
++    color: theme.colors.foregroundMuted,
++    fontSize: 12,
++  },
++}));
++
++interface BackgroundTaskPillProps {
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
++}
++
++export function BackgroundTaskPill({
++  backgroundTasks,
++}: BackgroundTaskPillProps): ReactElement | null {
++  if (!backgroundTasks || backgroundTasks.count <= 0) {
++    return null;
++  }
++
++  return (
++    <MenuRoot compactMode="sheet">
++      <BackgroundTaskPillTrigger count={backgroundTasks.count} />
++      <MenuSurface
++        side="top"
++        align="start"
++        offset={6}
++        sheetTitle={`后台任务 (${backgroundTasks.count})`}
++        minWidth={280}
++        maxWidth={460}
++        maxHeight={400}
++        scrollable
++        testID="composer-background-task-panel"
++      >
++        <BackgroundTaskDetail tasks={backgroundTasks.tasks} />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
++
++function BackgroundTaskPillTrigger({ count }: { count: number }): ReactElement {
++  const pillStyle = useCallback(
++    ({ hovered, pressed, open }: MenuTriggerState) => [
++      taskPillStyles.pill,
++      (hovered || pressed || open) && taskPillStyles.pillActive,
++    ],
++    [],
++  );
++
++  return (
++    <MenuTrigger
++      testID="composer-background-task-pill"
++      accessibilityRole="button"
++      accessibilityLabel={`后台任务: ${count} 个运行中`}
++      style={pillStyle}
++    >
++      <ThemedTerminal size={13} uniProps={blueMapping} />
++      <Text style={taskPillStyles.count}>{count}</Text>
++    </MenuTrigger>
++  );
++}
++
++function BackgroundTaskDetail({
++  tasks,
++}: {
++  tasks: AgentBackgroundTasksPayload["tasks"];
++}): ReactElement {
++  if (tasks.length === 0) {
++    return <Text style={taskPillStyles.emptyText}>当前没有正在运行的后台任务</Text>;
++  }
++
++  const now = Date.now();
++
++  return (
++    <View style={taskPillStyles.detailContainer}>
++      {tasks.map((task) => {
++        const elapsed = task.startedAt ? formatDuration(now - task.startedAt) : null;
++        return (
++          <View key={task.id} style={taskPillStyles.taskItem}>
++            <View style={taskPillStyles.taskHeader}>
++              <Text style={taskPillStyles.taskId}>{task.id}</Text>
++              {elapsed ? <Text style={taskPillStyles.taskElapsed}>已运行 {elapsed}</Text> : null}
++            </View>
++            {task.description ? (
++              <Text style={taskPillStyles.taskDesc} numberOfLines={2}>
++                {task.description}
++              </Text>
++            ) : null}
++            {task.command ? (
++              <Text style={taskPillStyles.taskCommand} numberOfLines={3}>
++                {task.command}
++              </Text>
++            ) : null}
++          </View>
++        );
++      })}
++    </View>
++  );
++}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 10d670fca..d17bd6967 100644
+index 10d670fca..90894fe8a 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -280,6 +280,9 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
+@@ -135,6 +135,7 @@ import type {
+ import type { SelectedFile } from "@/attachments/selected-file";
+ import { resolveComposerAttachmentSubmitFormat } from "@/composer/attachments/submit";
+ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
++import { BackgroundTaskPill } from "@/composer/background-task-pill";
+ import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
+ import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
+ import { getFileTypeLabel } from "@/attachments/file-types";
+@@ -280,6 +281,10 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
        contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
        totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
        model: agent?.model ?? null,
++      backgroundTasks: agent?.backgroundTasks ?? null,
 +      // A daemon that predates the flag leaves it undefined. Assume the agent can
 +      // steer then, so nothing changes for the providers that always could.
 +      supportsSteering: agent?.capabilities?.supportsSteering !== false,
      };
    };
  }
-@@ -1531,10 +1534,12 @@ function ComposerContentImpl({
+@@ -1531,10 +1536,12 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -91,7 +281,7 @@ index 10d670fca..d17bd6967 100644
    );
  
    useEffect(() => {
-@@ -1598,6 +1603,7 @@ function ComposerContentImpl({
+@@ -1598,6 +1605,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -99,6 +289,106 @@ index 10d670fca..d17bd6967 100644
    );
    const hasAgent = agentState.status !== null;
  
+@@ -2054,6 +2062,13 @@ function ComposerContentImpl({
+   );
+ 
+   const contextWindowMeterGlyphSize = isCompactLayout ? ICON_SIZE.md : buttonIconSize;
++  const backgroundTaskPill = useMemo(
++    () => <BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />,
++    [agentState.backgroundTasks],
++  );
++  // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
++  const backgroundTaskVoiceReplacement =
++    agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
+   const beforeVoiceContent = useMemo(
+     () =>
+       hasAgent ? (
+@@ -2460,6 +2475,7 @@ function ComposerContentImpl({
+                   disabled={isSubmitLoading}
+                   leftContent={leftContent}
+                   beforeVoiceContent={beforeVoiceContent}
++                  voiceButtonReplacement={backgroundTaskVoiceReplacement}
+                   rightContent={rightContent}
+                   activeActionContent={activeActionContent}
+                   voiceServerId={serverId}
+diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
+index c6c267a38..bf9a888f0 100644
+--- a/packages/app/src/composer/input/input.tsx
++++ b/packages/app/src/composer/input/input.tsx
+@@ -150,6 +150,8 @@ export interface MessageInputProps {
+   leftContent?: React.ReactNode;
+   /** Content to render on the right side before the voice button (e.g., context window meter) */
+   beforeVoiceContent?: React.ReactNode;
++  /** Replaces the dictation/voice button in the composer toolbar when provided. */
++  voiceButtonReplacement?: React.ReactNode;
+   /** Auxiliary content to render on the right side after the voice button. */
+   rightContent?: React.ReactNode;
+   /** Primary action to render when the agent is active and the composer has no sendable content. */
+@@ -1098,6 +1100,7 @@ interface ResolvedMessageInputProps {
+   disabled: boolean;
+   leftContent: React.ReactNode;
+   beforeVoiceContent: React.ReactNode;
++  voiceButtonReplacement: React.ReactNode;
+   rightContent: React.ReactNode;
+   activeActionContent: React.ReactNode;
+   voiceServerId: string | undefined;
+@@ -1145,6 +1148,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+     disabled: props.disabled ?? false,
+     leftContent: props.leftContent,
+     beforeVoiceContent: props.beforeVoiceContent,
++    voiceButtonReplacement: props.voiceButtonReplacement,
+     rightContent: props.rightContent,
+     activeActionContent: props.activeActionContent,
+     voiceServerId: props.voiceServerId,
+@@ -1222,6 +1226,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+       disabled,
+       leftContent,
+       beforeVoiceContent,
++      voiceButtonReplacement,
+       rightContent,
+       activeActionContent,
+       voiceServerId,
+@@ -2062,18 +2067,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+           {/* Right: voice button, contextual button (realtime/send/cancel) */}
+           <View style={styles.rightButtonGroup}>
+             {beforeVoiceContent}
+-            <VoiceButtonTooltip
+-              visible={mode.showVoice}
+-              onVoicePress={handleVoicePress}
+-              isDictationStartEnabled={isDictationStartEnabled}
+-              voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
+-              voiceButtonStyle={voiceButtonStyle}
+-              renderVoiceButtonIcon={renderVoiceButtonIcon}
+-              voiceTooltipText={voiceTooltipText}
+-              isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
+-              voiceMuteToggleKeys={voiceMuteToggleKeys}
+-              dictationToggleKeys={dictationToggleKeys}
+-            />
++            {voiceButtonReplacement ?? (
++              <VoiceButtonTooltip
++                visible={mode.showVoice}
++                onVoicePress={handleVoicePress}
++                isDictationStartEnabled={isDictationStartEnabled}
++                voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
++                voiceButtonStyle={voiceButtonStyle}
++                renderVoiceButtonIcon={renderVoiceButtonIcon}
++                voiceTooltipText={voiceTooltipText}
++                isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
++                voiceMuteToggleKeys={voiceMuteToggleKeys}
++                dictationToggleKeys={dictationToggleKeys}
++              />
++            )}
+             {rightContent}
+             {sendButton}
+           </View>
+@@ -2089,6 +2096,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         t,
+         leftContent,
+         beforeVoiceContent,
++        voiceButtonReplacement,
+         mode.showVoice,
+         handleVoicePress,
+         isDictationStartEnabled,
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
 index 6f2cdef74..680c85db8 100644
 --- a/packages/app/src/composer/input/state.test.ts
@@ -157,8 +447,86 @@ index 3ab03c877..69a992346 100644
      minHeight: COMPOSER_PILL_MIN_HEIGHT,
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
+diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
+index 9b70d9048..1620d8bd6 100644
+--- a/packages/app/src/stores/session-store.ts
++++ b/packages/app/src/stores/session-store.ts
+@@ -39,6 +39,7 @@ import type {
+   ServerCapabilities,
+   WorkspaceDescriptorPayload,
+   WorkspaceProjectDescriptorPayload,
++  AgentBackgroundTasksPayload,
+ } from "@getpaseo/protocol/messages";
+ import {
+   normalizeWorkspaceOpaqueId,
+@@ -86,6 +87,7 @@ export interface Agent {
+   persistence: AgentPersistenceHandle | null;
+   runtimeInfo?: AgentRuntimeInfo;
+   lastUsage?: AgentUsage;
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
+   lastError?: string | null;
+   title: string | null;
+   cwd: string;
+diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
+index 4d14f101b..9a4887f30 100644
+--- a/packages/app/src/utils/agent-directory-update-policy.ts
++++ b/packages/app/src/utils/agent-directory-update-policy.ts
+@@ -1,9 +1,11 @@
+ import equal from "fast-deep-equal";
+ import type { AgentUsage } from "@getpaseo/protocol/agent-types";
++import type { AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
+ 
+ interface AgentUpdateValue {
+   updatedAt: Date | string;
+   lastUsage?: AgentUsage;
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
+ }
+ 
+ function timestamp(value: Date | string): number {
+@@ -15,7 +17,18 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
+   incoming: T,
+ ): T {
+   if (!current || timestamp(incoming.updatedAt) >= timestamp(current.updatedAt)) return incoming;
+-  if (incoming.lastUsage === undefined) return current;
+-  if (equal(incoming.lastUsage, current.lastUsage)) return current;
+-  return { ...current, lastUsage: incoming.lastUsage };
++
++  // The daemon's emitState() does not bump updatedAt, so backgroundTasks changes arrive on
++  // deltas that look stale. That field merges anyway; the rest of the delta is dropped.
++  let merged = current;
++  if (incoming.lastUsage !== undefined && !equal(incoming.lastUsage, merged.lastUsage)) {
++    merged = { ...merged, lastUsage: incoming.lastUsage };
++  }
++  if (
++    incoming.backgroundTasks !== undefined &&
++    !equal(incoming.backgroundTasks, merged.backgroundTasks)
++  ) {
++    merged = { ...merged, backgroundTasks: incoming.backgroundTasks };
++  }
++  return merged;
+ }
+diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
+index c1c70c640..d1e645ec2 100644
+--- a/packages/app/src/utils/agent-snapshots.ts
++++ b/packages/app/src/utils/agent-snapshots.ts
+@@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
+     persistence: agent.persistence,
+     ...(agent.runtimeInfo ? { runtimeInfo: agent.runtimeInfo } : {}),
+     ...(agent.lastUsage ? { lastUsage: agent.lastUsage } : {}),
++    ...(agent.backgroundTasks ? { backgroundTasks: agent.backgroundTasks } : {}),
+     ...(agent.lastError ? { lastError: agent.lastError } : {}),
+     title: agent.title,
+     labels: agent.labels,
+@@ -121,6 +122,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
+     persistence: snapshot.persistence ?? null,
+     runtimeInfo: snapshot.runtimeInfo,
+     lastUsage: snapshot.lastUsage,
++    backgroundTasks: snapshot.backgroundTasks ?? null,
+     lastError: snapshot.lastError ?? null,
+     title: snapshot.title ?? null,
+     cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index c8fe60ff6..c7ebdd0b9 100644
+index c8fe60ff6..c8c18cc82 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -380,6 +380,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -170,6 +538,39 @@ index c8fe60ff6..c7ebdd0b9 100644
    })
    .catchall(z.boolean());
  
+@@ -810,6 +812,24 @@ const AgentActiveTurnPayloadSchema = z.object({
+   startedAt: z.string().nullable(),
+ });
+ 
++export const AgentBackgroundTaskPayloadSchema = z.object({
++  id: z.string(),
++  command: z.string().nullable().optional(),
++  description: z.string().nullable().optional(),
++  status: z.enum(["running", "completed", "failed", "canceled"]).optional(),
++  startedAt: z.number().nullable().optional(),
++  pid: z.number().optional(),
++});
++
++export type AgentBackgroundTaskPayload = z.infer<typeof AgentBackgroundTaskPayloadSchema>;
++
++export const AgentBackgroundTasksPayloadSchema = z.object({
++  count: z.number(),
++  tasks: z.array(AgentBackgroundTaskPayloadSchema),
++});
++
++export type AgentBackgroundTasksPayload = z.infer<typeof AgentBackgroundTasksPayloadSchema>;
++
+ export const AgentSnapshotPayloadSchema = z.object({
+   id: z.string(),
+   provider: AgentProviderSchema,
+@@ -831,6 +851,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+   persistence: AgentPersistenceHandleSchema.nullable(),
+   runtimeInfo: AgentRuntimeInfoSchema.optional(),
+   lastUsage: AgentUsageSchema.optional(),
++  backgroundTasks: AgentBackgroundTasksPayloadSchema.nullable().optional(),
+   lastError: z.string().optional(),
+   title: z.string().nullable(),
+   labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
 index ab597b5ac..0b0599945 100644
 --- a/packages/protocol/src/tool-call-display.ts
