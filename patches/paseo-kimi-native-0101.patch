@@ -139,10 +139,10 @@ index 78007dba2..b037afcdf 100644
  
  export function isQuestionAnswered(
 diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
-index 630b001aa..fb88253ff 100644
+index 83120931d..f9ba2720f 100644
 --- a/packages/app/src/components/question-form-card.browser.test.tsx
 +++ b/packages/app/src/components/question-form-card.browser.test.tsx
-@@ -102,6 +102,14 @@ const singleSelectQuestion = {
+@@ -103,6 +103,14 @@ const singleSelectQuestion = {
    allowOther: true,
  };
  
@@ -157,7 +157,7 @@ index 630b001aa..fb88253ff 100644
  describe("QuestionFormCard other answers", () => {
    it("keeps checked options when the other answer is typed afterwards (multi-select)", () => {
      const card = mountCard(multiSelectQuestion);
-@@ -146,4 +154,13 @@ describe("QuestionFormCard other answers", () => {
+@@ -147,4 +155,13 @@ describe("QuestionFormCard other answers", () => {
      card.submit();
      expect(card.submittedAnswers()).toEqual({ Provider: "Codex" });
    });
@@ -1257,7 +1257,7 @@ index 10d670fca..f0b81d2c8 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index c6c267a38..bf9a888f0 100644
+index 9fdab3fa2..421684fce 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -150,6 +150,8 @@ export interface MessageInputProps {
@@ -1699,7 +1699,7 @@ index ec5682261..4ea4d11e7 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index e09d62f6a..22f7b9f59 100644
+index ff91ef85e..bee00c5bd 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,8 @@ import {
@@ -1720,7 +1720,7 @@ index e09d62f6a..22f7b9f59 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -2554,7 +2558,7 @@ export class AgentManager {
+@@ -2559,7 +2563,7 @@ export class AgentManager {
          pendingRun.start = { status: "failed", error: error.message };
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -1729,7 +1729,7 @@ index e09d62f6a..22f7b9f59 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -2572,7 +2576,7 @@ export class AgentManager {
+@@ -2577,7 +2581,7 @@ export class AgentManager {
          error: errorMsg,
        });
        this.finalizeForegroundTurn(agent);
@@ -1738,7 +1738,7 @@ index e09d62f6a..22f7b9f59 100644
        throw error;
      }
    }
-@@ -2702,7 +2706,7 @@ export class AgentManager {
+@@ -2707,7 +2711,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -1747,7 +1747,7 @@ index e09d62f6a..22f7b9f59 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -2761,6 +2765,24 @@ export class AgentManager {
+@@ -2766,6 +2770,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -1772,7 +1772,7 @@ index e09d62f6a..22f7b9f59 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3163,7 +3185,7 @@ export class AgentManager {
+@@ -3168,7 +3190,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -1781,7 +1781,7 @@ index e09d62f6a..22f7b9f59 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -3301,7 +3323,7 @@ export class AgentManager {
+@@ -3306,7 +3328,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -1790,7 +1790,7 @@ index e09d62f6a..22f7b9f59 100644
      }
    }
  
-@@ -3757,7 +3779,13 @@ export class AgentManager {
+@@ -3762,7 +3784,13 @@ export class AgentManager {
        workspaceId: options?.workspaceId,
        owner: options?.owner,
        session,
@@ -1805,7 +1805,7 @@ index e09d62f6a..22f7b9f59 100644
        config,
        runtimeInfo: undefined,
        lifecycle: "initializing",
-@@ -3891,9 +3919,28 @@ export class AgentManager {
+@@ -3896,9 +3924,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -1834,7 +1834,7 @@ index e09d62f6a..22f7b9f59 100644
            return;
          }
          this.logger.trace(
-@@ -4420,46 +4467,9 @@ export class AgentManager {
+@@ -4425,46 +4472,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -1883,7 +1883,7 @@ index e09d62f6a..22f7b9f59 100644
        case "timeline":
          return this.onStreamTimelineEvent({ agent, event, options, flags });
        case "turn_completed":
-@@ -4503,7 +4513,68 @@ export class AgentManager {
+@@ -4508,7 +4518,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2206,7 +2206,7 @@ index 34d36c9e1..8602106a3 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 33c969690..ed894413a 100644
+index a050aa907..7428262dc 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2683,7 +2683,7 @@ index 33c969690..ed894413a 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2652,30 +3038,136 @@ describe("ACPAgentSession", () => {
+@@ -2662,30 +3048,136 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -2841,7 +2841,7 @@ index 33c969690..ed894413a 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -2962,128 +3454,258 @@ describe("ACPAgentSession", () => {
+@@ -2972,128 +3464,258 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -3190,7 +3190,7 @@ index 33c969690..ed894413a 100644
      const events: AgentStreamEvent[] = [];
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
-@@ -3092,64 +3714,281 @@ describe("ACPAgentSession", () => {
+@@ -3102,64 +3724,281 @@ describe("ACPAgentSession", () => {
            resolvePrompt = resolve;
          }),
      );
@@ -3495,7 +3495,7 @@ index 33c969690..ed894413a 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3166,29 +4005,17 @@ describe("ACPAgentSession", () => {
+@@ -3176,29 +4015,17 @@ describe("ACPAgentSession", () => {
        sessionId: "session-1",
        update: {
          sessionUpdate: "user_message_chunk",
@@ -3528,7 +3528,7 @@ index 33c969690..ed894413a 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3200,27 +4027,12 @@ describe("ACPAgentSession", () => {
+@@ -3210,27 +4037,12 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -3558,7 +3558,7 @@ index 33c969690..ed894413a 100644
        } as SessionUpdate,
      });
  
-@@ -3229,10 +4041,10 @@ describe("ACPAgentSession", () => {
+@@ -3239,10 +4051,10 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -3571,7 +3571,7 @@ index 33c969690..ed894413a 100644
            messageId: "msg-client-1",
            clientMessageId: "msg-client-1",
          },
-@@ -3241,10 +4053,16 @@ describe("ACPAgentSession", () => {
+@@ -3251,10 +4063,16 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
@@ -3590,7 +3590,7 @@ index 33c969690..ed894413a 100644
  
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
      asInternals<ACPSessionInternals>(session).connection = { prompt };
-@@ -3253,22 +4071,24 @@ describe("ACPAgentSession", () => {
+@@ -3263,22 +4081,24 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -3622,7 +3622,7 @@ index 33c969690..ed894413a 100644
        } as SessionUpdate,
      });
  
-@@ -3277,8 +4097,159 @@ describe("ACPAgentSession", () => {
+@@ -3287,8 +4107,159 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -3784,7 +3784,7 @@ index 33c969690..ed894413a 100644
          turnId: expect.any(String),
        },
      ]);
-@@ -4520,3 +5491,977 @@ describe("custom ACP provider with configured models", () => {
+@@ -4530,3 +5501,977 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -6202,10 +6202,10 @@ index 823f941de..fdd5c946f 100644
  
  function readRecord(value: unknown): Record<string, unknown> | null {
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index d07b0572b..6623b5c86 100644
+index d6b869f1e..b597215d8 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -3493,6 +3493,634 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -3523,6 +3523,634 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -6841,7 +6841,7 @@ index d07b0572b..6623b5c86 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 8c5cc1a41..ed0ed9abd 100644
+index b12ab706d..1a42ea12d 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -31,9 +31,12 @@ import {
@@ -6865,7 +6865,7 @@ index 8c5cc1a41..ed0ed9abd 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2210,6 +2214,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2216,6 +2220,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -6897,7 +6897,7 @@ index 8c5cc1a41..ed0ed9abd 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2289,7 +2318,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2314,7 +2343,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -6906,7 +6906,7 @@ index 8c5cc1a41..ed0ed9abd 100644
      );
      const handle = options.handle;
  
-@@ -2621,7 +2650,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2646,7 +2675,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -6915,7 +6915,7 @@ index 8c5cc1a41..ed0ed9abd 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3457,6 +3486,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3485,6 +3514,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -6940,25 +6940,7 @@ index 8c5cc1a41..ed0ed9abd 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4357,16 +4404,7 @@ class ClaudeAgentSession implements AgentSession {
-     // Subagent identity and lifecycle are announced by Claude Code's task protocol, so they are
-     // read rather than inferred from sidechain frames. `task_started` precedes the child's first
-     // frame, so the descriptor exists before any timeline item lands on it.
--    const subagentObservations = this.taskProtocolSource.observe(message);
--    for (const event of foldSubagentObservations(subagentObservations)) {
--      events.push({ type: "provider_subagent", provider: "claude", event });
--    }
--    for (const observation of subagentObservations) {
--      if (observation.kind !== "declared") continue;
--      if (!this.taskProtocolSource.needsSyntheticParentToolCard(observation.id)) continue;
--      const card = this.buildSubagentToolCallCard(observation);
--      if (card) events.push(card);
--    }
-+    this.appendSubagentEvents(this.taskProtocolSource.observe(message), events);
-     if (message.type !== "system") {
-       const sessionCapture = this.captureSessionIdFromMessage(message);
-       if (sessionCapture.notice) {
-@@ -4387,6 +4425,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4416,6 +4463,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -6971,7 +6953,7 @@ index 8c5cc1a41..ed0ed9abd 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4404,6 +4448,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4433,6 +4486,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -6979,30 +6961,10 @@ index 8c5cc1a41..ed0ed9abd 100644
          break;
        }
        case "stream_event":
-@@ -4430,6 +4475,217 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4459,6 +4513,197 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
-+  /**
-+   * Announce the subagents one frame observed. The task protocol carries both their lifecycle and
-+   * a synthetic parent card for a child whose launching call the client never saw — the launching
-+   * sidechain already renders that call, so those are skipped.
-+   */
-+  private appendSubagentEvents(
-+    observations: readonly SubagentObservation[],
-+    events: AgentStreamEvent[],
-+  ): void {
-+    for (const event of foldSubagentObservations(observations)) {
-+      events.push({ type: "provider_subagent", provider: "claude", event });
-+    }
-+    for (const observation of observations) {
-+      if (observation.kind !== "declared") continue;
-+      if (!this.taskProtocolSource.needsSyntheticParentToolCard(observation.id)) continue;
-+      const card = this.buildSubagentToolCallCard(observation);
-+      if (card) events.push(card);
-+    }
-+  }
-+
 +  /**
 +   * Claude's own goal, read off the SDK message stream.
 +   *
@@ -7197,7 +7159,7 @@ index 8c5cc1a41..ed0ed9abd 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -4751,6 +5007,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4780,6 +5025,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7205,7 +7167,7 @@ index 8c5cc1a41..ed0ed9abd 100644
      const usage = this.convertUsage(message);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -6140,6 +6397,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -6191,6 +6437,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
@@ -7353,7 +7315,7 @@ index 8c5cc1a41..ed0ed9abd 100644
    contents: string[];
    workflowContents: string[];
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 16d13b9d6..d9b397038 100644
+index 0daa5e533..b1054b4cd 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -20,6 +20,8 @@ import {
@@ -7365,7 +7327,7 @@ index 16d13b9d6..d9b397038 100644
  } from "./models.js";
  
  describe("getClaudeContextWindowMaxTokens", () => {
-@@ -990,3 +992,77 @@ describe("Claude model discovery process", () => {
+@@ -1017,3 +1019,77 @@ describe("Claude model discovery process", () => {
      expect(closed).toBe(true);
    });
  });
