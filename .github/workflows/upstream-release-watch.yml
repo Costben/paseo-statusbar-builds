@@ -1,0 +1,218 @@
+name: Watch upstream releases
+
+# Starts all three builds as soon as upstream publishes a tag this repo has not
+# built yet. GitHub cannot deliver getpaseo/paseo events here, so "as soon as"
+# means "within one poll interval" — 15 minutes, against the 6-hour Android poll
+# that used to gate the whole chain.
+#
+# One run resolves the tag once and dispatches every stage that is missing
+# artifacts, all with the same explicit `tag`, so the three queue together
+# instead of one waiting for another. The desktop pair still share
+# `concurrency: paseo-desktop-builds-v1` and run in sequence; Android has its own
+# group and runs alongside them.
+#
+# The Release is created here, before dispatching. Three builds starting at once
+# would otherwise race on `gh release create` and the losers would fail on
+# "already exists".
+#
+# The per-workflow schedules and the existing `workflow_run` chain stay in place
+# as the safety net: each stage self-checks its Release assets, so a fallback run
+# only fills in what is actually missing.
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *" # every 15 minutes, off the hour marks
+  workflow_dispatch:
+
+concurrency:
+  group: upstream-release-watch-v1
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  UPSTREAM_REPO: getpaseo/paseo
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve the highest upstream release
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Same rule the build workflows use: the highest SemVer release, not the
+          # most recently published one, so a hotfix on an older line cannot drag
+          # this back a version.
+          release="$(gh api "repos/${UPSTREAM_REPO}/releases?per_page=30" | jq -c '
+            def zpad10: tostring | ("0000000000" + .)[-10:];
+            def semver_key:
+              sub("^(desktop(-(windows|linux|macos))?|android)-"; "")
+              | sub("^v"; "")
+              | capture("^(?<core>[0-9]+\\.[0-9]+\\.[0-9]+)(?:-(?<pre>[0-9A-Za-z.-]+))?(?:\\+(?<build>[0-9A-Za-z.-]+))?$")
+              | (.core | split(".") | map(tonumber | zpad10) | join(".")) as $core
+              | (if (.pre // "") == ""
+                 then "{"
+                 else ([.pre | split(".")[] | if test("^[0-9]+$") then ("0" + (tonumber | zpad10)) else ("1" + .) end] | join(".")) + ".-"
+                 end) as $pre
+              | "\($core)-\($pre)";
+            [ .[]
+              | select(.draft == false)
+              | . + { _k: (.tag_name | try semver_key catch null) }
+              | select(._k != null)
+            ]
+            | if length == 0 then null else (max_by(._k) | del(._k)) end
+          ')"
+          tag="$(jq -r '.tag_name // empty' <<< "$release")"
+          is_prerelease="$(jq -r '.prerelease // false' <<< "$release")"
+          if [ -z "$tag" ]; then
+            echo "Could not resolve an upstream tag." >&2
+            exit 1
+          fi
+          version="$(printf '%s' "$tag" | sed -E 's/^(desktop(-(windows|linux|macos))?|android)-v/v/; s/^v//')"
+          echo "Upstream $tag -> version $version (prerelease=$is_prerelease)"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "release_tag=v$version"
+            echo "is_prerelease=$is_prerelease"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find what this repo's Release is missing
+        id: missing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.pick.outputs.tag }}"
+          version="${{ steps.pick.outputs.version }}"
+          release_tag="${{ steps.pick.outputs.release_tag }}"
+          assets="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
+          has() { grep -Fxq "$1" <<< "$assets"; }
+
+          need_android=false
+          has "paseo-${tag}-statusbar-fixed.apk" || need_android=true
+
+          # The updater installs from the .zip, and the yml manifests are what
+          # point it there, so a stage counts as done only when every asset it
+          # publishes is present.
+          need_macos=false
+          for name in "Paseo-${version}-arm64.dmg" "Paseo-${version}-arm64.zip" \
+                      "latest-mac.yml" "beta-mac.yml"; do
+            has "$name" || need_macos=true
+          done
+
+          need_windows=false
+          for name in "Paseo-Setup-${version}-x64.exe" "latest.yml" "beta.yml"; do
+            has "$name" || need_windows=true
+          done
+
+          any=false
+          if [ "$need_android" = true ] || [ "$need_macos" = true ] || [ "$need_windows" = true ]; then
+            any=true
+          fi
+          echo "android=$need_android macos=$need_macos windows=$need_windows any=$any"
+          {
+            echo "android=$need_android"
+            echo "macos=$need_macos"
+            echo "windows=$need_windows"
+            echo "any=$any"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Hold off while a build is running or was just attempted
+        id: gate
+        if: steps.missing.outputs.any == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cutoff="$(date -u -d '60 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+
+          # A stage that is already queued or running will publish on its own.
+          busy="$(gh run list --repo "$GITHUB_REPOSITORY" --limit 50 \
+            --json workflowName,status \
+            | jq -r '[.[] | select(.status == "in_progress" or .status == "queued")
+                     | select(.workflowName == "Build status-bar-fixed Paseo APK"
+                              or .workflowName == "Build patched Paseo for macOS"
+                              or .workflowName == "Build patched Paseo for Windows")
+                     | .workflowName] | unique | join(",")')"
+          if [ -n "$busy" ]; then
+            echo "Builds already running: $busy — waiting for them."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A build that failed minutes ago is retried on an hourly cadence, not
+          # every tick: 15-minute retries would fill the Actions log with the
+          # same red run while the cause is still being fixed.
+          allowed() {
+            local workflow="$1" flag="$2"
+            if [ "$flag" != "true" ]; then echo "false"; return; fi
+            local recent
+            recent="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow "$workflow" --limit 10 \
+              --json createdAt | jq --arg cutoff "$cutoff" '[.[] | select(.createdAt >= $cutoff)] | length')"
+            if [ "$recent" -gt 0 ]; then echo "false"; else echo "true"; fi
+          }
+
+          android="$(allowed statusbar-build.yml "${{ steps.missing.outputs.android }}")"
+          macos="$(allowed desktop-macos-build.yml "${{ steps.missing.outputs.macos }}")"
+          windows="$(allowed desktop-windows-build.yml "${{ steps.missing.outputs.windows }}")"
+
+          skip=true
+          if [ "$android" = true ] || [ "$macos" = true ] || [ "$windows" = true ]; then
+            skip=false
+          fi
+          echo "dispatch: android=$android macos=$macos windows=$windows skip=$skip"
+          {
+            echo "android=$android"
+            echo "macos=$macos"
+            echo "windows=$windows"
+            echo "skip=$skip"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create the Release before dispatching
+        if: steps.missing.outputs.any == 'true' && steps.gate.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.pick.outputs.tag }}
+          RELEASE_TAG: ${{ steps.pick.outputs.release_tag }}
+          IS_PRERELEASE: ${{ steps.pick.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists."
+            exit 0
+          fi
+          args=(release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Paseo $RELEASE_TAG (status bar fixed + Kimi support)" \
+            --notes "Automated build of upstream ${UPSTREAM_REPO}@${TAG}.")
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh "${args[@]}"
+
+      - name: Dispatch the missing builds
+        if: steps.missing.outputs.any == 'true' && steps.gate.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.pick.outputs.tag }}
+          ANDROID: ${{ steps.gate.outputs.android }}
+          MACOS: ${{ steps.gate.outputs.macos }}
+          WINDOWS: ${{ steps.gate.outputs.windows }}
+        run: |
+          set -euo pipefail
+          dispatch() {
+            local workflow="$1" flag="$2"
+            if [ "$flag" != "true" ]; then return; fi
+            echo "Dispatching $workflow for $TAG"
+            gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
+          }
+          dispatch statusbar-build.yml "$ANDROID"
+          dispatch desktop-macos-build.yml "$MACOS"
+          dispatch desktop-windows-build.yml "$WINDOWS"
