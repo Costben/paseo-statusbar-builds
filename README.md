@@ -35,24 +35,30 @@ Agent-facing conventions — commit scopes, which workflow to run — live in
 ## How it works
 
 ```
-schedule (every 6h)  ─┐
-workflow_dispatch     ─┴─► resolve latest upstream release tag
+schedule (every 15m) ─┐
+workflow_dispatch     ─┴─► resolve the highest upstream release tag
                             │
-                            ├─ already released here? ─► skip
+                            ├─ this repo's Release has every asset? ─► skip
                             │
-                            └─ new tag ─► checkout upstream@tag
-                                          apply status bar patch (2 files)
-                                          npm ci → build:workspace-deps
-                                          expo prebuild → gradle assembleRelease (universal 4-ABI)
-                                          upload paseo-<tag>-statusbar-fixed.apk
-                                          to this repo's Release
+                            └─ missing assets ─► create the Release
+                                                 │
+                                                 ├─ dispatch statusbar-build.yml        (APK)
+                                                 ├─ dispatch desktop-macos-build.yml    (.dmg/.zip + manifests)
+                                                 └─ dispatch desktop-windows-build.yml  (.exe + manifests)
 ```
+
+Each dispatched stage then runs its own resolve → checkout upstream@tag →
+apply patch → build → upload to the same Release. The stages that are already
+complete are not dispatched at all, so a late-arriving APK does not force a
+desktop rebuild.
 
 ### Why polling, not "on upstream push"
 GitHub only delivers workflow-triggering events for repos you own. An upstream
-release in `getpaseo/paseo` cannot trigger Actions here, so the workflow polls
-the releases API on a schedule. "Auto" means "checked every 6 hours," not
-"instant on upstream merge."
+release in `getpaseo/paseo` cannot trigger Actions here, so the workflows poll
+the releases API on a schedule. "Auto" means "checked every 15 minutes," not
+"instant on upstream merge." The per-stage schedules (6h for the APK, daily for
+each desktop) remain as the safety net for when the watcher is disabled or a
+stage fails and needs a repair pass.
 
 ## The patch
 
@@ -105,8 +111,8 @@ adb install -r paseo-<tag>-statusbar-fixed.apk
 ```
 
 Confirm the status/navigation bar renders edge-to-edge and that the APK installs
-over a previous build. Once a manual run is green, the 6-hourly schedule will
-pick up each new upstream release on its own.
+over a previous build. Once a manual run is green, the release watcher picks up
+each new upstream release on its own and starts all three stages.
 
 ## Maintenance
 
@@ -121,11 +127,17 @@ pick up each new upstream release on its own.
 
 ## Knobs
 
-- **Build cadence**: edit the `cron` in `statusbar-build.yml` (currently
-  `17 */6 * * *`).
-- **Prereleases only**: the resolver currently picks the latest non-draft
+- **How fast a release is picked up**: edit the `cron` in
+  `upstream-release-watch.yml` (currently `7,22,37,52 * * * *`, every 15
+  minutes). That is the latency between an upstream release and all three builds
+  starting.
+- **Whole-repo poll cadence**: the per-stage schedules in `statusbar-build.yml`
+  (`17 */6 * * *`) and the two desktop workflows are the safety net, not the
+  main trigger. Shorten them only if the watcher is expected to stay off.
+- **Prereleases only**: the resolver currently picks the highest non-draft
   release, including stable releases and prereleases. To build prereleases only,
-  add a `.prerelease == true` filter in the `Resolve upstream tag` step.
+  add a `.prerelease == true` filter in the resolve step — the same block exists
+  in the watcher and in all three build workflows.
 - **Rebuild an existing tag**: run manually with `force: true`.
 - **Android architecture**: builds are universal (including `armeabi-v7a`, `arm64-v8a`, `x86`, `x86_64`) matching official releases.
 
@@ -158,36 +170,43 @@ from the upstream tag; the `version` input overrides it, which is how this repo
 publishes a build of its own — see "Publishing a version of our own".
 
 ```
-statusbar-build.yml          schedule */6h
-   └─ workflow_run: completed ──▶ desktop-macos-build.yml   (+ daily 04:43 safety net)
-        └─ workflow_run: completed ──▶ desktop-windows-build.yml  (+ daily 06:23 safety net)
+upstream-release-watch.yml   schedule */15m
+   ├─ dispatch ──▶ statusbar-build.yml            (+ 6h safety net)
+   ├─ dispatch ──▶ desktop-macos-build.yml        (+ daily 04:43 safety net)
+   └─ dispatch ──▶ desktop-windows-build.yml      (+ daily 06:23 safety net)
+
+fallback, still wired: statusbar-build.yml ──workflow_run──▶ desktop-macos-build.yml
+                                                          └──workflow_run──▶ desktop-windows-build.yml
 ```
 
-## Why three workflows and not one
+## Why four workflows and not one
 
-- **Ordered, not parallel.** Each stage triggers the next on `workflow_run:
-  completed`. GitHub cannot deliver upstream `getpaseo/paseo` events here, so the
-  chain starts from the existing scheduled Android workflow, which owns the
-  polling.
-- **`workflow_run` is declared by the *downstream* workflow**, so `statusbar-
-  build.yml` needed no changes at all.
+- **One entry point, three stages.** `upstream-release-watch.yml` resolves the
+  tag once and dispatches every stage that is missing artifacts, all with the
+  same explicit `tag`, so the three start together instead of one waiting out the
+  other's build. The desktop pair still share `concurrency:
+  paseo-desktop-builds-v1` and therefore run in sequence; Android has its own
+  group and runs alongside them.
+- **The watcher creates the Release.** Three builds dispatched at once would
+  otherwise race on `gh release create`, and the two losers would fail the job.
+- **The `workflow_run` chain stays as the fallback.** If the watcher is disabled
+  or its dispatch fails, the APK's own schedule still triggers macOS, which still
+  triggers Windows; each stage self-checks and only fills in what is missing.
 - **Same repo, not two more repos.** A Release is a single bucket: splitting
   desktop builds into their own repos would scatter one version's downloads
-  across three release pages. The desktop workflows share
-  `concurrency: paseo-desktop-builds-v1` so they never write to the same Release
-  at once; the Android workflow has its own group and stays independently
-  runnable.
+  across three release pages. A rebuild overwrites by filename, and no two stages
+  publish the same name.
 - **Every stage self-checks.** `resolve` lists the Release's assets and only
-  builds what is actually missing, so the daily schedule is a repair pass, not a
+  builds what is actually missing, so a schedule is a repair pass, not a
   duplicate build. A failed Android run does not block macOS or Windows — the
   three are independent, and a partial release is better than none.
 - `statusbar-build.yml` is the only workflow with a `Keepalive` step. GitHub
   disables idle *scheduled* workflows per repository, so one live commit stream
-  keeps all three schedules alive.
+  keeps all four schedules alive.
 
 ## Which stages a change needs
 
-The chain exists to propagate a **new upstream tag**, not to rebuild everything
+The pipeline exists to propagate a **new upstream tag**, not to rebuild everything
 for every commit. Each stage applies a different patch set, so a change usually
 needs only some of the three:
 
@@ -234,8 +253,10 @@ below). The protocol hunk travels with it, because the app resolves
 
 A downstream `workflow_run` is dispatched with no inputs, so `force` is empty on
 the chained run, the guard in its `resolve` job finds the artifacts already
-present, and the stage skips. Patch-only work therefore has to skip the chain and
-trigger each desktop stage directly:
+present, and the stage skips. The release watcher only fires for a tag whose
+assets are missing, so it never touches an already-published Release either.
+Patch-only work therefore has to skip both and trigger each desktop stage
+directly:
 
 ```
 gh workflow run desktop-macos-build.yml -f tag=v0.10.0-beta.1 -f version=0.10.0-beta.1 -f force=true
