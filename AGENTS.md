@@ -51,6 +51,10 @@ There is no local test suite; the workflows are the validator.
   `gh workflow run desktop-macos-build.yml --repo Costben/paseo-statusbar-builds --ref main -f tag=<tag>`
 - Windows chains off the macOS workflow via `workflow_run`. Do not dispatch it by
   hand — that races the chain.
+- A new upstream tag is not picked up by hand: `upstream-release-watch.yml` polls
+  every 15 minutes, creates the Release, and dispatches every stage whose assets
+  are missing. Dispatch a stage by hand only for patch-only work, and only with
+  `force=true`.
 - `-f verify_only=true` re-checks assets that are already published (mounts each
   `.dmg`, expands each `.zip`, compares each manifest's `sha512`) without
   rebuilding or publishing.
