@@ -35,7 +35,7 @@ Agent-facing conventions — commit scopes, which workflow to run — live in
 ## How it works
 
 ```
-schedule (every 15m) ─┐
+schedule (every 30m) ─┐
 workflow_dispatch     ─┴─► resolve the highest upstream release tag
                             │
                             ├─ this repo's Release has every asset? ─► skip
@@ -55,7 +55,7 @@ desktop rebuild.
 ### Why polling, not "on upstream push"
 GitHub only delivers workflow-triggering events for repos you own. An upstream
 release in `getpaseo/paseo` cannot trigger Actions here, so the workflows poll
-the releases API on a schedule. "Auto" means "checked every 15 minutes," not
+the releases API on a schedule. "Auto" means "checked every 30 minutes," not
 "instant on upstream merge." The per-stage schedules (6h for the APK, daily for
 each desktop) remain as the safety net for when the watcher is disabled or a
 stage fails and needs a repair pass.
@@ -128,7 +128,7 @@ each new upstream release on its own and starts all three stages.
 ## Knobs
 
 - **How fast a release is picked up**: edit the `cron` in
-  `upstream-release-watch.yml` (currently `7,22,37,52 * * * *`, every 15
+  `upstream-release-watch.yml` (currently `7,37 * * * *`, every 30
   minutes). That is the latency between an upstream release and all three builds
   starting.
 - **Whole-repo poll cadence**: the per-stage schedules in `statusbar-build.yml`
@@ -170,7 +170,7 @@ from the upstream tag; the `version` input overrides it, which is how this repo
 publishes a build of its own — see "Publishing a version of our own".
 
 ```
-upstream-release-watch.yml   schedule */15m
+upstream-release-watch.yml   schedule */30m
    ├─ dispatch ──▶ statusbar-build.yml            (+ 6h safety net)
    ├─ dispatch ──▶ desktop-macos-build.yml        (+ daily 04:43 safety net)
    └─ dispatch ──▶ desktop-windows-build.yml      (+ daily 06:23 safety net)
