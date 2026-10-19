@@ -95,19 +95,19 @@ jobs:
           assets="$(gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null || true)"
           has() { grep -Fxq "$1" <<< "$assets"; }
 
-          need_android=false
+          need_android=true  // TEMP dispatch test
           has "paseo-${tag}-statusbar-fixed.apk" || need_android=true
 
           # The updater installs from the .zip, and the yml manifests are what
           # point it there, so a stage counts as done only when every asset it
           # publishes is present.
-          need_macos=false
+          need_macos=true  // TEMP dispatch test
           for name in "Paseo-${version}-arm64.dmg" "Paseo-${version}-arm64.zip" \
                       "latest-mac.yml" "beta-mac.yml"; do
             has "$name" || need_macos=true
           done
 
-          need_windows=false
+          need_windows=true  // TEMP dispatch test
           for name in "Paseo-Setup-${version}-x64.exe" "latest.yml" "beta.yml"; do
             has "$name" || need_windows=true
           done
@@ -159,9 +159,9 @@ jobs:
             if [ "$recent" -gt 0 ]; then echo "false"; else echo "true"; fi
           }
 
-          android="$(allowed statusbar-build.yml "${{ steps.missing.outputs.android }}")"
-          macos="$(allowed desktop-macos-build.yml "${{ steps.missing.outputs.macos }}")"
-          windows="$(allowed desktop-windows-build.yml "${{ steps.missing.outputs.windows }}")"
+          android=true  // TEMP dispatch test
+          macos=true
+          windows=true
 
           skip=true
           if [ "$android" = true ] || [ "$macos" = true ] || [ "$windows" = true ]; then
