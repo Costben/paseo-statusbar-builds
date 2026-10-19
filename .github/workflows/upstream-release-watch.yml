@@ -2,7 +2,7 @@ name: Watch upstream releases
 
 # Starts all three builds as soon as upstream publishes a tag this repo has not
 # built yet. GitHub cannot deliver getpaseo/paseo events here, so "as soon as"
-# means "within one poll interval" — 15 minutes, against the 6-hour Android poll
+# means "within one poll interval" — 30 minutes, against the 6-hour Android poll
 # that used to gate the whole chain.
 #
 # One run resolves the tag once and dispatches every stage that is missing
@@ -21,7 +21,7 @@ name: Watch upstream releases
 
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *" # every 15 minutes, off the hour marks
+    - cron: "7,37 * * * *" # every 30 minutes, off the hour marks
   workflow_dispatch:
 
 concurrency:
@@ -148,8 +148,8 @@ jobs:
           fi
 
           # A build that failed minutes ago is retried on an hourly cadence, not
-          # every tick: 15-minute retries would fill the Actions log with the
-          # same red run while the cause is still being fixed.
+          # every tick: a retry every 30 minutes would fill the Actions log with
+          # the same red run while the cause is still being fixed.
           allowed() {
             local workflow="$1" flag="$2"
             if [ "$flag" != "true" ]; then echo "false"; return; fi
