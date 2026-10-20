@@ -366,6 +366,384 @@ index 000000000..612c2a3e4
 +    </View>
 +  );
 +}
+diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
+index 4b6407c87..037066ecc 100644
+--- a/packages/app/src/composer/dock/index.native.tsx
++++ b/packages/app/src/composer/dock/index.native.tsx
+@@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
+ import { HEADER_INNER_HEIGHT } from "@/constants/layout";
+ import { resolveContentMaxWidth, useAppSettings } from "@/hooks/use-settings";
+ import { KeyboardTranslateView } from "@/keyboard/shift";
+-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
++import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+ import { View, type LayoutChangeEvent, type ViewProps, StyleSheet } from "react-native";
+ import { StyleSheet as ThemedStyleSheet } from "react-native-unistyles";
+ import Animated, {
+@@ -23,6 +23,7 @@ import {
+   updateComposerCapacity,
+   type ComposerCapacity,
+ } from "./internal/capacity";
++import { ComposerChromeContext, updateChromeHeight } from "./internal/chrome";
+ 
+ const ViewportSizing = createContext<SharedValue<ComposerCapacity | undefined> | null>(null);
+ 
+@@ -71,20 +72,28 @@ function ComposerViewport({
+   );
+ }
+ 
+-/** Bound the complete composer (including its controls), not just the text input. */
++/** Bound the complete composer (including its controls and the chrome above it), not just the text input. */
+ function ComposerViewportContent({
+   style,
+   fullscreen = false,
++  chrome,
+   ...props
+-}: ViewProps & { fullscreen?: boolean }) {
++}: ViewProps & { fullscreen?: boolean; chrome?: SharedValue<number> }) {
+   const compact = useIsCompactFormFactor();
+   const sizing = useContext(ViewportSizing);
+   if (!sizing) throw new Error("ComposerViewportContent requires ComposerViewport");
+-  const constraint = useAnimatedStyle(() => ({
+-    // Only viewport changes and keyboard start/end events trigger layout. Motion
+-    // stays in KeyboardTranslateView and never changes this constraint per frame.
+-    maxHeight: resolveComposerSlotCapacity(sizing.value, { compact, fullscreen }),
+-  }));
++  const constraint = useAnimatedStyle(() => {
++    // Only viewport changes, keyboard start/end events, and a chrome report trigger
++    // layout. Motion stays in KeyboardTranslateView and never changes this per frame.
++    const chromeHeight = chrome ? chrome.value : 0;
++    return {
++      maxHeight: resolveComposerSlotCapacity(sizing.value, {
++        compact,
++        fullscreen,
++        chrome: chromeHeight,
++      }),
++    };
++  });
+ 
+   return (
+     <Animated.View testID="composer-viewport-content" {...props} style={[style, constraint]} />
+@@ -129,6 +138,17 @@ export function ComposerDock({
+   const insets = useSafeAreaInsets();
+   const contentMaxWidth = resolveContentMaxWidth(useAppSettings().settings);
+   const centeredClearance = useCenteredClearance(insets.bottom);
++  // Chrome the composer reports above its editing area. The compact cap budgets the
++  // text, so the tray and the import pill add to it rather than squeeze it.
++  const chrome = useSharedValue(0);
++  const chromeHeights = useRef(new Map<string, number>());
++  const reportChrome = useCallback(
++    (key: string, height: number) => {
++      const total = updateChromeHeight(chromeHeights.current, key, height);
++      if (chrome.value !== total) chrome.value = total;
++    },
++    [chrome],
++  );
+   // Preserve the existing centered form's visual balance on tablets.
+   const bottomInset = centered && !fullscreen ? HEADER_INNER_HEIGHT + 24 : 0;
+   const fullscreenSurface = [
+@@ -175,8 +195,13 @@ export function ComposerDock({
+             <ComposerViewportContent
+               style={fullscreen ? dockStyles.surface : dockStyles.centeredComposer}
+               fullscreen={fullscreen}
++              chrome={chrome}
+             >
+-              <View style={fullscreen ? fullscreenSurface : dockStyles.composer}>{composer}</View>
++              <ComposerChromeContext.Provider value={reportChrome}>
++                <View style={fullscreen ? fullscreenSurface : dockStyles.composer}>
++                  {composer}
++                </View>
++              </ComposerChromeContext.Provider>
+             </ComposerViewportContent>
+           </ComposerViewportContent>
+           {overlay}
+@@ -203,16 +228,19 @@ export function ComposerDock({
+         <ComposerViewportContent
+           style={fullscreen ? dockStyles.fullscreenSlot : dockStyles.composer}
+           fullscreen={fullscreen}
++          chrome={chrome}
+         >
+-          <View
+-            style={
+-              fullscreen
+-                ? fullscreenSurface
+-                : [dockStyles.composer, { paddingBottom: insets.bottom }]
+-            }
+-          >
+-            {composer}
+-          </View>
++          <ComposerChromeContext.Provider value={reportChrome}>
++            <View
++              style={
++                fullscreen
++                  ? fullscreenSurface
++                  : [dockStyles.composer, { paddingBottom: insets.bottom }]
++              }
++            >
++              {composer}
++            </View>
++          </ComposerChromeContext.Provider>
+         </ComposerViewportContent>
+         {overlay}
+       </KeyboardTranslateView>
+diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
+index 421002352..28757223e 100644
+--- a/packages/app/src/composer/dock/index.tsx
++++ b/packages/app/src/composer/dock/index.tsx
+@@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
+ import { View } from "react-native";
+ import { StyleSheet } from "react-native-unistyles";
+ import { resolveInlineComposerCapacity } from "./internal/capacity";
++import { ComposerChromeContext, updateChromeHeight } from "./internal/chrome";
+ import { useFullscreenSlotFrame } from "./internal/fullscreen";
+ import { useIsCompactFormFactor } from "@/constants/layout";
+ import { HEADER_INNER_HEIGHT } from "@/constants/layout";
+@@ -25,10 +26,18 @@ export function ComposerDock({
+   const [surfaceSize, setSurfaceSize] = useState<{ width: number; height: number }>();
+   const surfaceRef = useRef<View>(null);
+   const fullscreenFrame = useFullscreenSlotFrame(fullscreen, surfaceRef, surfaceSize);
+-  const constraint = useMemo(
+-    () => ({ maxHeight: resolveInlineComposerCapacity(surfaceSize?.height, compact) }),
+-    [surfaceSize?.height, compact],
+-  );
++  // Chrome the composer reports above its editing area. The compact cap budgets the
++  // text, so the tray and the import pill add to it rather than squeeze it.
++  const [chrome, setChrome] = useState(0);
++  const chromeHeights = useRef(new Map<string, number>());
++  const reportChrome = useCallback((key: string, height: number) => {
++    const total = updateChromeHeight(chromeHeights.current, key, height);
++    setChrome((current) => (current === total ? current : total));
++  }, []);
++  const constraint = useMemo(() => {
++    const editing = resolveInlineComposerCapacity(surfaceSize?.height, compact);
++    return { maxHeight: editing === undefined ? undefined : editing + chrome };
++  }, [surfaceSize?.height, compact, chrome]);
+   const measureViewport = useCallback((event: import("react-native").LayoutChangeEvent) => {
+     const { width, height } = event.nativeEvent.layout;
+     if (height > 0) setSurfaceSize({ width, height });
+@@ -47,7 +56,9 @@ export function ComposerDock({
+                 : [styles.centeredComposer, constraint]
+             }
+           >
+-            {composer}
++            <ComposerChromeContext.Provider value={reportChrome}>
++              {composer}
++            </ComposerChromeContext.Provider>
+           </View>
+           {overlay}
+         </View>
+@@ -62,7 +73,9 @@ export function ComposerDock({
+           fullscreen ? [styles.fullscreenComposer, fullscreenFrame] : [styles.composer, constraint]
+         }
+       >
+-        {composer}
++        <ComposerChromeContext.Provider value={reportChrome}>
++          {composer}
++        </ComposerChromeContext.Provider>
+       </View>
+       {overlay}
+     </View>
+diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
+index 44e79e6ef..633dfe3de 100644
+--- a/packages/app/src/composer/dock/internal/capacity.test.ts
++++ b/packages/app/src/composer/dock/internal/capacity.test.ts
+@@ -159,3 +159,42 @@ describe("composer viewport", () => {
+     ).toBe(95);
+   });
+ });
++
++describe("composer slot chrome", () => {
++  const open = updateComposerCapacity(undefined, {
++    height: 582,
++    bottomInset: 24,
++    safeAreaBottom: 0,
++    centered: false,
++    keyboardShift: 308,
++  });
++
++  it("adds the tray and the import pill on top of the editing budget", () => {
++    expect(resolveComposerSlotCapacity(open, { compact: true, fullscreen: false })).toBe(147);
++    expect(
++      resolveComposerSlotCapacity(open, { compact: true, fullscreen: false, chrome: 60 }),
++    ).toBe(207);
++  });
++
++  it("leaves the editing budget untouched by chrome", () => {
++    const withoutChrome = resolveComposerSlotCapacity(open, { compact: true, fullscreen: false })!;
++    const withChrome = resolveComposerSlotCapacity(open, {
++      compact: true,
++      fullscreen: false,
++      chrome: 60,
++    })!;
++    expect(withChrome - withoutChrome).toBe(60);
++  });
++
++  it("ignores chrome in fullscreen, which fills the viewport", () => {
++    expect(
++      resolveComposerSlotCapacity(open, { compact: true, fullscreen: true, chrome: 60 }),
++    ).toBe(582);
++  });
++
++  it("treats a negative chrome as none", () => {
++    expect(
++      resolveComposerSlotCapacity(open, { compact: true, fullscreen: false, chrome: -20 }),
++    ).toBe(147);
++  });
++});
+diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
+index 9c460e172..6a1a4e12b 100644
+--- a/packages/app/src/composer/dock/internal/capacity.ts
++++ b/packages/app/src/composer/dock/internal/capacity.ts
+@@ -67,6 +67,13 @@ export function resolveInlineComposerCapacity(
+ export interface ComposerSlotLayout {
+   compact: boolean;
+   fullscreen: boolean;
++  /**
++   * Height of everything the composer shows above its editing area — the
++   * attachment tray, the import pill. The compact cap budgets the editing area,
++   * so this chrome adds to it; charging the chrome to the same budget left the
++   * text one line high and painted its overflow over the toolbar.
++   */
++  chrome?: number;
+ }
+ 
+ /** The bound on the composer slot: inline capacity, or the whole viewport in fullscreen. */
+@@ -77,5 +84,7 @@ export function resolveComposerSlotCapacity(
+   "worklet";
+   if (sizing === undefined) return undefined;
+   if (layout.fullscreen) return sizing.viewportHeight;
+-  return resolveInlineComposerCapacity(sizing.capacity, layout.compact);
++  const editing = resolveInlineComposerCapacity(sizing.capacity, layout.compact);
++  if (editing === undefined) return undefined;
++  return editing + Math.max(0, layout.chrome ?? 0);
+ }
+diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
+new file mode 100644
+index 000000000..a0de3d897
+--- /dev/null
++++ b/packages/app/src/composer/dock/internal/chrome.test.ts
+@@ -0,0 +1,31 @@
++import { describe, expect, it } from "vitest";
++import { updateChromeHeight } from "./chrome";
++
++describe("composer chrome totals", () => {
++  it("adds each reported row to the total", () => {
++    const heights = new Map<string, number>();
++    expect(updateChromeHeight(heights, "attachment-tray", 60)).toBe(60);
++    expect(updateChromeHeight(heights, "import-pill", 44)).toBe(104);
++  });
++
++  it("replaces a row instead of adding it twice", () => {
++    const heights = new Map<string, number>();
++    updateChromeHeight(heights, "attachment-tray", 60);
++    expect(updateChromeHeight(heights, "attachment-tray", 120)).toBe(120);
++    expect(updateChromeHeight(heights, "attachment-tray", 120)).toBe(120);
++  });
++
++  it("drops a row that reports zero", () => {
++    const heights = new Map<string, number>();
++    updateChromeHeight(heights, "attachment-tray", 60);
++    updateChromeHeight(heights, "import-pill", 44);
++    expect(updateChromeHeight(heights, "attachment-tray", 0)).toBe(44);
++    expect(heights.has("attachment-tray")).toBe(false);
++  });
++
++  it("treats a negative height as absent", () => {
++    const heights = new Map<string, number>();
++    expect(updateChromeHeight(heights, "attachment-tray", -20)).toBe(0);
++    expect(heights.size).toBe(0);
++  });
++});
+diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
+new file mode 100644
+index 000000000..cd3cc0318
+--- /dev/null
++++ b/packages/app/src/composer/dock/internal/chrome.ts
+@@ -0,0 +1,35 @@
++import { createContext, useContext } from "react";
++
++/**
++ * Reports the height of composer chrome that sits above the editing area — the
++ * attachment tray, the import pill. The dock adds the sum to the compact cap, so
++ * attachments grow the shell by their own height instead of coming out of the
++ * text's budget.
++ *
++ * Keyed because the composer and the draft tab each own a row; the last height a
++ * key reports replaces its previous one, and `0` removes it.
++ */
++export type ComposerChromeSink = (key: string, height: number) => void;
++
++export const ComposerChromeContext = createContext<ComposerChromeSink | null>(null);
++
++export function useComposerChromeSink(): ComposerChromeSink | null {
++  return useContext(ComposerChromeContext);
++}
++
++/** Apply one report and return the total the dock should add to its cap. */
++export function updateChromeHeight(
++  heights: Map<string, number>,
++  key: string,
++  height: number,
++): number {
++  const next = Math.max(0, height);
++  if (next === 0) {
++    heights.delete(key);
++  } else {
++    heights.set(key, next);
++  }
++  let total = 0;
++  for (const value of heights.values()) total += value;
++  return total;
++}
+diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
+index 27ca8b8af..b2fe0c604 100644
+--- a/packages/app/src/composer/draft/workspace-tab.tsx
++++ b/packages/app/src/composer/draft/workspace-tab.tsx
+@@ -9,6 +9,7 @@ import { Composer } from "@/composer";
+ import { useComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
+ import { FileDropZone } from "@/components/file-drop/file-drop-zone";
+ import { ComposerImportPill } from "@/composer/draft/import-pill";
++import { useComposerChromeSink } from "@/composer/dock/internal/chrome";
+ import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
+ import { AgentStreamView } from "@/agent-stream/view";
+ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
+@@ -593,6 +594,26 @@ export function WorkspaceDraftAgentTab({
+     focusInputRef.current?.();
+   }, []);
+   const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
++  // The pill row is composer chrome: the dock adds its height to the compact cap so
++  // the text keeps the budget it had before the pill appeared.
++  const chromeSink = useComposerChromeSink();
++  const showImportPill = Boolean(importPillPress) && !isComposerFullscreen;
++  const handleImportPillLayout = useCallback(
++    (event: import("react-native").LayoutChangeEvent) => {
++      chromeSink?.("import-pill", event.nativeEvent.layout.height);
++    },
++    [chromeSink],
++  );
++  useEffect(() => {
++    if (showImportPill) return;
++    chromeSink?.("import-pill", 0);
++  }, [showImportPill, chromeSink]);
++  useEffect(
++    () => () => {
++      chromeSink?.("import-pill", 0);
++    },
++    [chromeSink],
++  );
+   const composerAgentControls = useMemo(
+     () => ({
+       ...composerState.agentControls,
+@@ -635,8 +656,8 @@ export function WorkspaceDraftAgentTab({
+       <ComposerDock fullscreen={isComposerFullscreen}>
+         {dockContent}
+         <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
+-          {importPillPress && !isComposerFullscreen ? (
+-            <View style={styles.importPillRow}>
++          {showImportPill ? (
++            <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
+               <View style={styles.importPillContent}>
+                 <ComposerImportPill onPress={importPillPress} />
+               </View>
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
 index 000000000..1f04f6797
@@ -1257,10 +1635,27 @@ index 10d670fca..f0b81d2c8 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index 9fdab3fa2..421684fce 100644
+index 2c104924c..677d213bc 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
-@@ -150,6 +150,8 @@ export interface MessageInputProps {
+@@ -25,7 +25,7 @@ import {
+ } from "react";
+ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+ import { useTranslation } from "react-i18next";
+-import { ICON_SIZE, type Theme } from "@/styles/theme";
++import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
+ import { ArrowUp, Mic, MicOff, CornerDownLeft, Plus, Square } from "lucide-react-native";
+ import { useDictation } from "@/hooks/use-dictation";
+ import { hasFinePointer } from "@/hooks/use-fine-pointer";
+@@ -42,6 +42,7 @@ import {
+ } from "@/utils/image-attachments-from-files";
+ import type { ComposerAttachment } from "@/attachments/types";
+ import type { ImageAttachment, MessagePayload, TextReplacement } from "@/composer/types";
++import { useComposerChromeSink } from "@/composer/dock/internal/chrome";
+ import { focusWithRetries } from "@/utils/web-focus";
+ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+ import { Shortcut } from "@/components/ui/shortcut";
+@@ -150,6 +151,8 @@ export interface MessageInputProps {
    leftContent?: React.ReactNode;
    /** Content to render on the right side before the voice button (e.g., context window meter) */
    beforeVoiceContent?: React.ReactNode;
@@ -1269,7 +1664,7 @@ index 9fdab3fa2..421684fce 100644
    /** Auxiliary content to render on the right side after the voice button. */
    rightContent?: React.ReactNode;
    /** Primary action to render when the agent is active and the composer has no sendable content. */
-@@ -1098,6 +1100,7 @@ interface ResolvedMessageInputProps {
+@@ -1098,6 +1101,7 @@ interface ResolvedMessageInputProps {
    disabled: boolean;
    leftContent: React.ReactNode;
    beforeVoiceContent: React.ReactNode;
@@ -1277,7 +1672,7 @@ index 9fdab3fa2..421684fce 100644
    rightContent: React.ReactNode;
    activeActionContent: React.ReactNode;
    voiceServerId: string | undefined;
-@@ -1145,6 +1148,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+@@ -1145,6 +1149,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
      disabled: props.disabled ?? false,
      leftContent: props.leftContent,
      beforeVoiceContent: props.beforeVoiceContent,
@@ -1285,7 +1680,7 @@ index 9fdab3fa2..421684fce 100644
      rightContent: props.rightContent,
      activeActionContent: props.activeActionContent,
      voiceServerId: props.voiceServerId,
-@@ -1222,6 +1226,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -1222,6 +1227,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
        disabled,
        leftContent,
        beforeVoiceContent,
@@ -1293,7 +1688,7 @@ index 9fdab3fa2..421684fce 100644
        rightContent,
        activeActionContent,
        voiceServerId,
-@@ -2062,18 +2067,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2067,18 +2073,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            {/* Right: voice button, contextual button (realtime/send/cancel) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
@@ -1326,7 +1721,7 @@ index 9fdab3fa2..421684fce 100644
              {rightContent}
              {sendButton}
            </View>
-@@ -2089,6 +2096,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2094,6 +2102,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -1334,6 +1729,71 @@ index 9fdab3fa2..421684fce 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
+@@ -2153,6 +2162,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         handleRealtimeVoiceStop,
+       ],
+     );
++    // The tray sits above the editing area, so its height is chrome: the dock adds
++    // it to the compact cap instead of letting it eat the text's budget. The gap
++    // comes from the wrapper's `gap`, which only applies while the tray is mounted.
++    const chromeSink = useComposerChromeSink();
++    const handleAttachmentSlotLayout = useCallback(
++      (event: LayoutChangeEvent) => {
++        chromeSink?.("attachment-tray", event.nativeEvent.layout.height + SPACING[3]);
++      },
++      [chromeSink],
++    );
++    const measuredAttachmentSlot = useMemo(
++      () =>
++        attachmentSlot ? (
++          <View style={styles.attachmentSlot} onLayout={handleAttachmentSlotLayout}>
++            {attachmentSlot}
++          </View>
++        ) : null,
++      [attachmentSlot, handleAttachmentSlotLayout],
++    );
++    useEffect(() => {
++      if (attachmentSlot) return;
++      chromeSink?.("attachment-tray", 0);
++    }, [attachmentSlot, chromeSink]);
++    useEffect(
++      () => () => {
++        chromeSink?.("attachment-tray", 0);
++      },
++      [chromeSink],
++    );
+     return (
+       <View
+         ref={rootRef}
+@@ -2176,7 +2214,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+           inputWrapperRef={inputWrapperRef}
+           inputWrapperStyle={inputWrapperCombinedStyle}
+           inputPointerEvents={surfacePresentation.input.pointerEvents}
+-          attachmentSlot={attachmentSlot}
++          attachmentSlot={measuredAttachmentSlot}
+           showFullscreenButton={shouldShowFullscreenControl(
+             isCompact,
+             readOnly,
+@@ -2243,6 +2281,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+   // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
+   // or not the glyph shows, so text never reflows when it appears.
+   compactTextInput: { paddingRight: 36 },
++  // Measured by the composer so the dock can charge the tray to the composer cap
++  // instead of the text's budget.
++  attachmentSlot: { flexShrink: 0 },
+   fullscreenTextSurface: { flex: 1, minHeight: 0 },
+   fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
+   lineMeasurement: {
+@@ -2258,6 +2299,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+   textInputScrollWrapper: {
+     flexShrink: 1,
+     position: "relative",
++    // A cap that comes out short must cut the draft, not paint its last line over
++    // the toolbar below.
++    overflow: "hidden",
+   },
+   focusHintText: {
+     position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
 index 6f2cdef74..680c85db8 100644
 --- a/packages/app/src/composer/input/state.test.ts
@@ -1556,7 +2016,7 @@ index c1c70c640..3579b7f13 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index c8fe60ff6..2e9cc14c7 100644
+index a7a2182d9..26c5cd199 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -380,6 +380,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -1647,10 +2107,10 @@ index 0dd49eba0..606e97b7f 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index ab597b5ac..0b0599945 100644
+index db0aa6db2..e00c20d62 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
-@@ -43,6 +43,12 @@ function humanizeToolName(name: string): string {
+@@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
    if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
      return trimmed;
    }
@@ -1699,7 +2159,7 @@ index ec5682261..4ea4d11e7 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index ff91ef85e..bee00c5bd 100644
+index a15d94389..4c4d2eb98 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -30,6 +30,8 @@ import {
@@ -1790,7 +2250,7 @@ index ff91ef85e..bee00c5bd 100644
      }
    }
  
-@@ -3762,7 +3784,13 @@ export class AgentManager {
+@@ -3764,7 +3786,13 @@ export class AgentManager {
        workspaceId: options?.workspaceId,
        owner: options?.owner,
        session,
@@ -1805,7 +2265,7 @@ index ff91ef85e..bee00c5bd 100644
        config,
        runtimeInfo: undefined,
        lifecycle: "initializing",
-@@ -3896,9 +3924,28 @@ export class AgentManager {
+@@ -3898,9 +3926,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -1834,7 +2294,7 @@ index ff91ef85e..bee00c5bd 100644
            return;
          }
          this.logger.trace(
-@@ -4425,46 +4472,9 @@ export class AgentManager {
+@@ -4427,46 +4474,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -1883,7 +2343,7 @@ index ff91ef85e..bee00c5bd 100644
        case "timeline":
          return this.onStreamTimelineEvent({ agent, event, options, flags });
        case "turn_completed":
-@@ -4508,7 +4518,68 @@ export class AgentManager {
+@@ -4510,7 +4520,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2126,10 +2586,10 @@ index dcdfdb1cb..cc63aac36 100644
    const scenario = createFinishNotificationScenario({
      childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 34d36c9e1..8602106a3 100644
+index 59fb6022e..8551dcd96 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
-@@ -178,6 +178,11 @@ export interface AgentCapabilityFlags {
+@@ -179,6 +179,11 @@ export interface AgentCapabilityFlags {
    supportsRewindConversation?: boolean;
    supportsRewindFiles?: boolean;
    supportsRewindBoth?: boolean;
@@ -2141,7 +2601,7 @@ index 34d36c9e1..8602106a3 100644
  }
  
  export interface AgentPersistenceHandle {
-@@ -222,6 +227,49 @@ export interface AgentUsage {
+@@ -223,6 +228,49 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -2191,7 +2651,7 @@ index 34d36c9e1..8602106a3 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -407,6 +455,13 @@ export type AgentStreamEvent =
+@@ -410,6 +458,13 @@ export type AgentStreamEvent =
    | { type: "turn_started"; provider: AgentProvider; turnId?: string }
    | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
@@ -6841,7 +7301,7 @@ index d6b869f1e..b597215d8 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index b12ab706d..1a42ea12d 100644
+index 2af8983de..eaf706273 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -31,9 +31,12 @@ import {
@@ -6897,7 +7357,7 @@ index b12ab706d..1a42ea12d 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2314,7 +2343,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2312,7 +2341,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -6906,7 +7366,7 @@ index b12ab706d..1a42ea12d 100644
      );
      const handle = options.handle;
  
-@@ -2646,7 +2675,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2644,7 +2673,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -6915,7 +7375,7 @@ index b12ab706d..1a42ea12d 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3485,6 +3514,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3483,6 +3512,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -6940,7 +7400,7 @@ index b12ab706d..1a42ea12d 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4416,6 +4463,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4414,6 +4461,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -6953,7 +7413,7 @@ index b12ab706d..1a42ea12d 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4433,6 +4486,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4431,6 +4484,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -6961,7 +7421,7 @@ index b12ab706d..1a42ea12d 100644
          break;
        }
        case "stream_event":
-@@ -4459,6 +4513,197 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4457,6 +4511,197 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7159,7 +7619,7 @@ index b12ab706d..1a42ea12d 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -4780,6 +5025,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4783,6 +5028,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7167,7 +7627,7 @@ index b12ab706d..1a42ea12d 100644
      const usage = this.convertUsage(message);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -6191,6 +6437,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
+@@ -6190,6 +6436,146 @@ function readClaudeReplayParentFacts(parentEntries: ClaudeHistoryEntry[]): Claud
    };
  }
  
@@ -14365,7 +14825,7 @@ index 1f0fa96b9..7136338b7 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index ca84cfe62..7e336758e 100644
+index 0a1adb2c4..6620166d7 100644
 --- a/packages/server/src/terminal/worker-terminal-manager.ts
 +++ b/packages/server/src/terminal/worker-terminal-manager.ts
 @@ -1,6 +1,6 @@
@@ -14376,7 +14836,7 @@ index ca84cfe62..7e336758e 100644
  import { assertAbsolutePath, isSameOrDescendantPath } from "../server/path-utils.js";
  import type { TerminalState } from "@getpaseo/protocol/messages";
  import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
-@@ -140,7 +140,7 @@ function cloneTerminalInfo(info: RequiredWorkerTerminalInfo): RequiredWorkerTerm
+@@ -139,7 +139,7 @@ function cloneTerminalInfo(info: RequiredWorkerTerminalInfo): RequiredWorkerTerm
  }
  
  function forkTerminalWorker(): TerminalWorkerProcess {
