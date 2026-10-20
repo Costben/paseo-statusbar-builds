@@ -695,7 +695,7 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 27ca8b8af..b2fe0c604 100644
+index 27ca8b8af..ca20ea896 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -9,6 +9,7 @@ import { Composer } from "@/composer";
@@ -733,13 +733,11 @@ index 27ca8b8af..b2fe0c604 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -635,8 +656,8 @@ export function WorkspaceDraftAgentTab({
-       <ComposerDock fullscreen={isComposerFullscreen}>
+@@ -636,7 +657,7 @@ export function WorkspaceDraftAgentTab({
          {dockContent}
          <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
--          {importPillPress && !isComposerFullscreen ? (
+           {importPillPress && !isComposerFullscreen ? (
 -            <View style={styles.importPillRow}>
-+          {showImportPill ? (
 +            <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
                <View style={styles.importPillContent}>
                  <ComposerImportPill onPress={importPillPress} />
