@@ -61,10 +61,10 @@ index 704298f78..dd1da9eeb 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index 83b6f228d..7171f4f3c 100644
+index 83b6f228d..c9eef087c 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -258,6 +258,40 @@ describe("bare URL sentence punctuation", () => {
+@@ -258,6 +258,44 @@ describe("bare URL sentence punctuation", () => {
    );
  });
  
@@ -89,11 +89,15 @@ index 83b6f228d..7171f4f3c 100644
 +    const tree = await parseMarkdown(
 +      prepareMarkdownSource("开 http://127.0.0.1:8400/，传图。").render(),
 +    );
-+    expect(tree.children?.[0]?.children?.[0]).toEqual({
-+      type: "Link",
-+      attributes: { url: "http://127.0.0.1:8400/" },
-+      children: [{ type: "Text", content: "http://127.0.0.1:8400/" }],
-+    });
++    expect(tree.children?.[0]?.children).toEqual([
++      { type: "Text", content: "开 " },
++      {
++        type: "Link",
++        attributes: { url: "http://127.0.0.1:8400/" },
++        children: [{ type: "Text", content: "http://127.0.0.1:8400/" }],
++      },
++      { type: "Text", content: "，传图。" },
++    ]);
 +  });
 +
 +  it("leaves code spans and authored links untouched", () => {
