@@ -679,6 +679,16 @@ const MARKERS = [
     path: "packages/server/src/server/agent/providers/dsh/goal-projection.ts",
     needle: "export function watchDshGoal(",
   },
+  {
+    label: "A provider can ask for the next round after a turn settles",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "continueTurn?(ctx: ACPProviderHookContext & { sawTimeline: boolean }): string | null;",
+  },
+  {
+    label: "dsh keeps an armed goal running instead of stalling after one round",
+    path: "packages/server/src/server/agent/providers/dsh/provider-hooks.ts",
+    needle: "const GOAL_CONTINUATION_PROMPT =",
+  },
 ];
 
 function fail(message) {

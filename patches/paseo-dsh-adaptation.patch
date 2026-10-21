@@ -48,7 +48,7 @@ index a6ab75c21..f06440d44 100644
              ...acpOptions,
              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d42b2683..9c25128f5 100644
+index 9d42b2683..254bee32c 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -3799,6 +3799,82 @@ describe("ACPAgentSession", () => {
@@ -134,11 +134,245 @@ index 9d42b2683..9c25128f5 100644
    test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
      const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
        kimiReliableQueue: true,
+@@ -6540,3 +6616,96 @@ describe("deriveFeaturesFromACP", () => {
+     expect(features).toEqual([]);
+   });
+ });
++
++describe("ACP provider hook continuation", () => {
++  /** Runs turns until the session settles and reports what the loop produced. */
++  async function runContinuationLoop(
++    hooks: ACPProviderHooks,
++    options: { stopAfterCompletions: number; stopReason?: PromptResponse["stopReason"] },
++  ): Promise<{ events: AgentStreamEvent[]; prompt: ReturnType<typeof vi.fn> }> {
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(
++      async (): Promise<PromptResponse> => ({ stopReason: options.stopReason ?? "end_turn" }),
++    );
++    const session = createSessionWithConfig({}, createTestLogger(), {}, hooks);
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      cancel: vi.fn(async () => {}),
++    };
++
++    let settle!: () => void;
++    const settled = new Promise<void>((resolve) => {
++      settle = resolve;
++    });
++    session.subscribe((event) => {
++      events.push(event);
++      const endings = events.filter(
++        (entry) => entry.type === "turn_completed" || entry.type === "turn_canceled",
++      );
++      if (endings.length >= options.stopAfterCompletions) {
++        settle();
++      }
++    });
++
++    await session.startTurn("hello");
++    await Promise.race([settled, new Promise((resolve) => setTimeout(resolve, 300))]);
++    // Give a runaway loop the chance to show itself before the assertions run.
++    await new Promise((resolve) => setTimeout(resolve, 20));
++    return { events, prompt };
++  }
++
++  test("starts the round a provider asks for without a user message", async () => {
++    let rounds = 0;
++    const continueTurn = vi.fn(() => (++rounds === 1 ? "继续" : null));
++    const { events, prompt } = await runContinuationLoop({ continueTurn }, { stopAfterCompletions: 2 });
++
++    expect(continueTurn).toHaveBeenCalledTimes(2);
++    expect(prompt).toHaveBeenCalledTimes(2);
++    const secondPrompt = JSON.stringify(prompt.mock.calls[1]?.[0] ?? {});
++    expect(secondPrompt).toContain("继续");
++    const userMessages = events.filter(
++      (event) => event.type === "timeline" && event.item.type === "user_message",
++    );
++    expect(userMessages).toHaveLength(1);
++  });
++
++  test("leaves the session idle when the provider declines", async () => {
++    const continueTurn = vi.fn(() => null);
++    const { events, prompt } = await runContinuationLoop({ continueTurn }, { stopAfterCompletions: 1 });
++
++    expect(continueTurn).toHaveBeenCalledTimes(1);
++    expect(prompt).toHaveBeenCalledTimes(1);
++    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
++  });
++
++  test("does not continue a cancelled turn", async () => {
++    const continueTurn = vi.fn(() => "继续");
++    const { prompt } = await runContinuationLoop(
++      { continueTurn },
++      { stopAfterCompletions: 1, stopReason: "cancelled" },
++    );
++
++    expect(continueTurn).not.toHaveBeenCalled();
++    expect(prompt).toHaveBeenCalledTimes(1);
++  });
++
++  test("stops a loop that keeps returning empty rounds", async () => {
++    const continueTurn = vi.fn(() => "继续");
++    const { prompt } = await runContinuationLoop({ continueTurn }, { stopAfterCompletions: 4 });
++
++    // The opening turn plus three continuation rounds, then the stall guard stops it.
++    expect(prompt).toHaveBeenCalledTimes(4);
++  });
++
++  test("reports the turn's output to the provider", async () => {
++    const seen: boolean[] = [];
++    const continueTurn = vi.fn((ctx: { sawTimeline: boolean }) => {
++      seen.push(ctx.sawTimeline);
++      return null;
++    });
++    await runContinuationLoop({ continueTurn }, { stopAfterCompletions: 1 });
++
++    expect(seen).toEqual([false]);
++  });
++});
+\ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index fdd5c946f..23919d5fd 100644
+index fdd5c946f..f49c41093 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -4804,10 +4804,42 @@ function mapToolDetail(
+@@ -527,6 +527,21 @@ export interface ACPProviderHooks {
+     signal: AbortSignal;
+     sawTimeline: boolean;
+   }): Promise<void> | null;
++  /**
++   * Decide whether the session should run another turn the moment this one
++   * settles. Returning a prompt starts that turn as a provider-driven round: it
++   * carries no user message of its own, because nobody typed it. A provider whose
++   * loop only advances when someone prompts it (dsh arms a goal and then waits)
++   * uses this to keep the goal running instead of stalling after one round.
++   *
++   * Called only for a turn that completed on its own — a cancelled turn, an
++   * interrupted hold, or a turn reported as failed never continues. Return null
++   * to leave the session idle.
++   *
++   * `sawTimeline` reports whether that turn produced any timeline item, so a
++   * provider can refuse to spin on a loop that stopped making progress.
++   */
++  continueTurn?(ctx: ACPProviderHookContext & { sawTimeline: boolean }): string | null;
+   /**
+    * Called when a foreground turn is about to send its prompt, with the prompt
+    * as it will be sent. Not called for a prompt queued through steering.
+@@ -1911,6 +1926,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private currentTurnUpdateCount = 0;
+   private currentTurnMismatchedUpdateCount = 0;
+   private currentTurnStartedAt = 0;
++  /** True while the open turn is a round a provider hook asked for, not a user prompt. */
++  private currentTurnIsContinuation = false;
++  /** Continuation rounds in a row that produced no timeline item. */
++  private continuationRoundsWithoutTimeline = 0;
+   private lastStreamedContentAt: number | null = null;
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
+   private readonly providerHooks?: ACPProviderHooks;
+@@ -2369,6 +2388,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     await Promise.race([settledHold, waitForAbortSignal(signal)]);
+   }
+ 
++  /**
++   * Ask the provider whether this settled turn should be followed by another
++   * one right away, and start it when it says yes.
++   *
++   * A provider that only advances a long-running job when someone prompts it
++   * (dsh arms a goal and then waits for the next prompt) otherwise stalls after a
++   * single round: the goal stays active, nothing runs, and Paseo shows the
++   * session as finished. The continuation is a real turn — it emits
++   * `turn_started`, so the session keeps showing as running while the loop works
++   * — but it carries no user message, because nobody typed it.
++   *
++   * A loop that keeps returning rounds without producing timeline items is
++   * treated as stalled and is not continued again, so a provider that answers
++   * "keep going" forever cannot spin here.
++   */
++  private maybeContinueProviderTurn(previousTurnId: string): void {
++    const maxEmptyContinuations = 3;
++    const hooks = this.providerHooks;
++    const sessionId = this.sessionId;
++    if (!hooks?.continueTurn || !sessionId || this.closed) {
++      return;
++    }
++    if (this.turnAbort?.signal.aborted) {
++      return;
++    }
++    const sawTimeline = this.currentTurnSawTimeline;
++    if (sawTimeline) {
++      this.continuationRoundsWithoutTimeline = 0;
++    } else if (this.currentTurnIsContinuation) {
++      this.continuationRoundsWithoutTimeline += 1;
++      if (this.continuationRoundsWithoutTimeline >= maxEmptyContinuations) {
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            sessionId,
++            previousTurnId,
++            emptyContinuations: this.continuationRoundsWithoutTimeline,
++          },
++          "provider.acp.continuation_stalled",
++        );
++        return;
++      }
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return;
++    }
++    let next: string | null;
++    try {
++      next = hooks.continueTurn({ ...ctx, sawTimeline });
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook continueTurn failed");
++      return;
++    }
++    if (typeof next !== "string" || next.trim().length === 0) {
++      return;
++    }
++    void this.beginTurn(next, undefined, false, true).catch((error: unknown) => {
++      this.logger.warn(
++        {
++          agentId: this.agentId,
++          provider: this.provider,
++          sessionId,
++          previousTurnId,
++          err: error,
++        },
++        "provider.acp.continuation_failed",
++      );
++    });
++  }
++
+   /**
+    * Ask the provider why a turn produced no timeline item. A throwing hook must
+    * never change the failure, so a rejection keeps the generic code.
+@@ -2499,6 +2590,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     prompt: AgentPromptInput,
+     options: AgentRunOptions | undefined,
+     announceUserMessage: boolean,
++    continuation = false,
+   ): Promise<{ turnId: string }> {
+     if (this.closed) {
+       throw new Error(`${this.provider} session is closed`);
+@@ -2517,6 +2609,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.activeForegroundTurnId = turnId;
+     this.turnAbort = new AbortController();
+     this.currentTurnSawTimeline = false;
++    this.currentTurnIsContinuation = continuation;
+     this.currentTurnUpdateCount = 0;
+     this.currentTurnMismatchedUpdateCount = 0;
+     this.currentTurnStartedAt = Date.now();
+@@ -4200,6 +4293,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+           usage: this.currentTurnUsage,
+           turnId,
+         });
++        this.maybeContinueProviderTurn(turnId);
+         break;
+     }
+   }
+@@ -4804,8 +4898,40 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -149,9 +383,9 @@ index fdd5c946f..23919d5fd 100644
 +      // details the arguments describe; anything unrecognised keeps the
 +      // generic path.
 +      return inferToolDetailFromArguments(context) ?? buildDefaultToolDetail(context);
-   }
- }
- 
++  }
++}
++
 +/**
 + * Read a detail out of the arguments alone, for providers that label every call
 + * `other`. Only shapes that unambiguously describe a file mutation qualify —
@@ -171,18 +405,16 @@ index fdd5c946f..23919d5fd 100644
 +  const newString = readLooseString(rawInput, ["new_string", "newString", "newText"]);
 +  if (oldString !== undefined && newString !== undefined) {
 +    return { type: "edit", filePath, oldString, newString };
-+  }
+   }
 +  const content = readLooseString(rawInput, ["content"]);
 +  if (content !== undefined) {
 +    return { type: "write", filePath, content };
 +  }
 +  return null;
-+}
-+
+ }
+ 
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-   const { snapshot, firstLocation, textContent, rawInput, rawOutput } = context;
-   return {
-@@ -5143,10 +5175,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -5143,10 +5269,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -745,14 +977,153 @@ index 000000000..32445f680
 +function readFiniteNumber(value: unknown): number | undefined {
 +  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 +}
+diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
+new file mode 100644
+index 000000000..d40fe3fc0
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
+@@ -0,0 +1,127 @@
++import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { afterEach, describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import { dshGoalCacheCandidates } from "./goal-projection.js";
++import { createDshProviderHooks } from "./provider-hooks.js";
++
++const tempDirs: string[] = [];
++
++function createTempDir(): string {
++  const dir = mkdtempSync(path.join(tmpdir(), "paseo-dsh-hooks-"));
++  tempDirs.push(dir);
++  return dir;
++}
++
++afterEach(() => {
++  while (tempDirs.length > 0) {
++    const dir = tempDirs.pop();
++    if (dir) {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  }
++});
++
++/** Build the projection-cache document dsh writes for one session. */
++function buildCache(phase: string | null) {
++  return {
++    version: 7,
++    record: {
++      rows: {
++        goal: {
++          ver: 3,
++          seq: 12,
++          val: {
++            current:
++              phase === null
++                ? null
++                : {
++                    goal: {
++                      id: "goal-1",
++                      revision: 1,
++                      objective: "写一万字",
++                      phase,
++                      maxGoalRounds: 256,
++                    },
++                    roundsStarted: 1,
++                    createdAt: 1_700_000_000_000,
++                    updatedAt: 1_700_000_005_000,
++                  },
++            seenGoalIds: [],
++            failure: null,
++          },
++        },
++      },
++    },
++  };
++}
++
++function writeCacheFile(home: string, sessionId: string, document: unknown): void {
++  const [file] = dshGoalCacheCandidates(home, sessionId);
++  if (!file) {
++    throw new Error("expected a cache candidate");
++  }
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, JSON.stringify(document));
++}
++
++function hookContext(sessionId: string, sawTimeline: boolean) {
++  return {
++    acpSessionId: sessionId,
++    provider: "dsh",
++    logger: createTestLogger(),
++    emit: () => {},
++    sawTimeline,
++  };
++}
++
++describe("dsh goal continuation", () => {
++  test("asks for another round while the goal is active", () => {
++    const home = createTempDir();
++    writeCacheFile(home, "session-1", buildCache("active"));
++    const hooks = createDshProviderHooks({ dshHome: home });
++
++    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBe("继续");
++  });
++
++  test("stays idle for a paused goal", () => {
++    const home = createTempDir();
++    writeCacheFile(home, "session-1", buildCache("paused"));
++    const hooks = createDshProviderHooks({ dshHome: home });
++
++    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++  });
++
++  test("stays idle once the goal is complete", () => {
++    const home = createTempDir();
++    writeCacheFile(home, "session-1", buildCache("complete"));
++    const hooks = createDshProviderHooks({ dshHome: home });
++
++    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++  });
++
++  test("stays idle for a session with no goal", () => {
++    const home = createTempDir();
++    writeCacheFile(home, "session-1", buildCache(null));
++    const hooks = createDshProviderHooks({ dshHome: home });
++
++    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++  });
++
++  test("never starts a round on a guess when the cache is missing", () => {
++    const home = createTempDir();
++    const hooks = createDshProviderHooks({ dshHome: home });
++
++    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++  });
++
++  test("does not continue a round that produced nothing", () => {
++    const home = createTempDir();
++    writeCacheFile(home, "session-1", buildCache("active"));
++    const hooks = createDshProviderHooks({ dshHome: home });
++
++    expect(hooks.continueTurn?.(hookContext("session-1", false))).toBeNull();
++  });
++});
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
 new file mode 100644
-index 000000000..14a36c9b9
+index 000000000..da2be5bed
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,77 @@
 +import type { ACPProviderHooks } from "../acp-agent.js";
-+import { type DshGoalWatcher, resolveDshHome, watchDshGoal } from "./goal-projection.js";
++import {
++  type DshGoalWatcher,
++  dshGoalCacheCandidates,
++  readDshGoalFromCache,
++  resolveDshHome,
++  watchDshGoal,
++} from "./goal-projection.js";
 +
 +export interface DshProviderHooksOptions {
 +  /** Overrides dsh's home directory; defaults to `DSH_HOME` or `~/.dsh`. */
@@ -762,10 +1133,22 @@ index 000000000..14a36c9b9
 +}
 +
 +/**
++ * What Paseo sends to keep an armed goal moving. dsh activates an armed goal at
++ * the start of the next turn and injects its own round instructions there, so the
++ * text itself carries no instructions — it only has to be a prompt.
++ */
++const GOAL_CONTINUATION_PROMPT = "继续";
++
++/**
 + * Provider hooks for dsh: the ACP stream carries no goal state, so each live
 + * session watches the goal row dsh persists for it and reports the changes as
-+ * `goal_updated`. Nothing else about the ACP session is overridden — dsh drives
-+ * its own turns, and Paseo already renders its tool calls.
++ * `goal_updated`.
++ *
++ * dsh also never advances a goal on its own under ACP: it arms the goal, ends the
++ * turn, and waits for the next prompt. Without a continuation the goal would stay
++ * active forever while Paseo shows an idle session, so the same hook asks for the
++ * next round whenever the goal is still active and the turn actually produced
++ * output.
 + */
 +export function createDshProviderHooks(options: DshProviderHooksOptions = {}): ACPProviderHooks {
 +  const watchers = new Map<string, DshGoalWatcher>();
@@ -787,6 +1170,26 @@ index 000000000..14a36c9b9
 +          watcher.stop();
 +        },
 +      };
++    },
++    continueTurn(ctx) {
++      // A round that produced nothing is not worth another round; the caller
++      // stops the loop after a few of those as well.
++      if (!ctx.sawTimeline) {
++        return null;
++      }
++      const home = resolveDshHome(options.dshHome);
++      for (const candidate of dshGoalCacheCandidates(home, ctx.acpSessionId)) {
++        const result = readDshGoalFromCache(candidate);
++        if (result.kind === "unknown") {
++          // No cache yet, or it is mid-write: never start a round on a guess.
++          continue;
++        }
++        if (result.kind === "none" || result.goal.status !== "active") {
++          return null;
++        }
++        return GOAL_CONTINUATION_PROMPT;
++      }
++      return null;
 +    },
 +  };
 +}
