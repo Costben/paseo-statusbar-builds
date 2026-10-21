@@ -2797,8 +2797,36 @@ index 59fb6022e..8551dcd96 100644
    | {
        type: "mode_changed";
        provider: AgentProvider;
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index 9f85e4d37..af2a5118c 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -37,7 +37,10 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
+ import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
+ import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
+ import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
+-import { GenericACPAgentClient } from "./providers/generic-acp-agent.js";
++import {
++  ACP_AGENT_PRESET_FEATURE_OPTION,
++  GenericACPAgentClient,
++} from "./providers/generic-acp-agent.js";
+ import { KimiACPAgentClient } from "./providers/kimi-acp-agent.js";
+ import { KiroACPAgentClient } from "./providers/kiro-acp-agent.js";
+ import { OpenCodeRuntimeClient } from "./providers/opencode/runtime-client.js";
+@@ -854,7 +857,10 @@ function addDerivedProviders(
+           if (providerId === "traecli") {
+             return new TraeACPAgentClient(acpOptions);
+           }
+-          return new GenericACPAgentClient(acpOptions);
++          return new GenericACPAgentClient({
++            ...acpOptions,
++            configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
++          });
+         },
+         contract:
+           providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index a050aa907..7428262dc 100644
+index a050aa907..9d42b2683 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2809,7 +2837,7 @@ index a050aa907..7428262dc 100644
  import { createRequire } from "node:module";
  import { tmpdir } from "node:os";
  import path from "node:path";
-@@ -24,6 +24,7 @@ import {
+@@ -24,10 +24,12 @@ import {
  import {
    ACPAgentClient,
    ACPAgentSession,
@@ -2817,7 +2845,20 @@ index a050aa907..7428262dc 100644
    type SpawnedACPProcess,
    type SessionStateResponse,
    buildACPClientCapabilities,
-@@ -48,12 +49,14 @@ import {
+   createLoggedNdJsonStream,
++  deriveFeaturesFromACP,
+   deriveModelDefinitionsFromACP,
+   deriveModesFromACP,
+   mapACPUsage,
+@@ -35,6 +37,7 @@ import {
+   resolveACPModelSelection,
+   summarizeACPRequestError,
+ } from "./acp-agent.js";
++import { ACP_AGENT_PRESET_FEATURE_OPTION } from "./generic-acp-agent.js";
+ import type { ProcessTerminator, TreeKillTarget } from "../../../utils/tree-kill.js";
+ import {
+   COPILOT_AGENT_FEATURE_OPTION,
+@@ -48,12 +51,14 @@ import {
    writeCopilotProviderMode,
  } from "./copilot-acp-agent.js";
  import { GenericACPAgentClient } from "./generic-acp-agent.js";
@@ -2832,7 +2873,7 @@ index a050aa907..7428262dc 100644
    AgentSession,
    ProviderRefreshContext,
  } from "../agent-sdk-types.js";
-@@ -98,7 +101,10 @@ describe("buildACPClientCapabilities", () => {
+@@ -98,7 +103,10 @@ describe("buildACPClientCapabilities", () => {
  
  interface ACPSessionInternals {
    sessionId: string | null;
@@ -2844,7 +2885,7 @@ index a050aa907..7428262dc 100644
    activeForegroundTurnId: string | null;
    configOptions: SessionConfigOption[];
    translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[];
-@@ -192,14 +198,23 @@ class FakeTerminator {
+@@ -192,14 +200,23 @@ class FakeTerminator {
    }
  }
  
@@ -2868,7 +2909,7 @@ index a050aa907..7428262dc 100644
  ): ACPAgentSession {
    return new ACPAgentSession(
      {
-@@ -214,6 +229,9 @@ function createSessionWithConfig(
+@@ -214,6 +231,9 @@ function createSessionWithConfig(
        logger,
        defaultCommand: ["claude", "--acp"],
        defaultModes: [],
@@ -2878,7 +2919,7 @@ index a050aa907..7428262dc 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -221,7 +239,9 @@ function createSessionWithConfig(
+@@ -221,7 +241,9 @@ function createSessionWithConfig(
          supportsMcpServers: true,
          supportsReasoningStream: true,
          supportsToolInvocations: true,
@@ -2888,7 +2929,7 @@ index a050aa907..7428262dc 100644
      },
    );
  }
-@@ -810,6 +830,117 @@ describe("ACPAgentSession terminal tools", () => {
+@@ -810,6 +832,117 @@ describe("ACPAgentSession terminal tools", () => {
        truncated: false,
      });
    });
@@ -3006,7 +3047,7 @@ index a050aa907..7428262dc 100644
  });
  
  describe("mapACPUsage", () => {
-@@ -1401,6 +1532,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1401,6 +1534,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3071,7 +3112,7 @@ index a050aa907..7428262dc 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -1454,6 +1643,203 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1454,6 +1645,203 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3275,7 +3316,7 @@ index a050aa907..7428262dc 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2662,30 +3048,136 @@ describe("ACPAgentSession", () => {
+@@ -2662,30 +3050,136 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -3433,7 +3474,7 @@ index a050aa907..7428262dc 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -2972,128 +3464,258 @@ describe("ACPAgentSession", () => {
+@@ -2972,128 +3466,258 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -3782,7 +3823,7 @@ index a050aa907..7428262dc 100644
      const events: AgentStreamEvent[] = [];
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
-@@ -3102,64 +3724,281 @@ describe("ACPAgentSession", () => {
+@@ -3102,64 +3726,281 @@ describe("ACPAgentSession", () => {
            resolvePrompt = resolve;
          }),
      );
@@ -4087,7 +4128,7 @@ index a050aa907..7428262dc 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3176,29 +4015,17 @@ describe("ACPAgentSession", () => {
+@@ -3176,29 +4017,17 @@ describe("ACPAgentSession", () => {
        sessionId: "session-1",
        update: {
          sessionUpdate: "user_message_chunk",
@@ -4120,7 +4161,7 @@ index a050aa907..7428262dc 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3210,27 +4037,12 @@ describe("ACPAgentSession", () => {
+@@ -3210,27 +4039,12 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -4150,7 +4191,7 @@ index a050aa907..7428262dc 100644
        } as SessionUpdate,
      });
  
-@@ -3239,10 +4051,10 @@ describe("ACPAgentSession", () => {
+@@ -3239,10 +4053,10 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -4163,7 +4204,7 @@ index a050aa907..7428262dc 100644
            messageId: "msg-client-1",
            clientMessageId: "msg-client-1",
          },
-@@ -3251,10 +4063,16 @@ describe("ACPAgentSession", () => {
+@@ -3251,10 +4065,16 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
@@ -4182,7 +4223,7 @@ index a050aa907..7428262dc 100644
  
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
      asInternals<ACPSessionInternals>(session).connection = { prompt };
-@@ -3263,22 +4081,24 @@ describe("ACPAgentSession", () => {
+@@ -3263,22 +4083,24 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -4214,7 +4255,7 @@ index a050aa907..7428262dc 100644
        } as SessionUpdate,
      });
  
-@@ -3287,8 +4107,159 @@ describe("ACPAgentSession", () => {
+@@ -3287,8 +4109,159 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -4376,7 +4417,7 @@ index a050aa907..7428262dc 100644
          turnId: expect.any(String),
        },
      ]);
-@@ -4530,3 +5501,977 @@ describe("custom ACP provider with configured models", () => {
+@@ -4530,3 +5503,1040 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -5352,6 +5393,69 @@ index a050aa907..7428262dc 100644
 +    } finally {
 +      await harness.dispose();
 +    }
++  });
++});
++
++
++describe("deriveFeaturesFromACP", () => {
++  test("maps a custom ACP agent preset option onto the agent feature", () => {
++    const features = deriveFeaturesFromACP(
++      [
++        {
++          id: "agent",
++          name: "Agent",
++          type: "select",
++          currentValue: "standard",
++          options: [
++            { value: "standard", name: "Standard" },
++            { value: "redteam", name: "Red Team" },
++          ],
++        },
++      ],
++      [ACP_AGENT_PRESET_FEATURE_OPTION],
++    );
++
++    expect(features).toHaveLength(1);
++    expect(features[0]).toMatchObject({
++      type: "select",
++      id: "agent",
++      label: "Agent",
++      value: "standard",
++    });
++    const feature = features[0];
++    expect(feature && feature.type === "select" ? feature.options : []).toEqual([
++      {
++        id: "standard",
++        label: "Standard",
++        description: undefined,
++        isDefault: true,
++        metadata: undefined,
++      },
++      {
++        id: "redteam",
++        label: "Red Team",
++        description: undefined,
++        isDefault: false,
++        metadata: undefined,
++      },
++    ]);
++  });
++
++  test("stays silent when the agent advertises no agent option", () => {
++    const features = deriveFeaturesFromACP(
++      [
++        {
++          id: "model",
++          name: "Model",
++          type: "select",
++          currentValue: "one",
++          options: [{ value: "one", name: "One" }],
++        },
++      ],
++      [ACP_AGENT_PRESET_FEATURE_OPTION],
++    );
++
++    expect(features).toEqual([]);
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
@@ -8083,7 +8187,7 @@ index 2a9b801fd..a04739be1 100644
    logger: Logger,
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 37db4d02d..233d08a0a 100644
+index 37db4d02d..292901814 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -8101,7 +8205,28 @@ index 37db4d02d..233d08a0a 100644
  } from "./acp-agent.js";
  import {
    buildBinaryDiagnosticRows,
-@@ -31,6 +33,8 @@ interface GenericACPAgentClientOptions {
+@@ -16,6 +18,20 @@ import {
+   toDiagnosticErrorMessage,
+ } from "./diagnostic-utils.js";
+ 
++/**
++ * Custom ACP agents often expose their agent presets as a select config option
++ * with id `agent` and no category (Copilot uses `_agent` instead). Paseo only
++ * derives features for options declared up front, so custom providers declare
++ * this one and get the preset picker whenever the agent advertises it.
++ */
++export const ACP_AGENT_PRESET_FEATURE_OPTION: ACPConfigFeatureOption = {
++  id: "agent",
++  configId: "agent",
++  label: "Agent",
++  description: "Switch the agent preset for this session",
++  tooltip: "Select agent preset",
++};
++
+ interface GenericACPAgentClientOptions {
+   logger: Logger;
+   command: [string, ...string[]];
+@@ -31,6 +47,8 @@ interface GenericACPAgentClientOptions {
    extensionCommandsParser?: ACPExtensionCommandsParser;
    catalogModelResolver?: ACPCatalogModelResolver;
    now?: () => number;
@@ -8110,7 +8235,7 @@ index 37db4d02d..233d08a0a 100644
  }
  
  export class GenericACPAgentClient extends ACPAgentClient {
-@@ -48,7 +52,10 @@ export class GenericACPAgentClient extends ACPAgentClient {
+@@ -48,7 +66,10 @@ export class GenericACPAgentClient extends ACPAgentClient {
          env: options.env,
        },
        defaultCommand: options.command,
@@ -8122,7 +8247,7 @@ index 37db4d02d..233d08a0a 100644
        // ACP agents advertise slash commands with available_commands_update after
        // session/new, so the first listCommands() waits for that batch.
        waitForInitialCommands: options.waitForInitialCommands ?? true,
-@@ -58,6 +65,7 @@ export class GenericACPAgentClient extends ACPAgentClient {
+@@ -58,6 +79,7 @@ export class GenericACPAgentClient extends ACPAgentClient {
        extensionCommandsParser: options.extensionCommandsParser,
        catalogModelResolver: options.catalogModelResolver,
        now: options.now,
