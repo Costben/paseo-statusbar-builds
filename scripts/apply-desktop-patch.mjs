@@ -150,6 +150,30 @@ const PATCHES = [
       needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
     },
   },
+  {
+    // A provider override may carry an `icon` (inline SVG or an .svg path), so a
+    // custom ACP provider such as dsh renders its own logo instead of falling
+    // back to the generic bot icon.
+    name: "provider-icon",
+    file: "paseo-provider-icon.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/provider-icon.ts",
+      needle: "export function resolveProviderIconSvg(",
+    },
+  },
+  {
+    // dsh labels every ACP tool call `other` and reports no goal over ACP, so
+    // Paseo reads the file change out of the call arguments and projects the
+    // goal from the session's projection cache.
+    name: "dsh-adaptation",
+    file: "paseo-dsh-adaptation.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/dsh/provider-hooks.ts",
+      needle: "export function createDshProviderHooks(",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -644,6 +668,16 @@ const MARKERS = [
     label: "A prompt the runtime never accepted is named as such",
     path: "packages/server/src/server/agent/providers/kimi-acp-agent.ts",
     needle: 'code: "kimi_prompt_not_accepted"',
+  },
+  {
+    label: "A catch-all tool call is read out of its arguments",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "function inferToolDetailFromArguments(",
+  },
+  {
+    label: "A dsh session projects its goal from the projection cache",
+    path: "packages/server/src/server/agent/providers/dsh/goal-projection.ts",
+    needle: "export function watchDshGoal(",
   },
 ];
 

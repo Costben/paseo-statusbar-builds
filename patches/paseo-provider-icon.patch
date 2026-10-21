@@ -1,0 +1,276 @@
+diff --git a/packages/protocol/src/provider-config.ts b/packages/protocol/src/provider-config.ts
+index c94f8ca96..60c01f7b5 100644
+--- a/packages/protocol/src/provider-config.ts
++++ b/packages/protocol/src/provider-config.ts
+@@ -53,6 +53,8 @@ export const ProviderOverrideSchema = z.object({
+   label: z.string().optional(),
+   description: z.string().optional(),
+   command: z.array(z.string().min(1)).min(1).optional(),
++  // Inline SVG markup or a path to an .svg file (`~` expands to the home directory).
++  icon: z.string().min(1).optional(),
+   env: z.record(z.string(), z.string()).optional(),
+   options: z.record(z.string(), z.unknown()).optional(),
+   // COMPAT(providerParams): added in v0.10.0, remove after 2027-03-30 once configs use options.
+diff --git a/packages/server/src/server/agent/provider-icon.ts b/packages/server/src/server/agent/provider-icon.ts
+new file mode 100644
+index 000000000..1a298d5c2
+--- /dev/null
++++ b/packages/server/src/server/agent/provider-icon.ts
+@@ -0,0 +1,83 @@
++import { readFileSync, statSync } from "node:fs";
++import { homedir } from "node:os";
++import { isAbsolute, resolve } from "node:path";
++
++const MAX_PROVIDER_ICON_BYTES = 64 * 1024;
++
++export interface ProviderIconLogger {
++  warn: (context: Record<string, unknown>, message: string) => void;
++}
++
++/**
++ * Resolves the `icon` field of a provider override. The value is either inline
++ * SVG markup or a path to an .svg file (`~` expands to the home directory).
++ * A broken icon is reported and dropped so it can never prevent the provider
++ * from starting.
++ */
++export function resolveProviderIconSvg(
++  provider: string,
++  icon: string | undefined,
++  logger: ProviderIconLogger,
++): string | undefined {
++  if (!icon) return undefined;
++  const value = icon.trim();
++  if (!value) return undefined;
++  try {
++    const svg = value.startsWith("<") ? value : readIconFile(value);
++    validateProviderIconSvg(svg);
++    return svg;
++  } catch (error) {
++    logger.warn(
++      { provider, err: error },
++      "Ignoring provider icon; falling back to the default icon",
++    );
++    return undefined;
++  }
++}
++
++function readIconFile(iconPath: string): string {
++  const resolvedPath = resolveIconPath(iconPath);
++  const stats = statSync(resolvedPath);
++  if (!stats.isFile()) {
++    throw new Error(`provider icon path is not a file: ${resolvedPath}`);
++  }
++  if (stats.size > MAX_PROVIDER_ICON_BYTES) {
++    throw new Error(`provider icon exceeds ${MAX_PROVIDER_ICON_BYTES} bytes: ${resolvedPath}`);
++  }
++  return readFileSync(resolvedPath, "utf8");
++}
++
++function resolveIconPath(iconPath: string): string {
++  if (iconPath === "~") return homedir();
++  if (iconPath.startsWith("~/") || iconPath.startsWith("~\\")) {
++    return resolve(homedir(), iconPath.slice(2));
++  }
++  return isAbsolute(iconPath) ? iconPath : resolve(process.cwd(), iconPath);
++}
++
++function validateProviderIconSvg(svg: string): void {
++  if (!/^\s*<svg(?:\s|>)/i.test(svg)) {
++    throw new Error("provider icon is not an SVG document");
++  }
++  if (Buffer.byteLength(svg, "utf8") > MAX_PROVIDER_ICON_BYTES) {
++    throw new Error(`provider icon exceeds ${MAX_PROVIDER_ICON_BYTES} bytes`);
++  }
++  if (/<script(?:\s|>)/i.test(svg)) {
++    throw new Error("provider icon must not contain script elements");
++  }
++  if (/<foreignObject(?:\s|>)/i.test(svg)) {
++    throw new Error("provider icon must not contain foreignObject elements");
++  }
++  if (/<style(?:\s|>)/i.test(svg)) {
++    throw new Error("provider icon must not contain style elements");
++  }
++  if (/\son[a-z]+\s*=/i.test(svg)) {
++    throw new Error("provider icon must not contain event handler attributes");
++  }
++  if (/javascript\s*:/i.test(svg)) {
++    throw new Error("provider icon must not contain javascript URLs");
++  }
++  if (/(?:href|src)\s*=\s*["']\s*(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(svg)) {
++    throw new Error("provider icon must not reference external resources");
++  }
++}
+diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
+index 9a2cb768f..c902a4cb8 100644
+--- a/packages/server/src/server/agent/provider-registry.test.ts
++++ b/packages/server/src/server/agent/provider-registry.test.ts
+@@ -503,6 +503,9 @@ vi.mock("./providers/kimi-acp-agent.js", () => ({
+   },
+ }));
+ 
++import { mkdtempSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
+ import {
+   AGENT_PROVIDER_DEFINITIONS,
+   buildProviderRegistry,
+@@ -705,6 +708,56 @@ test("new provider extending acp uses GenericACPAgentClient", () => {
+   ]);
+ });
+ 
++test("custom ACP provider exposes an inline SVG icon", () => {
++  const icon = '<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z" /></svg>';
++  const registry = buildProviderRegistry(logger, {
++    providerOverrides: {
++      "my-agent": {
++        extends: "acp",
++        label: "My Agent",
++        command: ["my-agent", "--acp"],
++        icon,
++      },
++    },
++  });
++
++  expect(registry["my-agent"].iconSvg).toBe(icon);
++});
++
++test("custom ACP provider reads its icon from an SVG file", () => {
++  const directory = mkdtempSync(join(tmpdir(), "paseo-provider-icon-"));
++  const iconPath = join(directory, "icon.svg");
++  const icon = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" /></svg>';
++  writeFileSync(iconPath, icon, "utf8");
++  const registry = buildProviderRegistry(logger, {
++    providerOverrides: {
++      "my-agent": {
++        extends: "acp",
++        label: "My Agent",
++        command: ["my-agent", "--acp"],
++        icon: iconPath,
++      },
++    },
++  });
++
++  expect(registry["my-agent"].iconSvg).toBe(icon);
++});
++
++test("invalid provider icons fall back to the default icon", () => {
++  const registry = buildProviderRegistry(logger, {
++    providerOverrides: {
++      "my-agent": {
++        extends: "acp",
++        label: "My Agent",
++        command: ["my-agent", "--acp"],
++        icon: "<svg><script>alert(1)</script></svg>",
++      },
++    },
++  });
++
++  expect(registry["my-agent"].iconSvg).toBeUndefined();
++});
++
+ test("Hub E2E ACP provider applies exact grants for its injected MCP server", () => {
+   const registry = buildProviderRegistry(logger, {
+     providerOverrides: {
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index af2a5118c..a6ab75c21 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -25,6 +25,7 @@ import {
+ } from "./create-agent-mode.js";
+ import { normalizeAgentModelDefinition } from "./agent-sdk-types.js";
+ import { runProviderRefreshActivity } from "./provider-refresh-deadline.js";
++import { resolveProviderIconSvg } from "./provider-icon.js";
+ import type { WorkspaceGitService } from "../workspace-git-service.js";
+ import type { ManagedProcessRegistry } from "../managed-processes/managed-processes.js";
+ import type {
+@@ -68,10 +69,19 @@ export type { AgentProviderDefinition };
+ 
+ export { AGENT_PROVIDER_DEFINITIONS, getAgentProviderDefinition };
+ 
+-export interface ProviderDefinition extends AgentProviderDefinition {
++/**
++ * A provider definition plus the icon resolved from configuration. `iconSvg`
++ * holds ready-to-render markup; `iconSource` is the raw `icon` value from the
++ * provider override, resolved once a logger is available.
++ */
++export interface ProviderDefinitionWithIcon extends AgentProviderDefinition {
++  iconSvg?: string;
++  iconSource?: string;
++}
++
++export interface ProviderDefinition extends ProviderDefinitionWithIcon {
+   /** Effective inputs after overrides and inheritance; plugin registrations are owned separately. */
+   configuration: Omit<ResolvedProvider, "createBaseClient" | "contract"> | null;
+-  iconSvg?: string;
+   enabled: boolean;
+   /**
+    * The id of another *registered* provider this one extends (e.g. a Z.AI
+@@ -99,9 +109,8 @@ export interface ProviderDefinition extends AgentProviderDefinition {
+ }
+ 
+ /** Provider metadata and an unconfigured factory; the registry owns override application. */
+-export interface RegisteredProviderDefinition extends AgentProviderDefinition {
++export interface RegisteredProviderDefinition extends ProviderDefinitionWithIcon {
+   requiresConfiguration?: boolean;
+-  iconSvg?: string;
+   supportsExactMcpPreapproval: boolean;
+   createClient: (logger: Logger, runtimeSettings?: ProviderRuntimeSettings) => AgentClient;
+ }
+@@ -136,7 +145,7 @@ type ProviderClientFactory = (
+ ) => AgentClient;
+ 
+ interface ResolvedProvider {
+-  definition: AgentProviderDefinition;
++  definition: ProviderDefinitionWithIcon;
+   runtimeSettings?: ProviderRuntimeSettings;
+   profileModels: ProviderProfileModel[];
+   additionalModels: ProviderProfileModel[];
+@@ -294,9 +303,9 @@ function mergeRuntimeSettings(
+ }
+ 
+ function applyOverrideToDefinition(
+-  definition: AgentProviderDefinition,
++  definition: ProviderDefinitionWithIcon,
+   override?: ProviderOverride,
+-): AgentProviderDefinition {
++): ProviderDefinitionWithIcon {
+   if (!override) {
+     return definition;
+   }
+@@ -305,6 +314,7 @@ function applyOverrideToDefinition(
+     ...definition,
+     label: override.label ?? definition.label,
+     description: override.description ?? definition.description,
++    iconSource: override.icon ?? definition.iconSource,
+   };
+ }
+ 
+@@ -312,7 +322,7 @@ function createDerivedDefinition(
+   providerId: string,
+   baseDefinition: AgentProviderDefinition,
+   override: ProviderOverride,
+-): AgentProviderDefinition {
++): ProviderDefinitionWithIcon {
+   if (!override.label) {
+     throw new Error(`Custom provider '${providerId}' requires a label`);
+   }
+@@ -322,6 +332,7 @@ function createDerivedDefinition(
+     id: providerId,
+     label: override.label,
+     description: override.description ?? baseDefinition.description,
++    iconSource: override.icon,
+   };
+ }
+ 
+@@ -646,8 +657,10 @@ function createRegistryEntry(
+   const hasStaticModes = resolved.definition.modes.length > 0;
+ 
+   const { createBaseClient: _createBaseClient, contract: _contract, ...configuration } = resolved;
++  const { iconSource, ...definition } = resolved.definition;
+   return {
+-    ...resolved.definition,
++    ...definition,
++    iconSvg: definition.iconSvg ?? resolveProviderIconSvg(provider, iconSource, logger),
+     configuration,
+     enabled: resolved.enabled,
+     derivedFromProviderId: resolved.derivedFromProviderId,

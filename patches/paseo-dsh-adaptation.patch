@@ -1,0 +1,766 @@
+diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
+index c902a4cb8..e63eaa113 100644
+--- a/packages/server/src/server/agent/provider-registry.test.ts
++++ b/packages/server/src/server/agent/provider-registry.test.ts
+@@ -292,6 +292,15 @@ vi.mock("./providers/pi/agent.js", () => ({
+ }));
+ 
+ vi.mock("./providers/generic-acp-agent.js", () => ({
++  // The registry declares this option on every custom ACP provider, so the mock
++  // has to carry it too.
++  ACP_AGENT_PRESET_FEATURE_OPTION: {
++    id: "agent",
++    configId: "agent",
++    label: "Agent",
++    description: "Switch the agent preset for this session",
++    tooltip: "Select agent preset",
++  },
+   GenericACPAgentClient: class GenericACPAgentClient {
+     capabilities = {
+       supportsStreaming: true,
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index a6ab75c21..f06440d44 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
+ import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
+ import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
+ import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
++import { createDshProviderHooks } from "./providers/dsh/provider-hooks.js";
+ import {
+   ACP_AGENT_PRESET_FEATURE_OPTION,
+   GenericACPAgentClient,
+@@ -870,6 +871,16 @@ function addDerivedProviders(
+           if (providerId === "traecli") {
+             return new TraeACPAgentClient(acpOptions);
+           }
++          if (providerId === "dsh") {
++            // dsh reports its goal only in the projection cache it persists per
++            // session, so the generic ACP client needs a hook that reads it back
++            // and turns it into `goal_updated` events.
++            return new GenericACPAgentClient({
++              ...acpOptions,
++              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
++              providerHooks: createDshProviderHooks(),
++            });
++          }
+           return new GenericACPAgentClient({
+             ...acpOptions,
+             configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 9d42b2683..9c25128f5 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -3799,6 +3799,82 @@ describe("ACPAgentSession", () => {
+     });
+   });
+ 
++  test("reads a dsh write out of the arguments instead of the result envelope", async () => {
++    const session = createSessionWithConfig({ provider: "dsh" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    // dsh labels every call `other` and answers with a model-facing envelope,
++    // so the arguments are the only place the written file survives.
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call",
++        toolCallId: "tool-1",
++        title: "write",
++        kind: "other",
++        status: "in_progress",
++        rawInput: { file_path: "D:\\writing\\00-大纲.md", content: "# 大纲\n" },
++      } as SessionUpdate,
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call_update",
++        toolCallId: "tool-1",
++        status: "completed",
++        content: [
++          {
++            type: "content",
++            content: {
++              type: "text",
++              text: "<path>D:\\writing\\00-大纲.md</path>\n<type>file</type>\n<content>Created file</content>",
++            },
++          },
++        ],
++      } as SessionUpdate,
++    });
++
++    const toolCalls = events.flatMap((event) =>
++      event.type === "timeline" && event.item.type === "tool_call" ? [event.item] : [],
++    );
++    expect(toolCalls[toolCalls.length - 1]?.detail).toEqual({
++      type: "write",
++      filePath: "D:\\writing\\00-大纲.md",
++      content: "# 大纲\n",
++    });
++  });
++
++  test("reads a dsh edit out of the arguments, keeping an empty replacement", async () => {
++    const session = createSessionWithConfig({ provider: "dsh" });
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    session.subscribe((event) => events.push(event));
++
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call",
++        toolCallId: "tool-1",
++        title: "edit",
++        kind: "other",
++        status: "in_progress",
++        rawInput: { file_path: "D:\\writing\\00-大纲.md", old_string: "旧标题", new_string: "" },
++      } as SessionUpdate,
++    });
++
++    const toolCalls = events.flatMap((event) =>
++      event.type === "timeline" && event.item.type === "tool_call" ? [event.item] : [],
++    );
++    expect(toolCalls[toolCalls.length - 1]?.detail).toEqual({
++      type: "edit",
++      filePath: "D:\\writing\\00-大纲.md",
++      oldString: "旧标题",
++      newString: "",
++    });
++  });
++
+   test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
+     const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
+       kimiReliableQueue: true,
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index fdd5c946f..23919d5fd 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -4804,10 +4804,42 @@ function mapToolDetail(
+         text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
+       };
+     default:
+-      return buildDefaultToolDetail(context);
++      // dsh reports every call as `kind: "other"` with only the model-facing
++      // arguments, so a write or edit would otherwise render the result
++      // envelope (`<path>…</path>`) instead of the change itself. Recover the
++      // details the arguments describe; anything unrecognised keeps the
++      // generic path.
++      return inferToolDetailFromArguments(context) ?? buildDefaultToolDetail(context);
+   }
+ }
+ 
++/**
++ * Read a detail out of the arguments alone, for providers that label every call
++ * `other`. Only shapes that unambiguously describe a file mutation qualify —
++ * a wrong guess would hide the result text, which is the only output those
++ * calls have.
++ */
++function inferToolDetailFromArguments(context: MapToolDetailContext): ToolCallDetail | null {
++  const { rawInput } = context;
++  if (!rawInput) {
++    return null;
++  }
++  const filePath = readString(rawInput, ["file_path", "filePath", "path"]);
++  if (!filePath) {
++    return null;
++  }
++  const oldString = readLooseString(rawInput, ["old_string", "oldString", "oldText"]);
++  const newString = readLooseString(rawInput, ["new_string", "newString", "newText"]);
++  if (oldString !== undefined && newString !== undefined) {
++    return { type: "edit", filePath, oldString, newString };
++  }
++  const content = readLooseString(rawInput, ["content"]);
++  if (content !== undefined) {
++    return { type: "write", filePath, content };
++  }
++  return null;
++}
++
+ function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
+   const { snapshot, firstLocation, textContent, rawInput, rawOutput } = context;
+   return {
+@@ -5143,10 +5175,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+   return undefined;
+ }
+ 
+-function readNumber(record: Record<string, unknown> | null, keys: string[]): number | undefined {
++/** Like `readString`, but an empty string is a value: `new_string: ""` deletes. */
++function readLooseString(
++  record: Record<string, unknown> | null,
++  keys: string[],
++): string | undefined {
+   if (!record) {
+     return undefined;
+   }
++  for (const key of keys) {
++    const value = record[key];
++    if (typeof value === "string") {
++      return value;
++    }
++  }
++  return undefined;
++}
++
++function readNumber(record: Record<string, unknown> | null, keys: string[]): number | undefined {  if (!record) {
++    return undefined;
++  }
+   for (const key of keys) {
+     const value = record[key];
+     if (typeof value === "number" && Number.isFinite(value)) {
+diff --git a/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts b/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts
+new file mode 100644
+index 000000000..28323da67
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts
+@@ -0,0 +1,283 @@
++import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { afterEach, describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import type { AgentStreamEvent } from "../../agent-sdk-types.js";
++import {
++  dshGoalCacheCandidates,
++  readDshGoalFromCache,
++  resolveDshHome,
++  watchDshGoal,
++} from "./goal-projection.js";
++
++const tempDirs: string[] = [];
++
++function createTempDir(): string {
++  const dir = mkdtempSync(path.join(tmpdir(), "paseo-dsh-goal-"));
++  tempDirs.push(dir);
++  return dir;
++}
++
++afterEach(() => {
++  while (tempDirs.length > 0) {
++    const dir = tempDirs.pop();
++    if (dir) {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  }
++});
++
++/** Build the projection-cache document dsh writes for one session. */
++function buildCache(goal: Record<string, unknown> | null, current?: Record<string, unknown>) {
++  return {
++    version: 7,
++    record: {
++      rows: {
++        goal: {
++          ver: 3,
++          seq: 12,
++          val: {
++            current:
++              goal === null
++                ? null
++                : {
++                    goal,
++                    roundsStarted: 0,
++                    createdAt: 1_700_000_000_000,
++                    updatedAt: 1_700_000_005_000,
++                    ...current,
++                  },
++            seenGoalIds: [],
++            failure: null,
++          },
++        },
++      },
++    },
++  };
++}
++
++function writeCacheFile(home: string, sessionId: string, document: unknown): string {
++  const [file] = dshGoalCacheCandidates(home, sessionId);
++  if (!file) {
++    throw new Error("expected a cache candidate");
++  }
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, JSON.stringify(document));
++  return file;
++}
++
++const ACTIVE_GOAL = {
++  id: "goal-1",
++  revision: 1,
++  objective: "验证 dsh goal 适配",
++  phase: "active",
++  maxGoalRounds: 256,
++};
++
++describe("resolveDshHome", () => {
++  test("prefers an explicit override", () => {
++    expect(resolveDshHome("D:\\dsh-home")).toBe("D:\\dsh-home");
++  });
++
++  test("falls back to DSH_HOME, then the default location", () => {
++    const previous = process.env["DSH_HOME"];
++    try {
++      process.env["DSH_HOME"] = "D:\\from-env";
++      expect(resolveDshHome()).toBe("D:\\from-env");
++      process.env["DSH_HOME"] = "   ";
++      expect(resolveDshHome()).toContain(".dsh");
++    } finally {
++      if (previous === undefined) {
++        delete process.env["DSH_HOME"];
++      } else {
++        process.env["DSH_HOME"] = previous;
++      }
++    }
++  });
++});
++
++describe("dshGoalCacheCandidates", () => {
++  test("lists both the current and the legacy file name", () => {
++    expect(dshGoalCacheCandidates("C:\\dsh", "abc")).toEqual([
++      path.join("C:\\dsh", "storages", "session_projcache", "sessions", "abc.json"),
++      path.join("C:\\dsh", "storages", "session_projcache", "sessions", "session-abc.json"),
++    ]);
++  });
++});
++
++describe("readDshGoalFromCache", () => {
++  test("maps an active goal onto the Paseo payload", () => {
++    const home = createTempDir();
++    const file = writeCacheFile(home, "session-1", buildCache(ACTIVE_GOAL, { roundsStarted: 3 }));
++
++    expect(readDshGoalFromCache(file)).toEqual({
++      kind: "goal",
++      goal: {
++        goalId: "goal-1",
++        objective: "验证 dsh goal 适配",
++        status: "active",
++        turnsUsed: 3,
++        tokensUsed: 0,
++        startedAt: 1_700_000_000_000,
++        endedAt: null,
++        updatedAt: 1_700_000_005_000,
++      },
++    });
++  });
++
++  test("carries a blocked reason through as the terminal reason", () => {
++    const home = createTempDir();
++    const file = writeCacheFile(
++      home,
++      "session-1",
++      buildCache({
++        ...ACTIVE_GOAL,
++        phase: "blocked",
++        blockedReason: { code: "GOAL_BLOCKED", message: "waiting on a human" },
++      }),
++    );
++
++    const result = readDshGoalFromCache(file);
++    expect(result.kind).toBe("goal");
++    if (result.kind !== "goal") {
++      throw new Error("expected a goal");
++    }
++    expect(result.goal.status).toBe("blocked");
++    expect(result.goal.terminalReason).toBe("GOAL_BLOCKED: waiting on a human");
++  });
++
++  test("marks a complete goal as ended at its last update", () => {
++    const home = createTempDir();
++    const file = writeCacheFile(home, "session-1", buildCache({ ...ACTIVE_GOAL, phase: "complete" }));
++
++    const result = readDshGoalFromCache(file);
++    expect(result.kind).toBe("goal");
++    if (result.kind !== "goal") {
++      throw new Error("expected a goal");
++    }
++    expect(result.goal.status).toBe("complete");
++    expect(result.goal.endedAt).toBe(1_700_000_005_000);
++  });
++
++  test("reports a cleared goal as none", () => {
++    const home = createTempDir();
++    const file = writeCacheFile(home, "session-1", buildCache(null));
++
++    expect(readDshGoalFromCache(file)).toEqual({ kind: "none" });
++  });
++
++  test("treats an unreadable or half-written cache as unknown", () => {
++    const home = createTempDir();
++    const [file] = dshGoalCacheCandidates(home, "session-1");
++    mkdirSync(path.dirname(file!), { recursive: true });
++    writeFileSync(file!, '{"version":7,"record":{"rows":{"goal":');
++    expect(readDshGoalFromCache(file!)).toEqual({ kind: "unknown" });
++
++    writeFileSync(file!, JSON.stringify({ version: 7, record: { rows: {} } }));
++    expect(readDshGoalFromCache(file!)).toEqual({ kind: "unknown" });
++
++    expect(readDshGoalFromCache(path.join(home, "missing.json"))).toEqual({ kind: "unknown" });
++  });
++
++  test("ignores a goal whose phase it does not know", () => {
++    const home = createTempDir();
++    const file = writeCacheFile(home, "session-1", buildCache({ ...ACTIVE_GOAL, phase: "unknown" }));
++
++    expect(readDshGoalFromCache(file)).toEqual({ kind: "unknown" });
++  });
++});
++
++describe("watchDshGoal", () => {
++  test("emits the goal once and only again when it changes", async () => {
++    const home = createTempDir();
++    const events: AgentStreamEvent[] = [];
++    const watcher = watchDshGoal({
++      sessionId: "session-1",
++      home,
++      provider: "dsh",
++      logger: createTestLogger(),
++      emit: (event) => events.push(event),
++      pollIntervalMs: 5,
++    });
++    try {
++      // A session with no cache yet emits nothing.
++      await new Promise((resolve) => setTimeout(resolve, 30));
++      expect(events).toEqual([]);
++
++      writeCacheFile(home, "session-1", buildCache(ACTIVE_GOAL));
++      await new Promise((resolve) => setTimeout(resolve, 40));
++      expect(events).toHaveLength(1);
++      expect(events[0]).toMatchObject({
++        type: "goal_updated",
++        provider: "dsh",
++        goal: { goalId: "goal-1", status: "active" },
++      });
++
++      // Rewriting the same row is not a change.
++      writeCacheFile(home, "session-1", buildCache(ACTIVE_GOAL));
++      await new Promise((resolve) => setTimeout(resolve, 40));
++      expect(events).toHaveLength(1);
++
++      writeCacheFile(home, "session-1", buildCache({ ...ACTIVE_GOAL, phase: "complete" }));
++      await new Promise((resolve) => setTimeout(resolve, 40));
++      expect(events).toHaveLength(2);
++      expect(events[1]).toMatchObject({ type: "goal_updated", goal: { status: "complete" } });
++
++      writeCacheFile(home, "session-1", buildCache(null));
++      await new Promise((resolve) => setTimeout(resolve, 40));
++      expect(events[2]).toEqual({ type: "goal_updated", provider: "dsh", goal: null });
++    } finally {
++      watcher.stop();
++    }
++  });
++
++  test("falls back to the legacy file name", async () => {
++    const home = createTempDir();
++    const sessionId = "session-1";
++    const legacy = path.join(
++      home,
++      "storages",
++      "session_projcache",
++      "sessions",
++      `session-${sessionId}.json`,
++    );
++    mkdirSync(path.dirname(legacy), { recursive: true });
++    writeFileSync(legacy, JSON.stringify(buildCache(ACTIVE_GOAL)));
++
++    const events: AgentStreamEvent[] = [];
++    const watcher = watchDshGoal({
++      sessionId,
++      home,
++      provider: "dsh",
++      logger: createTestLogger(),
++      emit: (event) => events.push(event),
++      pollIntervalMs: 5,
++    });
++    try {
++      await new Promise((resolve) => setTimeout(resolve, 30));
++      expect(events).toHaveLength(1);
++      expect(events[0]).toMatchObject({ type: "goal_updated", goal: { goalId: "goal-1" } });
++    } finally {
++      watcher.stop();
++    }
++  });
++
++  test("stops emitting after stop()", async () => {
++    const home = createTempDir();
++    const events: AgentStreamEvent[] = [];
++    const watcher = watchDshGoal({
++      sessionId: "session-1",
++      home,
++      provider: "dsh",
++      logger: createTestLogger(),
++      emit: (event) => events.push(event),
++      pollIntervalMs: 5,
++    });
++    watcher.stop();
++    writeCacheFile(home, "session-1", buildCache(ACTIVE_GOAL));
++    await new Promise((resolve) => setTimeout(resolve, 40));
++    expect(events).toEqual([]);
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/dsh/goal-projection.ts b/packages/server/src/server/agent/providers/dsh/goal-projection.ts
+new file mode 100644
+index 000000000..9c6a0d46f
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/goal-projection.ts
+@@ -0,0 +1,214 @@
++import { readFileSync } from "node:fs";
++import { homedir } from "node:os";
++import { join } from "node:path";
++
++import type { Logger } from "pino";
++
++import type {
++  AgentGoal,
++  AgentGoalStatus,
++  AgentProvider,
++  AgentStreamEvent,
++} from "../../agent-sdk-types.js";
++
++/**
++ * dsh keeps one projection cache per session under its home. The goal domain
++ * writes its whole row here on every transition, so the file — not the ACP
++ * stream — is the only cross-process truth about a goal.
++ */
++const GOAL_CACHE_DIR = ["storages", "session_projcache", "sessions"] as const;
++
++const DEFAULT_POLL_INTERVAL_MS = 1_000;
++
++/** Resolve dsh's home directory: explicit option, `DSH_HOME`, then `~/.dsh`. */
++export function resolveDshHome(override?: string): string {
++  const configured = override?.trim();
++  if (configured) {
++    return configured;
++  }
++  const fromEnv = process.env["DSH_HOME"]?.trim();
++  return fromEnv && fromEnv.length > 0 ? fromEnv : join(homedir(), ".dsh");
++}
++
++/**
++ * Every file a session's goal row may live in. Newer builds name the cache
++ * `<sessionId>.json`; builds before that used `session-<sessionId>.json`.
++ */
++export function dshGoalCacheCandidates(home: string, sessionId: string): string[] {
++  const directory = join(home, ...GOAL_CACHE_DIR);
++  return [join(directory, `${sessionId}.json`), join(directory, `session-${sessionId}.json`)];
++}
++
++export type DshGoalReadResult =
++  | { kind: "goal"; goal: AgentGoal }
++  /** The cache exists and says the session has no goal. */
++  | { kind: "none" }
++  /** No cache yet, or it is mid-write / unreadable; keep the previous state. */
++  | { kind: "unknown" };
++
++/** Read one projection cache file into the goal it describes. */
++export function readDshGoalFromCache(file: string): DshGoalReadResult {
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(readFileSync(file, "utf8"));
++  } catch {
++    return { kind: "unknown" };
++  }
++  const value = readGoalRowValue(parsed);
++  if (value === undefined) {
++    return { kind: "unknown" };
++  }
++  if (value["current"] === null) {
++    return { kind: "none" };
++  }
++  const current = readRecord(value["current"]);
++  const goal = current ? readRecord(current["goal"]) : null;
++  if (!current || !goal) {
++    return { kind: "unknown" };
++  }
++  const goalId = readNonEmptyString(goal["id"]);
++  const objective = typeof goal["objective"] === "string" ? goal["objective"] : undefined;
++  const status = mapDshGoalPhase(goal["phase"]);
++  if (!goalId || objective === undefined || status === undefined) {
++    return { kind: "unknown" };
++  }
++  const updatedAt = readFiniteNumber(current["updatedAt"]) ?? Date.now();
++  const terminalReason = readBlockedReason(goal["blockedReason"]);
++  return {
++    kind: "goal",
++    goal: {
++      goalId,
++      objective,
++      status,
++      turnsUsed: readFiniteNumber(current["roundsStarted"]) ?? 0,
++      // The goal domain counts rounds, not tokens, so nothing here is a token count.
++      tokensUsed: 0,
++      startedAt: readFiniteNumber(current["createdAt"]),
++      endedAt: status === "complete" ? updatedAt : null,
++      updatedAt,
++      ...(terminalReason === undefined ? {} : { terminalReason }),
++    },
++  };
++}
++
++/** dsh's durable phases map one-to-one onto the statuses Paseo renders. */
++function mapDshGoalPhase(phase: unknown): AgentGoalStatus | undefined {
++  switch (phase) {
++    case "active":
++      return "active";
++    case "paused":
++      return "paused";
++    case "blocked":
++      return "blocked";
++    case "complete":
++      return "complete";
++    default:
++      return undefined;
++  }
++}
++
++function readBlockedReason(value: unknown): string | undefined {
++  const reason = readRecord(value);
++  if (!reason) {
++    return undefined;
++  }
++  const code = readNonEmptyString(reason["code"]);
++  const message = readNonEmptyString(reason["message"]);
++  if (code && message) {
++    return `${code}: ${message}`;
++  }
++  return message ?? code;
++}
++
++function readGoalRowValue(parsed: unknown): Record<string, unknown> | undefined {
++  const rows = readRecord(readRecord(readRecord(parsed)?.["record"])?.["rows"]);
++  const row = rows ? readRecord(rows["goal"]) : null;
++  const value = row ? readRecord(row["val"]) : null;
++  return value ?? undefined;
++}
++
++export interface DshGoalWatcherOptions {
++  sessionId: string;
++  home: string;
++  provider: AgentProvider;
++  logger: Logger;
++  emit: (event: AgentStreamEvent) => void;
++  pollIntervalMs?: number;
++}
++
++export interface DshGoalWatcher {
++  stop(): void;
++}
++
++/**
++ * Poll one session's goal row and emit `goal_updated` whenever it changes.
++ *
++ * Polling beats `fs.watch` here: the cache is replaced atomically (tmp file then
++ * rename), and a rename lands as an unrelated event on Windows. A one-second
++ * read of a file this small costs nothing next to a model turn.
++ */
++export function watchDshGoal(options: DshGoalWatcherOptions): DshGoalWatcher {
++  const candidates = dshGoalCacheCandidates(options.home, options.sessionId);
++  const intervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
++  let lastSignature: string | null = null;
++  let stopped = false;
++  let warnedUnreadable = false;
++
++  const poll = (): void => {
++    if (stopped) {
++      return;
++    }
++    let result: DshGoalReadResult = { kind: "unknown" };
++    for (const candidate of candidates) {
++      const read = readDshGoalFromCache(candidate);
++      if (read.kind !== "unknown") {
++        result = read;
++        break;
++      }
++    }
++    if (result.kind === "unknown") {
++      // A session that never creates a goal keeps no row to read; that is normal
++      // until the first `/goal`, so warn once rather than every tick.
++      if (!warnedUnreadable && lastSignature === null) {
++        warnedUnreadable = true;
++        options.logger.debug(
++          { sessionId: options.sessionId, home: options.home },
++          "dsh goal projection cache is not readable yet",
++        );
++      }
++      return;
++    }
++    const goal = result.kind === "goal" ? result.goal : null;
++    const signature = goal === null ? "none" : JSON.stringify(goal);
++    if (signature === lastSignature) {
++      return;
++    }
++    lastSignature = signature;
++    options.emit({ type: "goal_updated", provider: options.provider, goal });
++  };
++
++  poll();
++  const timer = setInterval(poll, intervalMs);
++  timer.unref?.();
++
++  return {
++    stop: () => {
++      stopped = true;
++      clearInterval(timer);
++    },
++  };
++}
++
++function readRecord(value: unknown): Record<string, unknown> | null {
++  return typeof value === "object" && value !== null && !Array.isArray(value)
++    ? (value as Record<string, unknown>)
++    : null;
++}
++
++function readNonEmptyString(value: unknown): string | undefined {
++  return typeof value === "string" && value.length > 0 ? value : undefined;
++}
++
++function readFiniteNumber(value: unknown): number | undefined {
++  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
++}
+diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
+new file mode 100644
+index 000000000..14a36c9b9
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
+@@ -0,0 +1,39 @@
++import type { ACPProviderHooks } from "../acp-agent.js";
++import { type DshGoalWatcher, resolveDshHome, watchDshGoal } from "./goal-projection.js";
++
++export interface DshProviderHooksOptions {
++  /** Overrides dsh's home directory; defaults to `DSH_HOME` or `~/.dsh`. */
++  dshHome?: string;
++  /** Overrides the goal poll cadence; the default is one second. */
++  pollIntervalMs?: number;
++}
++
++/**
++ * Provider hooks for dsh: the ACP stream carries no goal state, so each live
++ * session watches the goal row dsh persists for it and reports the changes as
++ * `goal_updated`. Nothing else about the ACP session is overridden — dsh drives
++ * its own turns, and Paseo already renders its tool calls.
++ */
++export function createDshProviderHooks(options: DshProviderHooksOptions = {}): ACPProviderHooks {
++  const watchers = new Map<string, DshGoalWatcher>();
++
++  return {
++    onSessionReady(ctx) {
++      const watcher = watchDshGoal({
++        sessionId: ctx.acpSessionId,
++        home: resolveDshHome(options.dshHome),
++        provider: ctx.provider,
++        logger: ctx.logger,
++        emit: ctx.emit,
++        pollIntervalMs: options.pollIntervalMs,
++      });
++      watchers.set(ctx.acpSessionId, watcher);
++      return {
++        onClose: () => {
++          watchers.delete(ctx.acpSessionId);
++          watcher.stop();
++        },
++      };
++    },
++  };
++}
