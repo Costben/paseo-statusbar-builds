@@ -212,10 +212,10 @@ index fdd5c946f..23919d5fd 100644
      if (typeof value === "number" && Number.isFinite(value)) {
 diff --git a/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts b/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts
 new file mode 100644
-index 000000000..28323da67
+index 000000000..4ab51c2cb
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,303 @@
 +import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -482,6 +482,26 @@ index 000000000..28323da67
 +    }
 +  });
 +
++  test("stays quiet for a session whose cache says it has no goal", async () => {
++    const home = createTempDir();
++    writeCacheFile(home, "session-1", buildCache(null));
++    const events: AgentStreamEvent[] = [];
++    const watcher = watchDshGoal({
++      sessionId: "session-1",
++      home,
++      provider: "dsh",
++      logger: createTestLogger(),
++      emit: (event) => events.push(event),
++      pollIntervalMs: 5,
++    });
++    try {
++      await new Promise((resolve) => setTimeout(resolve, 30));
++      expect(events).toEqual([]);
++    } finally {
++      watcher.stop();
++    }
++  });
++
 +  test("stops emitting after stop()", async () => {
 +    const home = createTempDir();
 +    const events: AgentStreamEvent[] = [];
@@ -501,10 +521,10 @@ index 000000000..28323da67
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/goal-projection.ts b/packages/server/src/server/agent/providers/dsh/goal-projection.ts
 new file mode 100644
-index 000000000..9c6a0d46f
+index 000000000..32445f680
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/goal-projection.ts
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,220 @@
 +import { readFileSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { join } from "node:path";
@@ -690,7 +710,13 @@ index 000000000..9c6a0d46f
 +    if (signature === lastSignature) {
 +      return;
 +    }
++    const isFirstObservation = lastSignature === null;
 +    lastSignature = signature;
++    if (goal === null && isFirstObservation) {
++      // A session that has never had a goal has nothing to clear, and saying so
++      // on every fresh session would just be noise on the wire.
++      return;
++    }
 +    options.emit({ type: "goal_updated", provider: options.provider, goal });
 +  };
 +
