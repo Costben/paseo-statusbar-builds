@@ -979,10 +979,10 @@ index 000000000..32445f680
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
 new file mode 100644
-index 000000000..d40fe3fc0
+index 000000000..30d9abd37
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
-@@ -0,0 +1,127 @@
+@@ -0,0 +1,169 @@
 +import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -1043,23 +1043,32 @@ index 000000000..d40fe3fc0
 +  };
 +}
 +
-+function writeCacheFile(home: string, sessionId: string, document: unknown): void {
++function cacheFile(home: string, sessionId: string): string {
 +  const [file] = dshGoalCacheCandidates(home, sessionId);
 +  if (!file) {
 +    throw new Error("expected a cache candidate");
 +  }
-+  mkdirSync(path.dirname(file), { recursive: true });
-+  writeFileSync(file, JSON.stringify(document));
++  return file;
 +}
 +
-+function hookContext(sessionId: string, sawTimeline: boolean) {
++function writeCacheFile(home: string, sessionId: string, document: unknown): string {
++  const file = cacheFile(home, sessionId);
++  mkdirSync(path.dirname(file), { recursive: true });
++  writeFileSync(file, JSON.stringify(document));
++  return file;
++}
++
++function hookContext(sessionId: string) {
 +  return {
 +    acpSessionId: sessionId,
-+    provider: "dsh",
++    provider: "dsh" as const,
 +    logger: createTestLogger(),
 +    emit: () => {},
-+    sawTimeline,
 +  };
++}
++
++function continuationContext(sessionId: string, sawTimeline = true) {
++  return { ...hookContext(sessionId), sawTimeline };
 +}
 +
 +describe("dsh goal continuation", () => {
@@ -1068,7 +1077,7 @@ index 000000000..d40fe3fc0
 +    writeCacheFile(home, "session-1", buildCache("active"));
 +    const hooks = createDshProviderHooks({ dshHome: home });
 +
-+    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBe("继续");
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBe("继续");
 +  });
 +
 +  test("stays idle for a paused goal", () => {
@@ -1076,7 +1085,7 @@ index 000000000..d40fe3fc0
 +    writeCacheFile(home, "session-1", buildCache("paused"));
 +    const hooks = createDshProviderHooks({ dshHome: home });
 +
-+    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBeNull();
 +  });
 +
 +  test("stays idle once the goal is complete", () => {
@@ -1084,7 +1093,7 @@ index 000000000..d40fe3fc0
 +    writeCacheFile(home, "session-1", buildCache("complete"));
 +    const hooks = createDshProviderHooks({ dshHome: home });
 +
-+    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBeNull();
 +  });
 +
 +  test("stays idle for a session with no goal", () => {
@@ -1092,14 +1101,14 @@ index 000000000..d40fe3fc0
 +    writeCacheFile(home, "session-1", buildCache(null));
 +    const hooks = createDshProviderHooks({ dshHome: home });
 +
-+    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBeNull();
 +  });
 +
 +  test("never starts a round on a guess when the cache is missing", () => {
 +    const home = createTempDir();
 +    const hooks = createDshProviderHooks({ dshHome: home });
 +
-+    expect(hooks.continueTurn?.(hookContext("session-1", true))).toBeNull();
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBeNull();
 +  });
 +
 +  test("does not continue a round that produced nothing", () => {
@@ -1107,15 +1116,50 @@ index 000000000..d40fe3fc0
 +    writeCacheFile(home, "session-1", buildCache("active"));
 +    const hooks = createDshProviderHooks({ dshHome: home });
 +
-+    expect(hooks.continueTurn?.(hookContext("session-1", false))).toBeNull();
++    expect(hooks.continueTurn?.(continuationContext("session-1", false))).toBeNull();
++  });
++
++  test("continues once after /goal even before the cache is flushed", () => {
++    const home = createTempDir();
++    const hooks = createDshProviderHooks({ dshHome: home });
++    hooks.onForegroundTurnStarting?.(hookContext("session-1"), "/goal 写一万字的成人小说");
++
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBe("继续");
++    // The goal row is still missing, so the second look has nothing to go on.
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBeNull();
++  });
++
++  test("does not treat a /goal subcommand as a new goal", () => {
++    const home = createTempDir();
++    const hooks = createDshProviderHooks({ dshHome: home });
++    hooks.onForegroundTurnStarting?.(hookContext("session-1"), "/goal pause");
++
++    expect(hooks.continueTurn?.(continuationContext("session-1"))).toBeNull();
++  });
++
++  test("keeps going while the watcher last saw the goal active", () => {
++    const home = createTempDir();
++    const file = writeCacheFile(home, "session-1", buildCache("active"));
++    const hooks = createDshProviderHooks({ dshHome: home });
++    const close = hooks.onSessionReady?.(hookContext("session-1"));
++
++    try {
++      // The cache is replaced between turns, so a read can land on no file at all.
++      rmSync(file);
++      expect(hooks.continueTurn?.(continuationContext("session-1"))).toBe("继续");
++    } finally {
++      close?.onClose?.();
++    }
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
 new file mode 100644
-index 000000000..da2be5bed
+index 000000000..406bc74e3
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,150 @@
++import type { AgentPromptInput } from "../../agent-sdk-types.js";
++import type { AgentGoal } from "../../agent-sdk-types.js";
 +import type { ACPProviderHooks } from "../acp-agent.js";
 +import {
 +  type DshGoalWatcher,
@@ -1139,6 +1183,46 @@ index 000000000..da2be5bed
 + */
 +const GOAL_CONTINUATION_PROMPT = "继续";
 +
++/** `/goal` subcommands that never create a goal. */
++const GOAL_SUBCOMMANDS = new Set([
++  "pause",
++  "resume",
++  "clear",
++  "edit",
++  "status",
++  "show",
++  "done",
++  "cancel",
++]);
++
++/** The text of a prompt, whichever shape the caller handed over. */
++function promptText(prompt: AgentPromptInput): string {
++  if (typeof prompt === "string") {
++    return prompt;
++  }
++  const parts: string[] = [];
++  for (const block of prompt) {
++    if (block && typeof block === "object" && "text" in block && typeof block.text === "string") {
++      parts.push(block.text);
++    }
++  }
++  return parts.join("\n");
++}
++
++/** Whether this prompt is the `/goal <objective>` that creates a goal. */
++function startsGoal(text: string): boolean {
++  const match = /^\/goal(?:\s+([\s\S]*))?$/.exec(text.trim());
++  if (!match) {
++    return false;
++  }
++  const argument = (match[1] ?? "").trim();
++  if (argument.length === 0) {
++    return false;
++  }
++  const [head] = argument.split(/\s+/);
++  return !GOAL_SUBCOMMANDS.has(head.toLowerCase());
++}
++
 +/**
 + * Provider hooks for dsh: the ACP stream carries no goal state, so each live
 + * session watches the goal row dsh persists for it and reports the changes as
@@ -1152,6 +1236,10 @@ index 000000000..da2be5bed
 + */
 +export function createDshProviderHooks(options: DshProviderHooksOptions = {}): ACPProviderHooks {
 +  const watchers = new Map<string, DshGoalWatcher>();
++  /** Last goal the watcher reported, kept for the moments the cache lags behind. */
++  const lastObserved = new Map<string, AgentGoal>();
++  /** Sessions whose newest turn created a goal the cache has not flushed yet. */
++  const pendingGoalStart = new Set<string>();
 +
 +  return {
 +    onSessionReady(ctx) {
@@ -1160,16 +1248,33 @@ index 000000000..da2be5bed
 +        home: resolveDshHome(options.dshHome),
 +        provider: ctx.provider,
 +        logger: ctx.logger,
-+        emit: ctx.emit,
++        emit: (event) => {
++          if (event.type === "goal_updated" && event.goal) {
++            lastObserved.set(ctx.acpSessionId, event.goal);
++            if (event.goal.status === "active") {
++              pendingGoalStart.delete(ctx.acpSessionId);
++            }
++          }
++          ctx.emit(event);
++        },
 +        pollIntervalMs: options.pollIntervalMs,
 +      });
 +      watchers.set(ctx.acpSessionId, watcher);
 +      return {
 +        onClose: () => {
 +          watchers.delete(ctx.acpSessionId);
++          lastObserved.delete(ctx.acpSessionId);
++          pendingGoalStart.delete(ctx.acpSessionId);
 +          watcher.stop();
 +        },
 +      };
++    },
++    onForegroundTurnStarting(ctx, prompt) {
++      // The goal row is written write-behind, so right after `/goal` there may be
++      // no cache file at all. Remember that this session just asked for a goal.
++      if (startsGoal(promptText(prompt))) {
++        pendingGoalStart.add(ctx.acpSessionId);
++      }
 +    },
 +    continueTurn(ctx) {
 +      // A round that produced nothing is not worth another round; the caller
@@ -1185,8 +1290,18 @@ index 000000000..da2be5bed
 +          continue;
 +        }
 +        if (result.kind === "none" || result.goal.status !== "active") {
++          pendingGoalStart.delete(ctx.acpSessionId);
 +          return null;
 +        }
++        pendingGoalStart.delete(ctx.acpSessionId);
++        return GOAL_CONTINUATION_PROMPT;
++      }
++      // The cache has not caught up with the turn that just ended. Continue only
++      // when something already told us a goal exists and is running.
++      if (lastObserved.get(ctx.acpSessionId)?.status === "active") {
++        return GOAL_CONTINUATION_PROMPT;
++      }
++      if (pendingGoalStart.delete(ctx.acpSessionId)) {
 +        return GOAL_CONTINUATION_PROMPT;
 +      }
 +      return null;
