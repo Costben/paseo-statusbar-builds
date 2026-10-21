@@ -60,6 +60,140 @@ index 704298f78..dd1da9eeb 100644
 -  return formatControlLabel(option, true);
 +  return formatControlLabel({ id: option.id, label }, true);
  }
+diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
+index 83b6f228d..7171f4f3c 100644
+--- a/packages/app/src/components/markdown/renderer.test.ts
++++ b/packages/app/src/components/markdown/renderer.test.ts
+@@ -258,6 +258,40 @@ describe("bare URL sentence punctuation", () => {
+   );
+ });
+ 
++describe("bare URLs with a port", () => {
++  it.each([
++    "http://127.0.0.1:8400/",
++    "http://127.0.0.1:8400",
++    "http://localhost:8400/admin",
++    "https://example.com:8443/a?b=1#c",
++  ])("keeps the whole destination in one link: %s", async (url) => {
++    const prepared = prepareMarkdownSource(`${url} 传图。`);
++    expect(prepared.render()).toBe(`<${url}> 传图。`);
++    const tree = await parseMarkdown(prepared.render());
++    expect(tree.children?.[0]?.children?.[0]).toEqual({
++      type: "Link",
++      attributes: { url },
++      children: [{ type: "Text", content: url }],
++    });
++  });
++
++  it("keeps CJK punctuation outside the link", async () => {
++    const tree = await parseMarkdown(
++      prepareMarkdownSource("开 http://127.0.0.1:8400/，传图。").render(),
++    );
++    expect(tree.children?.[0]?.children?.[0]).toEqual({
++      type: "Link",
++      attributes: { url: "http://127.0.0.1:8400/" },
++      children: [{ type: "Text", content: "http://127.0.0.1:8400/" }],
++    });
++  });
++
++  it("leaves code spans and authored links untouched", () => {
++    const source = "`http://127.0.0.1:8400/` and [local](http://127.0.0.1:8400/)";
++    expect(prepareMarkdownSource(source).render()).toBe(source);
++  });
++});
++
+ it("requires workspace context for relative inline paths and escapes literal regex characters", () => {
+   const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
+   const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
+diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
+index 9977ccfef..848ca232c 100644
+--- a/packages/app/src/components/markdown/source.ts
++++ b/packages/app/src/components/markdown/source.ts
+@@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
+ // Bare prose paths need a known extension, a line suffix, or at least two separators.
+ const PROSE_PATH = String.raw`(?:${PATH_PREFIX}${HAS_PATH_LETTER}${SEPARATED_PATH}|${HAS_PATH_LETTER}(?:${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT})*[\\/]${FILE_NAME}|${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT}){2,}|${SEPARATED_PATH}(?=:)))`;
+ 
++// MD4C's permissive autolink scanner stops at the colon before a port, so
++// `http://127.0.0.1:8400/` becomes a link to `http://127.0.0.1` and leaves
++// `:8400/` as prose: the link opens the wrong destination and copying it drops
++// the port. Wrapping the whole URL in an angle autolink keeps one link on native
++// and web alike. Only plain text nodes reach this; code, authored links and
++// image alt text stay untouched.
++const PORT_URL = String.raw`https?:\/\/[A-Za-z0-9\-._~%]+:\d{1,5}[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*`;
++const PORT_URL_PATTERN = new RegExp(PORT_URL, "g");
++const HAS_PORT_URL = new RegExp(PORT_URL);
++
++function trimAutolink(url: string): string {
++  let end = url.length;
++  while (end > 0 && ".,;:!?".includes(url[end - 1])) end--;
++  while (end > 0 && (url[end - 1] === ")" || url[end - 1] === "]")) {
++    const close = url[end - 1];
++    const open = close === ")" ? "(" : "[";
++    const head = url.slice(0, end);
++    if (head.split(close).length > head.split(open).length) end--;
++    else break;
++  }
++  return url.slice(0, end);
++}
++
++function autolinkPortUrls(text: string): string {
++  return text.replace(PORT_URL_PATTERN, (match) => {
++    const url = trimAutolink(match);
++    return `<${url}>${match.slice(url.length)}`;
++  });
++}
++
+ function createFilePattern(path: string): RegExp {
+   // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
+   return new RegExp(
+@@ -122,6 +152,7 @@ export function prepareMarkdownSource(
+     !source.includes("![") &&
+     !source.includes("||") &&
+     !source.includes("&") &&
++    !HAS_PORT_URL.test(source) &&
+     !(workspaceRoot && source.includes("]("))
+   ) {
+     return { images, ...metadata, render: () => source };
+@@ -196,7 +227,7 @@ export function prepareMarkdownSource(
+       if (lineEnd < end) split(lineEnd);
+     }
+   }
+-  function visit(node: Nodes) {
++  function visit(node: Nodes, insideLink = false) {
+     const start = node.position?.start.offset;
+     const end = node.position?.end.offset;
+     if (start !== undefined && end !== undefined) {
+@@ -218,17 +249,25 @@ export function prepareMarkdownSource(
+         collectImage(node, start, end);
+         return;
+       }
+-      if (node.type === "text") {
+-        const text = source
+-          .slice(start, end)
++      if (node.type === "text" && !insideLink) {
++        const original = source.slice(start, end);
++        const text = autolinkPortUrls(original)
+           .replace(/(?<!\\)&(?:#(?:[xX][\da-fA-F]+|\d+)|[a-zA-Z][a-zA-Z\d]+);/g, (entity) =>
+             decodeString(entity).replace(/[!-/:-@[-`{-~]/g, "\\$&"),
+           )
+           .replace(/(?<!\\)\|\|/g, "\\|\\|");
+-        if (text !== source.slice(start, end)) edits.push({ start, end, text });
++        if (text !== original) edits.push({ start, end, text });
+       }
+     }
+-    if ("children" in node) node.children.forEach(visit);
++    if ("children" in node) {
++      const childInsideLink =
++        insideLink ||
++        node.type === "link" ||
++        node.type === "linkReference" ||
++        node.type === "image" ||
++        node.type === "imageReference";
++      node.children.forEach((child) => visit(child, childInsideLink));
++    }
+   }
+   visit(getTree());
+   return {
 diff --git a/packages/app/src/components/question-form-card-core.test.ts b/packages/app/src/components/question-form-card-core.test.ts
 index 293bf24ba..e82b8ab20 100644
 --- a/packages/app/src/components/question-form-card-core.test.ts
