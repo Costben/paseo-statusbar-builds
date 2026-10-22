@@ -1,3 +1,41 @@
+diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
+index c2e811774..a513cec75 100644
+--- a/packages/server/src/server/agent/agent-manager.ts
++++ b/packages/server/src/server/agent/agent-manager.ts
+@@ -96,7 +96,11 @@ import { withTimeout } from "../../utils/promise-timeout.js";
+ import { extractAttention } from "../persistence-hooks.js";
+ 
+ const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
+-const INTERRUPT_SESSION_TIMEOUT_MS = 2_000;
++// A provider answers `session/cancel` when the turn actually stops, which for
++// an agent driving a long tool (a gradle build, a test suite) means the tool
++// has to die first. Two seconds is shorter than a tool's own shutdown, so the
++// cancel used to time out and force-cancel turns that were stopping normally.
++const INTERRUPT_SESSION_TIMEOUT_MS = 10_000;
+ const IMPORTABLE_SESSION_LIST_TIMEOUT_MS = 90_000;
+ const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
+   supportsStreaming: false,
+@@ -3186,7 +3190,19 @@ export class AgentManager {
+         reason: "interrupted",
+         turnId: runTurnId,
+       });
+-      await run.settledPromise;
++      // Never await a settlement the provider may not produce: this runs inside
++      // the per-agent mutation queue, so one wedged turn blocks every later
++      // prompt (and this cancel RPC) forever. The turn is already reported as
++      // canceled, so reap the run now — the agent can take the next turn and
++      // anything the late turn still emits is dropped by the run registry.
++      this.runs.clearAgentRun(agentId);
++      if (run.kind === "foreground") {
++        this.finalizeForegroundTurn(agent, runTurnId);
++      } else if (!agent.pendingReplacement) {
++        agent.lifecycle = "idle";
++        this.touchUpdatedAt(agent);
++        this.emitState(agent);
++      }
+     } else if (settlement === "timed_out" && run.kind === "foreground") {
+       this.logger.warn(
+         { agentId, kind: run.kind },
 diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
 index c902a4cb8..e63eaa113 100644
 --- a/packages/server/src/server/agent/provider-registry.test.ts
@@ -19,7 +57,7 @@ index c902a4cb8..e63eaa113 100644
      capabilities = {
        supportsStreaming: true,
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index a6ab75c21..3efff9658 100644
+index a6ab75c21..640d01dc6 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -30,7 +68,7 @@ index a6ab75c21..3efff9658 100644
  import {
    ACP_AGENT_PRESET_FEATURE_OPTION,
    GenericACPAgentClient,
-@@ -870,6 +871,23 @@ function addDerivedProviders(
+@@ -870,6 +871,29 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -49,13 +87,19 @@ index a6ab75c21..3efff9658 100644
 +              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
 +              clientCapabilityMeta: { "subagent-transcript": true },
 +              providerHooks: createDshProviderHooks(),
++              // dsh reads its models from `llm-pi-ai` and its modes from the
++              // agent config, both host-level: one probe answers for every
++              // workspace. Without a static key the snapshot manager keys the
++              // catalogue by cwd and re-boots dsh (its plugin graph takes tens
++              // of seconds on a cold cache) for each project.
++              catalogCacheKey: "host",
 +            });
 +          }
            return new GenericACPAgentClient({
              ...acpOptions,
              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d42b2683..254bee32c 100644
+index 9d42b2683..e8e605ba0 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -3799,6 +3799,82 @@ describe("ACPAgentSession", () => {
@@ -141,7 +185,26 @@ index 9d42b2683..254bee32c 100644
    test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
      const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
        kimiReliableQueue: true,
-@@ -6540,3 +6616,96 @@ describe("deriveFeaturesFromACP", () => {
+@@ -4768,7 +4844,7 @@ describe("ACPAgentClient probe cleanup", () => {
+     expect(terminator.terminated).toContain(child);
+   });
+ 
+-  test("closes a catalog probe session that finishes being created after refresh aborts", async () => {
++  test("tears down a catalog probe that is still creating its session when refresh aborts", async () => {
+     const terminator = new FakeTerminator();
+     const child = createProbeChildStub();
+     const abort = new AbortController();
+@@ -4827,7 +4903,8 @@ describe("ACPAgentClient probe cleanup", () => {
+     });
+ 
+     await expect(catalog).rejects.toThrow("refresh cancelled");
+-    expect(closeSession).toHaveBeenCalledWith({ sessionId: "late-catalog-probe-session" });
++    // The aborted probe is disposed as a whole, so the session it was still
++    // creating dies with the process rather than being closed one by one.
+     expect(terminator.terminated).toContain(child);
+   });
+ 
+@@ -6540,3 +6617,96 @@ describe("deriveFeaturesFromACP", () => {
      expect(features).toEqual([]);
    });
  });
@@ -240,10 +303,51 @@ index 9d42b2683..254bee32c 100644
 +});
 \ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index fdd5c946f..0111f891e 100644
+index fdd5c946f..9d692c9f2 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -488,6 +488,27 @@ export interface ACPProviderHookContext {
+@@ -344,6 +344,40 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
+ const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
+ const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
+ const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
++// A probe process can take far longer to boot than the probe itself takes to
++// answer: dsh loads its whole plugin graph before it replies to `initialize`,
++// so on a cold page cache the first probe costs tens of seconds while
++// `session/new` alone costs a couple hundred milliseconds. Catalogue and
++// feature discovery ask the same question every time a draft changes, so one
++// idle process is kept around and handed to the next probe instead of paying
++// that boot again.
++const ACP_PROBE_IDLE_TTL_MS = 5 * 60_000;
++// Agents that do not advertise `session/close` keep every probe session alive
++// inside the reused process; recycle the process before that becomes a leak.
++const ACP_POOLED_PROBE_MAX_SESSIONS = 8;
++const ACP_FEATURE_CACHE_TTL_MS = 5 * 60_000;
++const ACP_FEATURE_CACHE_MAX_ENTRIES = 32;
++
++interface ACPPooledProbe {
++  key: string;
++  probe: SpawnedACPProcess;
++  inFlight: number;
++  sessions: number;
++  disposeWhenIdle: boolean;
++  idleTimer: ReturnType<typeof setTimeout> | null;
++}
++
++interface ACPPooledProbeLease {
++  entry: ACPPooledProbe;
++  probe: SpawnedACPProcess;
++  /** True when the lease spawned a new process, false when it reused a warm one. */
++  fresh: boolean;
++}
++
++interface ACPFeatureCacheEntry {
++  expiresAt: number;
++  features: AgentFeature[];
++}
+ 
+ function summarizeMalformedACPStdoutError(error: unknown): { type: string; message: string } {
+   return {
+@@ -488,6 +522,27 @@ export interface ACPProviderHookContext {
    lastStreamedContentAt?: () => number | null;
  }
  
@@ -271,7 +375,7 @@ index fdd5c946f..0111f891e 100644
  /**
   * Optional provider-side behaviour for one ACP session. Hooks are threaded from
   * the provider client down to `ACPAgentSession`, so a provider can attach
-@@ -527,6 +548,21 @@ export interface ACPProviderHooks {
+@@ -527,6 +582,21 @@ export interface ACPProviderHooks {
      signal: AbortSignal;
      sawTimeline: boolean;
    }): Promise<void> | null;
@@ -293,7 +397,7 @@ index fdd5c946f..0111f891e 100644
    /**
     * Called when a foreground turn is about to send its prompt, with the prompt
     * as it will be sent. Not called for a prompt queued through steering.
-@@ -555,6 +591,20 @@ export interface ACPProviderHooks {
+@@ -555,6 +625,20 @@ export interface ACPProviderHooks {
     * output of the turn.
     */
    shouldDropSessionUpdate?(update: SessionUpdate): boolean;
@@ -314,7 +418,415 @@ index fdd5c946f..0111f891e 100644
    /**
     * The provider queues a prompt that arrives while it is busy and runs it once
     * the current turn ends. Enables steering: a message sent during a turn is
-@@ -1911,6 +1961,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -607,6 +691,12 @@ interface ACPAgentClientOptions {
+   initialCommandsWaitTimeoutMs?: number;
+   terminateProcess?: ProcessTerminator;
+   providerHooks?: ACPProviderHooks;
++  /**
++   * Static catalogue identity for clients that discover models and modes from
++   * host configuration rather than from the workspace (see
++   * AgentClient.getCatalogCacheKey). Omit to key the catalogue by workspace.
++   */
++  catalogCacheKey?: string;
+   now?: () => number;
+ }
+ 
+@@ -1084,6 +1174,12 @@ export class ACPAgentClient implements AgentClient {
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
+   private readonly providerHooks?: ACPProviderHooks;
+   private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
++  private readonly catalogCacheKey?: string;
++  private readonly probeIdleTtlMs: number;
++  private readonly featureCacheTtlMs: number;
++  private readonly featureCache = new Map<string, ACPFeatureCacheEntry>();
++  private readonly featureLoadsInFlight = new Map<string, Promise<AgentFeature[]>>();
++  private readonly pooledProbes = new Map<string, ACPPooledProbe>();
+   private readonly now: () => number;
+   protected readonly terminateProcess: ProcessTerminator;
+ 
+@@ -1115,6 +1211,9 @@ export class ACPAgentClient implements AgentClient {
+     this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
+     this.extensionCommandsParser = options.extensionCommandsParser;
+     this.providerHooks = options.providerHooks;
++    this.catalogCacheKey = options.catalogCacheKey;
++    this.probeIdleTtlMs = ACP_PROBE_IDLE_TTL_MS;
++    this.featureCacheTtlMs = ACP_FEATURE_CACHE_TTL_MS;
+     this.now = options.now ?? Date.now;
+   }
+ 
+@@ -1223,65 +1322,40 @@ export class ACPAgentClient implements AgentClient {
+     return session;
+   }
+ 
++  /**
++   * Clients that read their catalogue from host configuration return a static
++   * key, so one probe serves every workspace. Without it the snapshot manager
++   * keys the catalogue by cwd and re-boots the agent for each project.
++   */
++  async getCatalogCacheKey(_options: FetchCatalogOptions): Promise<string | undefined> {
++    return this.catalogCacheKey;
++  }
++
++  /** Release the warm probe; the registry calls this when the daemon shuts down. */
++  async shutdown(): Promise<void> {
++    await this.disposePooledProbe(null, true);
++    this.featureCache.clear();
++    this.featureLoadsInFlight.clear();
++  }
++
+   async fetchCatalog(
+     options: FetchCatalogOptions,
+     context?: ProviderRefreshContext,
+   ): Promise<ProviderCatalog> {
+     const cwd = options.scope === "global" ? homedir() : options.cwd;
+-    let probe: UninitializedACPProcess | null = null;
+-    let probeSessionId: string | null = null;
+-    let probeSessionPromise: Promise<NewSessionResponse> | null = null;
+-    let closePromise: Promise<void> | null = null;
+-    const closeProbe = (): Promise<void> => {
+-      if (!probe) return Promise.resolve();
+-      closePromise ??= (async () => {
+-        if (!probeSessionId && probeSessionPromise) {
+-          try {
+-            probeSessionId = (
+-              await withTimeout(
+-                probeSessionPromise,
+-                ACP_PROBE_CLOSE_TIMEOUT_MS,
+-                `ACP probe session/new cleanup timed out after ${ACP_PROBE_CLOSE_TIMEOUT_MS}ms`,
+-              )
+-            ).sessionId;
+-          } catch (error) {
+-            this.logger.debug(
+-              { err: error },
+-              "ACP probe session/new did not finish during cleanup",
+-            );
+-          }
+-        }
+-        await this.closeProbe(probe, probeSessionId);
+-      })();
+-      return closePromise;
+-    };
+-    const handleAbort = () => void closeProbe().catch(() => undefined);
+-    context?.signal.addEventListener("abort", handleAbort, { once: true });
+-
+-    try {
+-      const initializedProbe = await runProviderRefreshActivity(context, "initialize", () =>
++    const signal = context?.signal;
++    return await this.runPooledProbe(options.providerOptions, async (probe) => {
++      const response = await runProviderRefreshActivity(context, "session/new", () =>
+         raceProviderRefreshAbort(
+-          context?.signal,
+-          this.spawnProcess(PROBE_ENV, {
+-            providerOptions: options.providerOptions,
+-            onSpawned: (spawned) => {
+-              probe = spawned;
+-              if (context?.signal.aborted) void closeProbe().catch(() => undefined);
+-            },
+-          }),
++          signal,
++          this.runACPRequest(() =>
++            probe.connection.newSession({
++              cwd,
++              mcpServers: [],
++            }),
++          ),
+         ),
+       );
+-      probe = initializedProbe;
+-      probeSessionPromise = this.runACPRequest(() =>
+-        initializedProbe.connection.newSession({
+-          cwd,
+-          mcpServers: [],
+-        }),
+-      );
+-      const response = await runProviderRefreshActivity(context, "session/new", () =>
+-        raceProviderRefreshAbort(context?.signal, probeSessionPromise!),
+-      );
+-      probeSessionId = response.sessionId;
+       const transformed = this.transformSessionResponse(response);
+       const derivedModels = deriveModelDefinitionsFromACP(
+         this.provider,
+@@ -1291,9 +1365,9 @@ export class ACPAgentClient implements AgentClient {
+       const models = this.catalogModelResolver
+         ? await runProviderRefreshActivity(context, "catalog.resolve", () =>
+             raceProviderRefreshAbort(
+-              context?.signal,
++              signal,
+               this.catalogModelResolver?.({
+-                connection: initializedProbe.connection,
++                connection: probe.connection,
+                 sessionId: response.sessionId,
+                 models: derivedModels,
+                 configOptions: transformed.configOptions,
+@@ -1314,13 +1388,13 @@ export class ACPAgentClient implements AgentClient {
+         transformed.configOptions,
+       );
+       return {
+-        models: this.modelTransformer ? this.modelTransformer(models) : models,
+-        modes: modeInfo.modes,
++        sessionId: response.sessionId,
++        value: {
++          models: this.modelTransformer ? this.modelTransformer(models) : models,
++          modes: modeInfo.modes,
++        },
+       };
+-    } finally {
+-      context?.signal.removeEventListener("abort", handleAbort);
+-      await closeProbe();
+-    }
++    }, true, context);
+   }
+ 
+   async listFeatures(config: AgentSessionConfig): Promise<AgentFeature[]> {
+@@ -1330,23 +1404,232 @@ export class ACPAgentClient implements AgentClient {
+     }
+ 
+     this.assertProvider(config);
+-    const probe = await this.spawnProcess(PROBE_ENV);
+-    let probeSessionId: string | null = null;
++    const cacheKey = JSON.stringify([
++      config.cwd,
++      config.model ?? null,
++      config.modeId ?? null,
++      config.thinkingOptionId ?? null,
++      config.featureValues ?? null,
++      config.providerOptions ?? null,
++    ]);
++    const cached = this.featureCache.get(cacheKey);
++    if (cached && cached.expiresAt > this.now()) {
++      return cached.features;
++    }
++    const inFlight = this.featureLoadsInFlight.get(cacheKey);
++    if (inFlight) {
++      return await inFlight;
++    }
++
++    // Feature discovery runs on every draft change (provider, model, mode,
++    // thinking level). Answering from a short-lived cache keeps a dialog
++    // interaction from booting the agent once per keystroke.
++    const load = (async () => {
++      const features = await this.runPooledProbe(config.providerOptions, async (probe) => {
++        const response = await this.runACPRequest(() =>
++          probe.connection.newSession({
++            cwd: config.cwd,
++            mcpServers: [],
++          }),
++        );
++        const transformed = this.transformSessionResponse(response);
++        return {
++          sessionId: response.sessionId,
++          value: [
++            autoAcceptFeature,
++            ...deriveFeaturesFromACP(transformed.configOptions, this.configFeatureOptions),
++          ],
++        };
++      });
++      this.rememberFeatures(cacheKey, features);
++      return features;
++    })();
++
++    this.featureLoadsInFlight.set(cacheKey, load);
+     try {
+-      const response = await this.runACPRequest(() =>
+-        probe.connection.newSession({
+-          cwd: config.cwd,
+-          mcpServers: [],
+-        }),
+-      );
+-      probeSessionId = response.sessionId;
+-      const transformed = this.transformSessionResponse(response);
+-      return [
+-        autoAcceptFeature,
+-        ...deriveFeaturesFromACP(transformed.configOptions, this.configFeatureOptions),
+-      ];
++      return await load;
+     } finally {
+-      await this.closeProbe(probe, probeSessionId);
++      this.featureLoadsInFlight.delete(cacheKey);
++    }
++  }
++
++  private rememberFeatures(cacheKey: string, features: AgentFeature[]): void {
++    const now = this.now();
++    for (const [key, entry] of this.featureCache) {
++      if (entry.expiresAt <= now) {
++        this.featureCache.delete(key);
++      }
++    }
++    while (this.featureCache.size >= ACP_FEATURE_CACHE_MAX_ENTRIES) {
++      const oldest = this.featureCache.keys().next().value;
++      if (oldest === undefined) {
++        break;
++      }
++      this.featureCache.delete(oldest);
++    }
++    this.featureCache.set(cacheKey, { expiresAt: now + this.featureCacheTtlMs, features });
++  }
++
++  /**
++   * Run one probe against the warm process, recycling it on failure. A reused
++   * process may be in an unknown state after an error, so the first failure
++   * retries once on a freshly spawned probe.
++   */
++  private async runPooledProbe<T>(
++    providerOptions: Record<string, unknown> | undefined,
++    run: (probe: SpawnedACPProcess) => Promise<{ sessionId: string | null; value: T }>,
++    allowRetry = true,
++    context?: ProviderRefreshContext,
++  ): Promise<T> {
++    const signal = context?.signal;
++    const acquiring = runProviderRefreshActivity(context, "initialize", () =>
++      this.acquirePooledProbe(providerOptions),
++    );
++    let lease: ACPPooledProbeLease;
++    try {
++      lease = await raceProviderRefreshAbort(signal, acquiring);
++    } catch (error) {
++      // The spawn still lands after the abort; make sure it is torn down
++      // instead of sitting in the pool with nobody holding a lease.
++      void acquiring
++        .then((late) => this.releasePooledProbe(late, { sessionId: null, reusable: false }))
++        .catch(() => undefined);
++      throw error;
++    }
++    try {
++      const result = await run(lease.probe);
++      await this.releasePooledProbe(lease, { sessionId: result.sessionId, reusable: true });
++      return result.value;
++    } catch (error) {
++      await this.releasePooledProbe(lease, { sessionId: null, reusable: false });
++      if (allowRetry && !lease.fresh && !signal?.aborted) {
++        this.logger.debug(
++          { err: error, provider: this.provider },
++          "ACP probe failed on a reused process; retrying on a fresh one",
++        );
++        return await this.runPooledProbe(providerOptions, run, false, context);
++      }
++      throw error;
++    }
++  }
++
++  private async acquirePooledProbe(
++    providerOptions: Record<string, unknown> | undefined,
++  ): Promise<ACPPooledProbeLease> {
++    const key = JSON.stringify(providerOptions ?? null);
++    let entry = this.pooledProbes.get(key);
++    if (
++      entry &&
++      (entry.disposeWhenIdle || entry.probe.child.exitCode !== null || entry.probe.child.killed)
++    ) {
++      await this.disposePooledProbe(entry);
++      entry = undefined;
++    }
++
++    const fresh = entry === undefined;
++    if (!entry) {
++      const probe = await this.spawnProcess(PROBE_ENV, { providerOptions });
++      entry = {
++        key,
++        probe,
++        inFlight: 0,
++        sessions: 0,
++        disposeWhenIdle: false,
++        idleTimer: null,
++      };
++      this.pooledProbes.set(key, entry);
++    }
++    if (entry.idleTimer) {
++      clearTimeout(entry.idleTimer);
++      entry.idleTimer = null;
++    }
++    entry.inFlight += 1;
++    return { entry, probe: entry.probe, fresh };
++  }
++
++  private async releasePooledProbe(
++    lease: ACPPooledProbeLease,
++    options: { sessionId: string | null; reusable: boolean },
++  ): Promise<void> {
++    const { entry } = lease;
++    let reusable = options.reusable;
++    if (options.sessionId !== null) {
++      reusable = (await this.closePooledProbeSession(entry, options.sessionId)) && reusable;
++    }
++    entry.inFlight = Math.max(0, entry.inFlight - 1);
++
++    const exhausted = entry.sessions >= ACP_POOLED_PROBE_MAX_SESSIONS;
++    const exited = entry.probe.child.exitCode !== null || entry.probe.child.killed;
++    if (!reusable || exhausted || exited) {
++      entry.disposeWhenIdle = true;
++    }
++    if (entry.inFlight > 0) {
++      return;
++    }
++    if (this.pooledProbes.get(entry.key) !== entry) {
++      // Already retired (shutdown, or a newer probe took the slot): nothing to
++      // keep warm and nothing left to arm.
++      return;
++    }
++    if (entry.disposeWhenIdle) {
++      await this.disposePooledProbe(entry);
++      return;
++    }
++    if (!entry.idleTimer) {
++      entry.idleTimer = setTimeout(() => {
++        entry.idleTimer = null;
++        void this.disposePooledProbe(entry);
++      }, this.probeIdleTtlMs);
++      // A warm probe is an optimisation, not work worth keeping the daemon alive for.
++      entry.idleTimer.unref?.();
++    }
++  }
++
++  private async closePooledProbeSession(
++    entry: ACPPooledProbe,
++    sessionId: string,
++  ): Promise<boolean> {
++    if (!entry.probe.initialize.agentCapabilities?.sessionCapabilities?.close) {
++      // No session/close: count the session so the process is recycled before
++      // the sessions it keeps alive pile up.
++      entry.sessions += 1;
++      return true;
++    }
++    try {
++      await withTimeout(
++        entry.probe.connection.unstable_closeSession({ sessionId }),
++        ACP_PROBE_CLOSE_TIMEOUT_MS,
++        `ACP probe session/close timed out after ${ACP_PROBE_CLOSE_TIMEOUT_MS}ms`,
++      );
++      return true;
++    } catch (error) {
++      this.logger.debug({ err: error, sessionId }, "ACP probe closeSession failed during cleanup");
++      return false;
++    }
++  }
++
++  /**
++   * Drop one pooled probe, or every one of them when `entry` is null. A process
++   * still serving a lease is only marked for disposal unless `force` is set, so
++   * the daemon can shut down without waiting for an in-flight probe.
++   */
++  private async disposePooledProbe(entry: ACPPooledProbe | null, force = false): Promise<void> {
++    const targets = entry ? [entry] : Array.from(this.pooledProbes.values());
++    for (const target of targets) {
++      if (this.pooledProbes.get(target.key) === target) {
++        this.pooledProbes.delete(target.key);
++      }
++      if (target.idleTimer) {
++        clearTimeout(target.idleTimer);
++        target.idleTimer = null;
++      }
++      if (target.inFlight > 0 && !force) {
++        target.disposeWhenIdle = true;
++        continue;
++      }
++      // Route through closeProbe so subclasses (and tests) keep their seam for
++      // process teardown.
++      await this.closeProbe(target.probe);
+     }
+   }
+ 
+@@ -1911,6 +2194,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private currentTurnUpdateCount = 0;
    private currentTurnMismatchedUpdateCount = 0;
    private currentTurnStartedAt = 0;
@@ -325,7 +837,7 @@ index fdd5c946f..0111f891e 100644
    private lastStreamedContentAt: number | null = null;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
-@@ -2369,6 +2423,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2369,6 +2656,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      await Promise.race([settledHold, waitForAbortSignal(signal)]);
    }
  
@@ -404,7 +916,7 @@ index fdd5c946f..0111f891e 100644
    /**
     * Ask the provider why a turn produced no timeline item. A throwing hook must
     * never change the failure, so a rejection keeps the generic code.
-@@ -2499,6 +2625,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2499,6 +2858,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      prompt: AgentPromptInput,
      options: AgentRunOptions | undefined,
      announceUserMessage: boolean,
@@ -412,7 +924,7 @@ index fdd5c946f..0111f891e 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2517,6 +2644,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2517,6 +2877,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
@@ -420,7 +932,7 @@ index fdd5c946f..0111f891e 100644
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
-@@ -3776,6 +3904,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3776,6 +4137,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
        return [];
      }
@@ -433,7 +945,7 @@ index fdd5c946f..0111f891e 100644
      if (update.sessionUpdate === "user_message_chunk") {
        return this.handleUserMessageChunk(update);
      }
-@@ -3792,6 +3926,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3792,6 +4159,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return events;
    }
  
@@ -484,7 +996,7 @@ index fdd5c946f..0111f891e 100644
    private translateSessionUpdateBody(
      update: SessionUpdate,
      pendingUserEvents: AgentStreamEvent[],
-@@ -4200,6 +4378,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4200,6 +4611,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -492,7 +1004,7 @@ index fdd5c946f..0111f891e 100644
          break;
      }
    }
-@@ -4804,10 +4983,42 @@ function mapToolDetail(
+@@ -4804,10 +5216,42 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -536,7 +1048,7 @@ index fdd5c946f..0111f891e 100644
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
    const { snapshot, firstLocation, textContent, rawInput, rawOutput } = context;
    return {
-@@ -5143,10 +5354,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -5143,10 +5587,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -2008,3 +2520,70 @@ index 000000000..50baf0282
 +    return wrapped;
 +  }
 +}
+diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
+index 292901814..460d9625b 100644
+--- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
+@@ -49,6 +49,8 @@ interface GenericACPAgentClientOptions {
+   now?: () => number;
+   capabilityOverrides?: Partial<AgentCapabilityFlags>;
+   providerHooks?: ACPProviderHooks;
++  /** Static catalogue identity; set when models and modes come from host config. */
++  catalogCacheKey?: string;
+ }
+ 
+ export class GenericACPAgentClient extends ACPAgentClient {
+@@ -80,6 +82,7 @@ export class GenericACPAgentClient extends ACPAgentClient {
+       catalogModelResolver: options.catalogModelResolver,
+       now: options.now,
+       providerHooks: options.providerHooks,
++      catalogCacheKey: options.catalogCacheKey,
+     });
+ 
+     this.command = options.command;
+diff --git a/packages/server/src/server/bootstrap.ts b/packages/server/src/server/bootstrap.ts
+index 22bf93b62..0df1213a3 100644
+--- a/packages/server/src/server/bootstrap.ts
++++ b/packages/server/src/server/bootstrap.ts
+@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
+ import { getHostName } from "./host-name.js";
+ import path from "node:path";
+ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
++import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
+ import type { Logger } from "pino";
+ import { z } from "zod";
+ import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
+@@ -17,6 +18,13 @@ export type ListenTarget =
+   | { type: "socket"; path: string }
+   | { type: "pipe"; path: string };
+ 
++/**
++ * Protocol revisions a newer MCP client may send that this daemon's SDK does
++ * not know. Only the per-request header check needs them; `initialize`
++ * negotiation already degrades gracefully.
++ */
++const MCP_COMPATIBLE_PROTOCOL_VERSIONS = ["2026-07-28"];
++
+ function resolveBoundListenTarget(
+   listenTarget: ListenTarget,
+   httpServer: ReturnType<typeof createHTTPServer>,
+@@ -1496,6 +1504,19 @@ export async function createPaseoDaemon(
+       // requests. The agent control plane only lists and calls tools, neither of which
+       // needs cross-request state, so sessions would only pin memory for the life of the
+       // daemon (agents that exit without a clean DELETE never get reaped).
++      // MCP clients newer than this daemon's SDK speak a protocol version the
++      // SDK does not list yet (dsh's client sends 2026-07-28). Version
++      // negotiation at `initialize` is already graceful — the server answers
++      // with the version it supports — but every later request carries an
++      // `MCP-Protocol-Version` header that this list gates, so a newer client
++      // completes the handshake and then gets 400 on everything it asks for.
++      // Streamable HTTP framing has not changed between these revisions, so
++      // accept the known-newer version rather than locking the client out.
++      for (const version of MCP_COMPATIBLE_PROTOCOL_VERSIONS) {
++        if (!SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
++          SUPPORTED_PROTOCOL_VERSIONS.push(version);
++        }
++      }
+       const transport = new StreamableHTTPServerTransport({
+         sessionIdGenerator: undefined,
+         // NOTE: We enforce a Vite-like host allowlist at the app/websocket layer.
