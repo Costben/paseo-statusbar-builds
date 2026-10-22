@@ -213,13 +213,32 @@ jobs:
             '^beta-mac\.yml$'; do
             grep -Eq "$pattern" <<< "$assets" || missing+=("$pattern")
           done
-          if (( ${#missing[@]} == 0 )); then
-            echo "Release $release_tag already has every macOS artifact; skipping build."
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-          else
+          if (( ${#missing[@]} != 0 )); then
             echo "Release $release_tag is missing: ${missing[*]}"
             echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          # Every asset name can be present and still be from an older commit: the
+          # Windows workflow is chained off this one with `workflow_run`, which
+          # carries no `force` input, so a name check alone let artifacts from a
+          # previous patch commit satisfy it and the build silently skipped (that
+          # is how 7e0c714 assets survived a 4347183 run). The publish step stamps
+          # build-info-macos.json with the commit that produced the artifacts, so
+          # compare that instead of trusting the file names.
+          info_dir="$(mktemp -d)"
+          built_commit=""
+          if gh release download "$release_tag" --repo "$GITHUB_REPOSITORY" \
+               --pattern 'build-info-macos.json' --dir "$info_dir" >/dev/null 2>&1; then
+            built_commit="$(jq -r '.patchCommit // ""' "$info_dir/build-info-macos.json" 2>/dev/null || true)"
+          fi
+          rm -rf "$info_dir"
+          if [ "$built_commit" != "$GITHUB_SHA" ]; then
+            echo "Release $release_tag was built from '${built_commit:-<no build-info-macos.json>}', not $GITHUB_SHA; rebuilding."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Release $release_tag already has every macOS artifact from $GITHUB_SHA; skipping build."
+          echo "should_build=false" >> "$GITHUB_OUTPUT"
 
   build:
     name: build and publish (macOS ${{ matrix.electron_arch }})
@@ -595,6 +614,25 @@ jobs:
 
           node "${GITHUB_WORKSPACE}/scripts/upload-release-assets.mjs" \
             "$release_tag" "$release_dir" "$GITHUB_REPOSITORY"
+
+          # Provenance, uploaded last: no updater reads this file, but the
+          # "Check if already built" step does, and it must only become visible
+          # once every artifact it describes has landed.
+          node -e '
+            const fs = require("node:fs");
+            const [file, commit, tag, release, platform] = process.argv.slice(1);
+            fs.writeFileSync(
+              file,
+              JSON.stringify(
+                { patchCommit: commit, upstreamTag: tag, releaseTag: release, platform, builtAt: new Date().toISOString() },
+                null,
+                2,
+              ) + "\n",
+            );
+          ' "$release_dir/build-info-macos.json" "$GITHUB_SHA" "$upstream_tag" "$release_tag" "macos"
+          cat "$release_dir/build-info-macos.json"
+          gh release upload "$release_tag" "$release_dir/build-info-macos.json" \
+            --clobber --repo "$GITHUB_REPOSITORY"
 
   verify:
     name: verify published assets
