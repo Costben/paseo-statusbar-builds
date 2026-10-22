@@ -19,7 +19,7 @@ index c902a4cb8..e63eaa113 100644
      capabilities = {
        supportsStreaming: true,
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index a6ab75c21..f06440d44 100644
+index a6ab75c21..3efff9658 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -30,7 +30,7 @@ index a6ab75c21..f06440d44 100644
  import {
    ACP_AGENT_PRESET_FEATURE_OPTION,
    GenericACPAgentClient,
-@@ -870,6 +871,16 @@ function addDerivedProviders(
+@@ -870,6 +871,23 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -38,9 +38,16 @@ index a6ab75c21..f06440d44 100644
 +            // dsh reports its goal only in the projection cache it persists per
 +            // session, so the generic ACP client needs a hook that reads it back
 +            // and turns it into `goal_updated` events.
++            //
++            // `subagent-transcript` is the bridge's switch for forwarding the child
++            // sessions a subagent spawns. It is all or nothing, and the forwarded
++            // updates arrive on this session's stream, so the same hooks claim them
++            // as `provider_subagent` events instead of letting the parent timeline
++            // repeat every child step.
 +            return new GenericACPAgentClient({
 +              ...acpOptions,
 +              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
++              clientCapabilityMeta: { "subagent-transcript": true },
 +              providerHooks: createDshProviderHooks(),
 +            });
 +          }
@@ -233,10 +240,38 @@ index 9d42b2683..254bee32c 100644
 +});
 \ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index fdd5c946f..f49c41093 100644
+index fdd5c946f..0111f891e 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -527,6 +527,21 @@ export interface ACPProviderHooks {
+@@ -488,6 +488,27 @@ export interface ACPProviderHookContext {
+   lastStreamedContentAt?: () => number | null;
+ }
+ 
++/**
++ * What a provider hook gets when an update on this session's stream belongs to a
++ * subagent the agent spawned rather than to the session's own transcript.
++ *
++ * A provider that forwards child work declares it in `clientCapabilityMeta` and
++ * tags every child update with `_meta`. The tagging is the provider's own, so the
++ * hook — not this client — decides which updates those are.
++ */
++export interface ACPProviderSubagentUpdateContext extends ACPProviderHookContext {
++  /** The update's ACP `_meta`, where an agent attributes work to a child. */
++  meta: { [key: string]: unknown } | null | undefined;
++  /**
++   * Translate this update exactly the way the parent transcript would render it,
++   * without touching this session's own state: a child's prompt echo never lands
++   * in the pending-prompt buffer and a child's title never renames the session.
++   */
++  translate: () => AgentStreamEvent[];
++  /** A tool call this session already recorded, by ACP tool call id. */
++  findToolCall: (toolCallId: string) => ACPToolSnapshot | null;
++}
++
+ /**
+  * Optional provider-side behaviour for one ACP session. Hooks are threaded from
+  * the provider client down to `ACPAgentSession`, so a provider can attach
+@@ -527,6 +548,21 @@ export interface ACPProviderHooks {
      signal: AbortSignal;
      sawTimeline: boolean;
    }): Promise<void> | null;
@@ -258,7 +293,28 @@ index fdd5c946f..f49c41093 100644
    /**
     * Called when a foreground turn is about to send its prompt, with the prompt
     * as it will be sent. Not called for a prompt queued through steering.
-@@ -1911,6 +1926,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -555,6 +591,20 @@ export interface ACPProviderHooks {
+    * output of the turn.
+    */
+   shouldDropSessionUpdate?(update: SessionUpdate): boolean;
++  /**
++   * Consume an update that belongs to a subagent the agent spawned. Return the
++   * events to emit in its place — `provider_subagent` events, normally — or null
++   * to let this session translate the update into its own transcript.
++   *
++   * Returning an empty array swallows the update. Nothing this hook consumes
++   * reaches the parent's timeline, so a provider that turns child forwarding on
++   * must claim every child update here or the parent transcript will repeat the
++   * child's work.
++   */
++  onSubagentUpdate?(
++    update: SessionUpdate,
++    ctx: ACPProviderSubagentUpdateContext,
++  ): AgentStreamEvent[] | null;
+   /**
+    * The provider queues a prompt that arrives while it is busy and runs it once
+    * the current turn ends. Enables steering: a message sent during a turn is
+@@ -1911,6 +1961,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private currentTurnUpdateCount = 0;
    private currentTurnMismatchedUpdateCount = 0;
    private currentTurnStartedAt = 0;
@@ -269,7 +325,7 @@ index fdd5c946f..f49c41093 100644
    private lastStreamedContentAt: number | null = null;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
-@@ -2369,6 +2388,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2369,6 +2423,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      await Promise.race([settledHold, waitForAbortSignal(signal)]);
    }
  
@@ -348,7 +404,7 @@ index fdd5c946f..f49c41093 100644
    /**
     * Ask the provider why a turn produced no timeline item. A throwing hook must
     * never change the failure, so a rejection keeps the generic code.
-@@ -2499,6 +2590,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2499,6 +2625,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      prompt: AgentPromptInput,
      options: AgentRunOptions | undefined,
      announceUserMessage: boolean,
@@ -356,7 +412,7 @@ index fdd5c946f..f49c41093 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2517,6 +2609,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2517,6 +2644,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
@@ -364,7 +420,71 @@ index fdd5c946f..f49c41093 100644
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
-@@ -4200,6 +4293,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3776,6 +3904,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
+       return [];
+     }
++    // Before the prompt-echo branch: a child's prompt belongs to the child, and
++    // letting it through here would append it to the parent's pending prompt.
++    const subagentEvents = this.translateSubagentUpdate(update);
++    if (subagentEvents !== null) {
++      return subagentEvents;
++    }
+     if (update.sessionUpdate === "user_message_chunk") {
+       return this.handleUserMessageChunk(update);
+     }
+@@ -3792,6 +3926,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     return events;
+   }
+ 
++  /**
++   * Give the provider a chance to route an update that belongs to a subagent it
++   * spawned. Returns null when the update is this session's own.
++   */
++  private translateSubagentUpdate(update: SessionUpdate): AgentStreamEvent[] | null {
++    const hook = this.providerHooks?.onSubagentUpdate;
++    if (!hook) {
++      return null;
++    }
++    const context = this.providerHookContext();
++    if (!context) {
++      return null;
++    }
++    return hook(update, {
++      ...context,
++      meta: update._meta,
++      translate: () => this.translateSubagentUpdateBody(update),
++      findToolCall: (toolCallId) => this.toolCalls.get(toolCallId) ?? null,
++    });
++  }
++
++  /**
++   * The parent's translator, minus the parts that only make sense for the parent:
++   * a child's prompt echo becomes an item in the child's timeline instead of text
++   * appended to the parent's pending prompt.
++   */
++  private translateSubagentUpdateBody(update: SessionUpdate): AgentStreamEvent[] {
++    if (update.sessionUpdate !== "user_message_chunk") {
++      return this.translateSessionUpdateBody(update, []);
++    }
++    const text = contentBlockToText(update.content);
++    if (!text) {
++      return [];
++    }
++    const messageId = update.messageId ?? undefined;
++    return [
++      this.wrapTimeline({
++        type: "user_message",
++        text,
++        ...(messageId ? { messageId } : {}),
++      }),
++    ];
++  }
++
+   private translateSessionUpdateBody(
+     update: SessionUpdate,
+     pendingUserEvents: AgentStreamEvent[],
+@@ -4200,6 +4378,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -372,7 +492,7 @@ index fdd5c946f..f49c41093 100644
          break;
      }
    }
-@@ -4804,8 +4898,40 @@ function mapToolDetail(
+@@ -4804,10 +4983,42 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -383,9 +503,9 @@ index fdd5c946f..f49c41093 100644
 +      // details the arguments describe; anything unrecognised keeps the
 +      // generic path.
 +      return inferToolDetailFromArguments(context) ?? buildDefaultToolDetail(context);
-+  }
-+}
-+
+   }
+ }
+ 
 +/**
 + * Read a detail out of the arguments alone, for providers that label every call
 + * `other`. Only shapes that unambiguously describe a file mutation qualify —
@@ -405,16 +525,18 @@ index fdd5c946f..f49c41093 100644
 +  const newString = readLooseString(rawInput, ["new_string", "newString", "newText"]);
 +  if (oldString !== undefined && newString !== undefined) {
 +    return { type: "edit", filePath, oldString, newString };
-   }
++  }
 +  const content = readLooseString(rawInput, ["content"]);
 +  if (content !== undefined) {
 +    return { type: "write", filePath, content };
 +  }
 +  return null;
- }
- 
++}
++
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-@@ -5143,10 +5269,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+   const { snapshot, firstLocation, textContent, rawInput, rawOutput } = context;
+   return {
+@@ -5143,10 +5354,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -1154,10 +1276,10 @@ index 000000000..30d9abd37
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
 new file mode 100644
-index 000000000..406bc74e3
+index 000000000..c82249e18
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,160 @@
 +import type { AgentPromptInput } from "../../agent-sdk-types.js";
 +import type { AgentGoal } from "../../agent-sdk-types.js";
 +import type { ACPProviderHooks } from "../acp-agent.js";
@@ -1168,6 +1290,7 @@ index 000000000..406bc74e3
 +  resolveDshHome,
 +  watchDshGoal,
 +} from "./goal-projection.js";
++import { DshSubagentProjector } from "./subagents.js";
 +
 +export interface DshProviderHooksOptions {
 +  /** Overrides dsh's home directory; defaults to `DSH_HOME` or `~/.dsh`. */
@@ -1233,6 +1356,10 @@ index 000000000..406bc74e3
 + * active forever while Paseo shows an idle session, so the same hook asks for the
 + * next round whenever the goal is still active and the turn actually produced
 + * output.
++ *
++ * The same stream carries the child sessions dsh spawns for `subagent` and
++ * `subagent_fork`, tagged with `_meta.dsh`. Those are claimed here and reported as
++ * `provider_subagent` events, which is the same rail Kimi Code's subagents use.
 + */
 +export function createDshProviderHooks(options: DshProviderHooksOptions = {}): ACPProviderHooks {
 +  const watchers = new Map<string, DshGoalWatcher>();
@@ -1240,6 +1367,8 @@ index 000000000..406bc74e3
 +  const lastObserved = new Map<string, AgentGoal>();
 +  /** Sessions whose newest turn created a goal the cache has not flushed yet. */
 +  const pendingGoalStart = new Set<string>();
++  /** dsh forwards child sessions onto this stream; they belong on their own rail. */
++  const subagents = new DshSubagentProjector();
 +
 +  return {
 +    onSessionReady(ctx) {
@@ -1268,6 +1397,9 @@ index 000000000..406bc74e3
 +          watcher.stop();
 +        },
 +      };
++    },
++    onSubagentUpdate(update, ctx) {
++      return subagents.handle(update, ctx);
 +    },
 +    onForegroundTurnStarting(ctx, prompt) {
 +      // The goal row is written write-behind, so right after `/goal` there may be
@@ -1307,4 +1439,572 @@ index 000000000..406bc74e3
 +      return null;
 +    },
 +  };
++}
+diff --git a/packages/server/src/server/agent/providers/dsh/subagents.test.ts b/packages/server/src/server/agent/providers/dsh/subagents.test.ts
+new file mode 100644
+index 000000000..bafafdb04
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/subagents.test.ts
+@@ -0,0 +1,256 @@
++import type { SessionUpdate } from "@agentclientprotocol/sdk";
++import { describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import type { AgentStreamEvent } from "../../agent-sdk-types.js";
++import type { ACPProviderSubagentUpdateContext, ACPToolSnapshot } from "../acp-agent.js";
++import { DshSubagentProjector } from "./subagents.js";
++
++const SUBAGENT_TOOL_CALL: ACPToolSnapshot = {
++  toolCallId: "subagent:run-1",
++  title: "Delegating to a subagent",
++  initialTitle: "subagent",
++  kind: "other",
++  rawInput: { description: "scan the repo", prompt: "Read every spec in docs/specs." },
++};
++
++/** Mirrors the client: the update's own `_meta` is what the hook receives. */
++function createContext(
++  update: SessionUpdate,
++  options: {
++    toolCalls?: Record<string, ACPToolSnapshot>;
++    translate?: () => AgentStreamEvent[];
++  } = {},
++): ACPProviderSubagentUpdateContext {
++  const toolCalls = options.toolCalls ?? {};
++  return {
++    acpSessionId: "parent-session",
++    provider: "acp",
++    logger: createTestLogger(),
++    emit: () => {},
++    meta: update._meta,
++    translate: options.translate ?? (() => []),
++    findToolCall: (toolCallId) => toolCalls[toolCallId] ?? null,
++  };
++}
++
++function sessionInfoUpdate(meta: Record<string, unknown>): SessionUpdate {
++  return { sessionUpdate: "session_info_update", _meta: meta };
++}
++
++function lifecycle(subagent: Record<string, unknown>): SessionUpdate {
++  return sessionInfoUpdate({ dsh: { event: "subagent/lifecycle", subagent } });
++}
++
++function childUpdate(childSessionId: string): Record<string, unknown> {
++  return { dsh: { subagent: { childSessionId, provider: "dsh" } } };
++}
++
++describe("DshSubagentProjector", () => {
++  test("leaves updates the agent did not attribute to a child", () => {
++    const projector = new DshSubagentProjector();
++    const plain = sessionInfoUpdate({});
++    expect(projector.handle(plain, createContext(plain))).toBeNull();
++
++    const message: SessionUpdate = {
++      sessionUpdate: "agent_message_chunk",
++      content: { type: "text", text: "hi" },
++    };
++    expect(projector.handle(message, createContext(message))).toBeNull();
++  });
++
++  test("opens a rail row from the lifecycle event and names it after the parent tool call", () => {
++    const projector = new DshSubagentProjector();
++    const update = lifecycle({
++      state: "started",
++      runId: "run-1",
++      childSessionId: "child-1",
++      provider: "dsh",
++    });
++    const events = projector.handle(
++      update,
++      createContext(update, { toolCalls: { "subagent:run-1": SUBAGENT_TOOL_CALL } }),
++    );
++
++    expect(events).toEqual([
++      {
++        type: "provider_subagent",
++        provider: "dsh",
++        event: {
++          type: "upsert",
++          id: "child-1",
++          title: "subagent",
++          description: "scan the repo",
++          status: "running",
++          toolCallId: "subagent:run-1",
++          subtitle: null,
++        },
++      },
++    ]);
++  });
++
++  test("routes a child's content to its own timeline", () => {
++    const projector = new DshSubagentProjector();
++    const update: SessionUpdate = {
++      sessionUpdate: "agent_message_chunk",
++      content: { type: "text", text: "working" },
++      _meta: childUpdate("child-1"),
++    };
++    const events = projector.handle(
++      update,
++      createContext(update, {
++        toolCalls: { "subagent:run-1": SUBAGENT_TOOL_CALL },
++        translate: () => [
++          {
++            type: "timeline",
++            provider: "acp",
++            item: { type: "assistant_message", text: "working", messageId: "m-1" },
++          },
++        ],
++      }),
++    );
++
++    // The first update of an unknown child still needs a rail row to hang on.
++    expect(events).toHaveLength(2);
++    expect(events?.[0]).toMatchObject({
++      type: "provider_subagent",
++      event: { type: "upsert", id: "child-1", status: "running" },
++    });
++    expect(events?.[1]).toEqual({
++      type: "provider_subagent",
++      provider: "dsh",
++      event: {
++        type: "timeline",
++        id: "child-1",
++        item: { type: "assistant_message", text: "working", messageId: "m-1" },
++      },
++    });
++  });
++
++  test("swallows child updates that only describe the child's own session", () => {
++    const projector = new DshSubagentProjector();
++    const title = sessionInfoUpdate({
++      dsh: { event: "session/title", subagent: { childSessionId: "child-1", provider: "dsh" } },
++    });
++    expect(projector.handle(title, createContext(title))).toEqual([]);
++
++    const usage: SessionUpdate = { sessionUpdate: "usage_update", _meta: childUpdate("child-1") };
++    expect(projector.handle(usage, createContext(usage))).toEqual([]);
++  });
++
++  test("closes the row with the stop reason dsh reported", () => {
++    const projector = new DshSubagentProjector();
++    const started = lifecycle({
++      state: "started",
++      runId: "run-1",
++      childSessionId: "child-1",
++      provider: "dsh",
++    });
++    projector.handle(started, createContext(started));
++
++    const finished = lifecycle({
++      state: "finished",
++      runId: "run-1",
++      childSessionId: "child-1",
++      provider: "dsh",
++      stopReason: "aborted",
++      lastAssistantMessage: "Stopped after the first file.",
++    });
++    const events = projector.handle(finished, createContext(finished));
++
++    expect(events?.[0]).toMatchObject({
++      type: "provider_subagent",
++      event: { type: "upsert", id: "child-1", status: "canceled" },
++    });
++    expect(events?.[1]).toEqual({
++      type: "provider_subagent",
++      provider: "dsh",
++      event: {
++        type: "timeline",
++        id: "child-1",
++        item: {
++          type: "assistant_message",
++          text: "Stopped after the first file.",
++          messageId: "child-1:final",
++        },
++      },
++    });
++  });
++
++  test.each([
++    ["completed", "completed"],
++    ["max-tokens", "completed"],
++    ["aborted", "canceled"],
++    ["error", "failed"],
++    ["refusal", "failed"],
++  ])("maps stop reason %s to %s", (stopReason, status) => {
++    const projector = new DshSubagentProjector();
++    const update = lifecycle({
++      state: "finished",
++      runId: "run-1",
++      childSessionId: "child-1",
++      stopReason,
++    });
++    const events = projector.handle(update, createContext(update));
++    expect(events?.[0]).toMatchObject({ event: { type: "upsert", status } });
++  });
++
++  test("skips the timeline of a fork, which already shares the parent's history", () => {
++    const projector = new DshSubagentProjector();
++    const forkCall: ACPToolSnapshot = {
++      ...SUBAGENT_TOOL_CALL,
++      toolCallId: "subagent:run-2",
++      initialTitle: "subagent_fork",
++      title: "Forking the conversation",
++    };
++    const started = lifecycle({
++      state: "started",
++      runId: "run-2",
++      childSessionId: "child-2",
++      provider: "dsh",
++    });
++    projector.handle(started, createContext(started, { toolCalls: { "subagent:run-2": forkCall } }));
++
++    const toolCall: SessionUpdate = {
++      sessionUpdate: "tool_call",
++      toolCallId: "call-1",
++      title: "read",
++      _meta: childUpdate("child-2"),
++    };
++    expect(projector.handle(toolCall, createContext(toolCall))).toEqual([]);
++
++    const finished = lifecycle({
++      state: "finished",
++      runId: "run-2",
++      childSessionId: "child-2",
++      stopReason: "completed",
++    });
++    const closed = projector.handle(finished, createContext(finished))?.[0];
++    expect(closed).toMatchObject({ event: { status: "completed", id: "child-2" } });
++    // The row keeps the `fork` subtitle it was opened with.
++    expect(closed).not.toHaveProperty("event.subtitle");
++  });
++
++  test("names the parent subagent for a nested child", () => {
++    const projector = new DshSubagentProjector();
++    const parent = lifecycle({
++      state: "started",
++      runId: "run-1",
++      childSessionId: "child-1",
++      provider: "dsh",
++    });
++    projector.handle(parent, createContext(parent));
++
++    const nested = lifecycle({
++      state: "started",
++      runId: "run-3",
++      childSessionId: "child-3",
++      provider: "dsh",
++      parentToolCallId: "subagent:run-1",
++    });
++    const events = projector.handle(nested, createContext(nested));
++    expect(events?.[0]).toMatchObject({
++      event: { type: "upsert", id: "child-3", parentSubagentId: "child-1" },
++    });
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/dsh/subagents.ts b/packages/server/src/server/agent/providers/dsh/subagents.ts
+new file mode 100644
+index 000000000..50baf0282
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/subagents.ts
+@@ -0,0 +1,300 @@
++import type { SessionUpdate } from "@agentclientprotocol/sdk";
++
++import type { AgentStreamEvent } from "../../agent-sdk-types.js";
++import type { ProviderSubagentStatus } from "../../provider-subagents/store.js";
++import type { ACPProviderSubagentUpdateContext, ACPToolSnapshot } from "../acp-agent.js";
++
++/** Provider id the app labels these subagents with. */
++const DSH_PROVIDER = "dsh";
++
++/**
++ * Session updates that carry a child's own work. Everything else on a child —
++ * usage, mode, config options, the session title — describes the child's session
++ * bookkeeping, and forwarding it would overwrite the parent's state with it.
++ */
++const CHILD_CONTENT_UPDATES = new Set<SessionUpdate["sessionUpdate"]>([
++  "user_message_chunk",
++  "agent_message_chunk",
++  "agent_thought_chunk",
++  "tool_call",
++  "tool_call_update",
++  "plan",
++]);
++
++interface DshSubagentMeta {
++  childSessionId: string;
++  /**
++   * For a nested child, the spawn card of its parent in the grandparent's
++   * transcript. A top-level child has none.
++   */
++  parentToolCallId?: string;
++  provider?: string;
++  local?: boolean;
++  state?: "started" | "finished";
++  runId?: string;
++  stopReason?: string;
++  lastAssistantMessage?: string;
++}
++
++interface DshMeta {
++  event?: string;
++  subagent?: DshSubagentMeta;
++}
++
++interface ChildIdentity {
++  /** The parent's tool call for this child, as `subagent:<runId>`. */
++  toolCallId: string | null;
++  parentSubagentId: string | null;
++}
++
++function readRecord(value: unknown): Record<string, unknown> | null {
++  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
++}
++
++function readString(value: unknown): string | undefined {
++  return typeof value === "string" && value.length > 0 ? value : undefined;
++}
++
++function readDshMeta(meta: ACPProviderSubagentUpdateContext["meta"]): DshMeta | null {
++  const dsh = readRecord(readRecord(meta)?.["dsh"]);
++  if (!dsh) {
++    return null;
++  }
++  const subagent = readRecord(dsh["subagent"]);
++  const childSessionId = readString(subagent?.["childSessionId"]);
++  if (!subagent || !childSessionId) {
++    return { event: readString(dsh["event"]) };
++  }
++  const state = readString(subagent["state"]);
++  return {
++    event: readString(dsh["event"]),
++    subagent: {
++      childSessionId,
++      parentToolCallId: readString(subagent["parentToolCallId"]),
++      provider: readString(subagent["provider"]),
++      local: subagent["local"] === true,
++      state: state === "started" || state === "finished" ? state : undefined,
++      runId: readString(subagent["runId"]),
++      stopReason: readString(subagent["stopReason"]),
++      lastAssistantMessage: readString(subagent["lastAssistantMessage"]),
++    },
++  };
++}
++
++/** dsh ends a child with one of `completed | max-tokens | aborted | error | refusal`. */
++function statusForStopReason(reason: string | undefined): ProviderSubagentStatus {
++  switch (reason) {
++    case undefined:
++    case "completed":
++    case "max-tokens":
++      return "completed";
++    case "aborted":
++      return "canceled";
++    default:
++      return "failed";
++  }
++}
++
++function readRawInputString(snapshot: ACPToolSnapshot | null, key: string): string | null {
++  const rawInput = readRecord(snapshot?.rawInput);
++  const value = rawInput?.[key];
++  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
++}
++
++/** The parent tool call's own name, which is where a fork announces itself. */
++function isForkToolCall(snapshot: ACPToolSnapshot | null): boolean {
++  if (!snapshot) {
++    return false;
++  }
++  const names = [snapshot.initialTitle, snapshot.title].filter(
++    (value): value is string => typeof value === "string",
++  );
++  return names.some((name) => name.toLowerCase().includes("fork"));
++}
++
++/**
++ * Turns dsh's child-session stream into `provider_subagent` events.
++ *
++ * The ACP bridge only forwards child work when the client declares
++ * `subagent-transcript`, and it marks every forwarded update with
++ * `_meta.dsh.subagent`. Those updates arrive on the parent's session, so they have
++ * to be claimed here: left alone they would be translated into the parent's
++ * transcript and every child step would appear twice.
++ */
++export class DshSubagentProjector {
++  /** `subagent:<runId>` → the child session it belongs to. */
++  private readonly childByToolCall = new Map<string, string>();
++  /** Children whose timeline is skipped because they already share the parent's. */
++  private readonly forkedChildren = new Set<string>();
++  private readonly knownChildren = new Set<string>();
++
++  constructor(private readonly providerId: string = DSH_PROVIDER) {}
++
++  /**
++   * Returns the events to emit in place of `update`, or null when the update
++   * belongs to the parent's own transcript.
++   */
++  handle(update: SessionUpdate, ctx: ACPProviderSubagentUpdateContext): AgentStreamEvent[] | null {
++    const dsh = readDshMeta(ctx.meta);
++    const child = dsh?.subagent;
++    if (!dsh || !child) {
++      return null;
++    }
++    if (dsh.event === "subagent/lifecycle") {
++      return this.handleLifecycle(child, ctx);
++    }
++    if (!CHILD_CONTENT_UPDATES.has(update.sessionUpdate)) {
++      return [];
++    }
++    return [
++      ...this.announceIfUnknown(child, ctx),
++      ...this.wrapTimeline(child.childSessionId, ctx.translate()),
++    ];
++  }
++
++  private handleLifecycle(
++    child: DshSubagentMeta,
++    ctx: ACPProviderSubagentUpdateContext,
++  ): AgentStreamEvent[] {
++    const identity = this.registerChild(child);
++    const snapshot = identity.toolCallId ? ctx.findToolCall(identity.toolCallId) : null;
++    if (child.state === "started") {
++      if (isForkToolCall(snapshot)) {
++        this.forkedChildren.add(child.childSessionId);
++      }
++      return this.upsert(child.childSessionId, {
++        ...identity,
++        snapshot,
++        status: "running",
++        subtitle: this.forkedChildren.has(child.childSessionId) ? "fork" : null,
++      });
++    }
++
++    const events = this.upsert(child.childSessionId, {
++      ...identity,
++      snapshot,
++      status: statusForStopReason(child.stopReason),
++    });
++    const finalMessage = child.lastAssistantMessage;
++    if (finalMessage && !this.forkedChildren.has(child.childSessionId)) {
++      events.push(
++        ...this.wrapTimeline(child.childSessionId, [
++          {
++            type: "timeline",
++            provider: this.providerId,
++            item: {
++              type: "assistant_message",
++              text: finalMessage,
++              messageId: `${child.childSessionId}:final`,
++            },
++          },
++        ]),
++      );
++    }
++    this.releaseChild(child.childSessionId);
++    return events;
++  }
++
++  /**
++   * A child the bridge started reporting without a lifecycle event — a resumed
++   * session, or a first update that outran its start — still needs a rail row.
++   */
++  private announceIfUnknown(
++    child: DshSubagentMeta,
++    ctx: ACPProviderSubagentUpdateContext,
++  ): AgentStreamEvent[] {
++    if (this.knownChildren.has(child.childSessionId)) {
++      return [];
++    }
++    const identity = this.registerChild(child);
++    const snapshot = identity.toolCallId ? ctx.findToolCall(identity.toolCallId) : null;
++    return this.upsert(child.childSessionId, {
++      ...identity,
++      snapshot,
++      status: "running",
++      subtitle: null,
++    });
++  }
++
++  /**
++   * Records the child and resolves where its rail row hangs. A child's own tool
++   * call is `subagent:<runId>`, the same id the bridge builds; a nested child's
++   * `parentToolCallId` names its parent's spawn card instead, which maps back to
++   * the parent's subagent id.
++   */
++  private registerChild(child: DshSubagentMeta): ChildIdentity {
++    const toolCallId = child.runId ? `subagent:${child.runId}` : (child.parentToolCallId ?? null);
++    const parent = child.parentToolCallId
++      ? (this.childByToolCall.get(child.parentToolCallId) ?? null)
++      : null;
++    if (toolCallId) {
++      this.childByToolCall.set(toolCallId, child.childSessionId);
++    }
++    this.knownChildren.add(child.childSessionId);
++    return {
++      toolCallId,
++      parentSubagentId: parent === child.childSessionId ? null : parent,
++    };
++  }
++
++  private releaseChild(childSessionId: string): void {
++    for (const [toolCallId, owner] of this.childByToolCall) {
++      if (owner === childSessionId) {
++        this.childByToolCall.delete(toolCallId);
++      }
++    }
++    this.forkedChildren.delete(childSessionId);
++    this.knownChildren.delete(childSessionId);
++  }
++
++  private upsert(
++    childSessionId: string,
++    detail: ChildIdentity & {
++      snapshot: ACPToolSnapshot | null;
++      status: ProviderSubagentStatus;
++      subtitle?: string | null;
++    },
++  ): AgentStreamEvent[] {
++    const description =
++      readRawInputString(detail.snapshot, "description") ??
++      readRawInputString(detail.snapshot, "label") ??
++      detail.snapshot?.title ??
++      null;
++    const title =
++      readRawInputString(detail.snapshot, "role") ??
++      detail.snapshot?.initialTitle ??
++      detail.snapshot?.title ??
++      null;
++    return [
++      {
++        type: "provider_subagent",
++        provider: this.providerId,
++        event: {
++          type: "upsert",
++          id: childSessionId,
++          title,
++          description,
++          status: detail.status,
++          toolCallId: detail.toolCallId,
++          ...(detail.subtitle === undefined ? {} : { subtitle: detail.subtitle }),
++          ...(detail.parentSubagentId === null ? {} : { parentSubagentId: detail.parentSubagentId }),
++        },
++      },
++    ];
++  }
++
++  private wrapTimeline(childSessionId: string, events: AgentStreamEvent[]): AgentStreamEvent[] {
++    const wrapped: AgentStreamEvent[] = [];
++    for (const event of events) {
++      if (event.type !== "timeline") {
++        continue;
++      }
++      wrapped.push({
++        type: "provider_subagent",
++        provider: this.providerId,
++        event: { type: "timeline", id: childSessionId, item: event.item },
++      });
++    }
++    return wrapped;
++  }
 +}

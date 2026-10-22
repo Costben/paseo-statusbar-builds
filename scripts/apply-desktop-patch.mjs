@@ -375,8 +375,23 @@ const MARKERS = [
   },
   {
     label: "Harness reminder envelopes stay out of the timeline",
-    path: "packages/server/src/server/agent/agent-messages/index.ts",
+    path: "packages/server/src/server/agent/agent-messages/envelope.ts",
     needle: "<system-reminder>[\\s\\S]*<\\/system-reminder>",
+  },
+  {
+    label: "dsh declares the subagent transcript capability",
+    path: "packages/server/src/server/agent/provider-registry.ts",
+    needle: '"subagent-transcript": true',
+  },
+  {
+    label: "ACP providers can claim a subagent's session updates",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "onSubagentUpdate?(",
+  },
+  {
+    label: "dsh subagent stream projected onto the subagent rail",
+    path: "packages/server/src/server/agent/providers/dsh/subagents.ts",
+    needle: "export class DshSubagentProjector",
   },
   {
     label: "Kimi native goal bridge",

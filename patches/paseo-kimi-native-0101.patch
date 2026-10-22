@@ -2545,11 +2545,11 @@ index a15d94389..4c4d2eb98 100644
    private onStreamThreadStarted(agent: ActiveManagedAgent): void {
      const previousSessionId = agent.persistence?.sessionId ?? null;
      this.refreshSessionPersistence(agent);
-diff --git a/packages/server/src/server/agent/agent-messages/index.ts b/packages/server/src/server/agent/agent-messages/index.ts
-index 1543bf33b..b7c05b9b9 100644
---- a/packages/server/src/server/agent/agent-messages/index.ts
-+++ b/packages/server/src/server/agent/agent-messages/index.ts
-@@ -184,7 +184,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+diff --git a/packages/server/src/server/agent/agent-messages/envelope.ts b/packages/server/src/server/agent/agent-messages/envelope.ts
+index 2144d6ae0..93b527662 100644
+--- a/packages/server/src/server/agent/agent-messages/envelope.ts
++++ b/packages/server/src/server/agent/agent-messages/envelope.ts
+@@ -214,7 +214,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
    return `<paseo-system>\n${reason}\n</paseo-system>`;
  }
  
