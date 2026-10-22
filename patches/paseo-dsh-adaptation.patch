@@ -4780,6 +4780,26 @@ index 292901814..460d9625b 100644
      });
  
      this.command = options.command;
+diff --git a/packages/server/src/server/authorization/operation-permissions.ts b/packages/server/src/server/authorization/operation-permissions.ts
+index 80599a74a..48f441060 100644
+--- a/packages/server/src/server/authorization/operation-permissions.ts
++++ b/packages/server/src/server/authorization/operation-permissions.ts
+@@ -18,6 +18,7 @@ const INBOUND_PERMISSION = {
+   "agent.config.apply.request": ["workspace.write", "hub.execute"],
+   "agent.detach.request": "workspace.write",
+   "agent.fork_context.request": "workspace.read",
++  "agent.dsh.trajectory.request": "workspace.read",
+   "agent.provider_subagents.list.request": "workspace.read",
+   "agent.provider_subagents.timeline.get.request": "workspace.read",
+   "agent.rewind.request": "workspace.write",
+@@ -241,6 +242,7 @@ const OUTBOUND_PERMISSION = {
+   "agent.config.apply.response": ["workspace.write", "hub.execute"],
+   "agent.detach.response": "workspace.write",
+   "agent.fork_context.response": "workspace.read",
++  "agent.dsh.trajectory.response": "workspace.read",
+   "agent.provider_subagents.list.response": "workspace.read",
+   "agent.provider_subagents.timeline.get.response": "workspace.read",
+   "agent.provider_subagents.update": "workspace.read",
 diff --git a/packages/server/src/server/bootstrap.ts b/packages/server/src/server/bootstrap.ts
 index 22bf93b62..0df1213a3 100644
 --- a/packages/server/src/server/bootstrap.ts
