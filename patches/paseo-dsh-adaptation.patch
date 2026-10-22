@@ -1641,19 +1641,23 @@ index 000000000..32445f680
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
 new file mode 100644
-index 000000000..2c151f500
+index 000000000..6bb15341d
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,226 @@
 +import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
-+import { zstdCompressSync } from "node:zlib";
++import * as zlib from "node:zlib";
 +import { afterEach, describe, expect, test } from "vitest";
 +
 +import { createTestLogger } from "../../../../test-utils/test-logger.js";
 +import type { AgentStreamEvent } from "../../agent-sdk-types.js";
 +import { DshSubagentBridge } from "./native-bridge.js";
++
++// The typings this repo builds against do not name zstd yet; the runtime has it.
++const zstdCompressSync = (zlib as unknown as { zstdCompressSync: (buffer: Buffer) => Buffer })
++  .zstdCompressSync;
 +
 +const tempDirs: string[] = [];
 +
@@ -1818,6 +1822,44 @@ index 000000000..2c151f500
 +    bridge.stop();
 +  });
 +
++  test("puts the child's token totals on the rail row", async () => {
++    const home = createTempDir();
++    writeFileSync(sessionFile(home), catalogFrame());
++    const cacheDir = path.join(home, "storages", "session_projcache", "sessions");
++    mkdirSync(cacheDir, { recursive: true });
++    writeFileSync(
++      path.join(cacheDir, `${CHILD}.json`),
++      JSON.stringify({
++        record: {
++          rows: {
++            tokenUsage: {
++              val: {
++                totals: {
++                  uncachedInputTokens: 43_867,
++                  outputTokens: 14_058,
++                  cacheReadTokens: 718_592,
++                  cacheWriteTokens: 0,
++                },
++              },
++            },
++          },
++        },
++      }),
++    );
++    const events: AgentStreamEvent[] = [];
++    const bridge = createBridge(home, events);
++
++    await bridge.pollOnce();
++
++    const [event] = events;
++    const subtitle =
++      event?.type === "provider_subagent" && event.event.type === "upsert"
++        ? event.event.subtitle
++        : null;
++    expect(subtitle).toBe("44k in · 14k out · 719k cached");
++    bridge.stop();
++  });
++
 +  test("waits for the transcript to exist", async () => {
 +    const home = createTempDir();
 +    mkdirSync(path.join(home, "sessions"), { recursive: true });
@@ -1831,10 +1873,10 @@ index 000000000..2c151f500
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
 new file mode 100644
-index 000000000..6e67de6e9
+index 000000000..1094a18c0
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,199 @@
 +import type { Logger } from "pino";
 +
 +import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
@@ -1842,8 +1884,10 @@ index 000000000..6e67de6e9
 +import {
 +  collectDshSubagentFacts,
 +  readDshSessionLog,
++  readDshTokenTotals,
 +  resolveDshSessionLogPath,
 +  type DshSubagentFacts,
++  type DshTokenTotals,
 +} from "./session-store.js";
 +
 +/** Default cadence. A transcript poll is a `stat` until dsh flushes, so this is cheap. */
@@ -1963,7 +2007,7 @@ index 000000000..6e67de6e9
 +        description: entry.label,
 +        status,
 +        toolCallId: null,
-+        subtitle: null,
++        subtitle: this.subtitleFor(entry),
 +      },
 +    });
 +    if (entry.settled && entry.closingMessage && !this.closingSent.has(entry.childId)) {
@@ -1984,6 +2028,23 @@ index 000000000..6e67de6e9
 +    }
 +  }
 +
++  /**
++   * The rail's compact line: what the child is, and what it has spent so far.
++   * Totals come from the child's own projection cache — dsh writes one per
++   * session, so a subagent's spend is readable the same way its parent's is.
++   */
++  private subtitleFor(entry: DshSubagentFacts): string | null {
++    const parts: string[] = [];
++    if (entry.mode === "fork") {
++      parts.push("fork");
++    }
++    const totals = readDshTokenTotals(this.home, entry.childId);
++    if (totals) {
++      parts.push(formatTokenUsage(totals));
++    }
++    return parts.length > 0 ? parts.join(" · ") : null;
++  }
++
 +  private schedule(): void {
 +    if (this.stopped) {
 +      return;
@@ -1994,6 +2055,26 @@ index 000000000..6e67de6e9
 +    }, this.pollIntervalMs);
 +    this.timer.unref?.();
 +  }
++}
++
++/** `43867 → 43.9k`, `718592 → 719k`, `14058 → 14.1k`. */
++function formatTokens(count: number): string {
++  if (count < 1_000) {
++    return String(Math.round(count));
++  }
++  if (count < 1_000_000) {
++    const thousands = count / 1_000;
++    return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k`;
++  }
++  return `${(count / 1_000_000).toFixed(1)}m`;
++}
++
++function formatTokenUsage(totals: DshTokenTotals): string {
++  const parts = [`${formatTokens(totals.inputTokens)} in`, `${formatTokens(totals.outputTokens)} out`];
++  if (totals.cachedInputTokens > 0) {
++    parts.push(`${formatTokens(totals.cachedInputTokens)} cached`);
++  }
++  return parts.join(" · ");
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
 new file mode 100644
@@ -2361,21 +2442,26 @@ index 000000000..4c30e73fe
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/session-store.test.ts b/packages/server/src/server/agent/providers/dsh/session-store.test.ts
 new file mode 100644
-index 000000000..0e3c4c37c
+index 000000000..88732e614
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/session-store.test.ts
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,227 @@
 +import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
-+import { zstdCompressSync } from "node:zlib";
++import * as zlib from "node:zlib";
 +import { afterEach, describe, expect, test } from "vitest";
 +
 +import {
 +  collectDshSubagentFacts,
 +  readDshSessionLog,
++  readDshTokenTotals,
 +  resolveDshSessionLogPath,
 +} from "./session-store.js";
++
++// The typings this repo builds against do not name zstd yet; the runtime has it.
++const zstdCompressSync = (zlib as unknown as { zstdCompressSync: (buffer: Buffer) => Buffer })
++  .zstdCompressSync;
 +
 +const tempDirs: string[] = [];
 +
@@ -2488,6 +2574,47 @@ index 000000000..0e3c4c37c
 +  });
 +});
 +
++describe("readDshTokenTotals", () => {
++  test("reads the totals dsh writes for one session", () => {
++    const home = createTempDir();
++    const dir = path.join(home, "storages", "session_projcache", "sessions");
++    mkdirSync(dir, { recursive: true });
++    writeFileSync(
++      path.join(dir, "child-1.json"),
++      JSON.stringify({
++        version: 2,
++        record: {
++          rows: {
++            tokenUsage: {
++              ver: 2,
++              seq: 122,
++              val: {
++                totals: {
++                  uncachedInputTokens: 43_867,
++                  outputTokens: 14_058,
++                  cacheReadTokens: 718_592,
++                  cacheWriteTokens: 10,
++                },
++              },
++            },
++          },
++        },
++      }),
++    );
++
++    expect(readDshTokenTotals(home, "child-1")).toEqual({
++      inputTokens: 43_877,
++      cachedInputTokens: 718_592,
++      outputTokens: 14_058,
++    });
++  });
++
++  test("returns null when the cache has no usage yet", () => {
++    const home = createTempDir();
++    expect(readDshTokenTotals(home, "missing")).toBeNull();
++  });
++});
++
 +describe("collectDshSubagentFacts", () => {
 +  test("registers a child from the catalogue row", () => {
 +    expect(collectDshSubagentFacts([CATALOG])).toEqual([
@@ -2495,6 +2622,7 @@ index 000000000..0e3c4c37c
 +        childId: CHILD,
 +        createdAt: 1_700_000_000_000,
 +        label: "Inspect the toolbar",
++        mode: "continuable",
 +        settled: null,
 +        closingMessage: null,
 +      },
@@ -2547,13 +2675,13 @@ index 000000000..0e3c4c37c
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/session-store.ts b/packages/server/src/server/agent/providers/dsh/session-store.ts
 new file mode 100644
-index 000000000..0767cce0d
+index 000000000..43ed8fb34
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/session-store.ts
-@@ -0,0 +1,298 @@
+@@ -0,0 +1,371 @@
 +import { readdirSync, readFileSync, statSync } from "node:fs";
 +import path from "node:path";
-+import { zstdDecompressSync } from "node:zlib";
++import * as zlib from "node:zlib";
 +
 +/**
 + * dsh keeps a session's transcript in `session.v4.jsonl.zstd`: newline-delimited
@@ -2561,6 +2689,14 @@ index 000000000..0767cce0d
 + * flush. Node's zstd decoder stops at the first frame, so a reader has to walk
 + * the frames itself; that walk is also what makes an incremental read possible.
 + */
++
++/**
++ * Node 24 ships a zstd decoder; the TypeScript DOM/Node typings this repo
++ * compiles against do not name it yet, and an older runtime would simply not
++ * have it — hence the cast and the null check rather than a static import.
++ */
++const zstdDecompress = (zlib as unknown as { zstdDecompressSync?: (buffer: Buffer) => Buffer })
++  .zstdDecompressSync;
 +
 +/** `28 B5 2F FD`, the frame magic as it appears on the wire. */
 +const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
@@ -2645,8 +2781,11 @@ index 000000000..0767cce0d
 +    if (end === null || end <= cursor) {
 +      break;
 +    }
++    if (!zstdDecompress) {
++      return { text: chunks.join(""), offset: cursor, pending: true };
++    }
 +    try {
-+      chunks.push(zstdDecompressSync(buffer.subarray(cursor, end)).toString("utf8"));
++      chunks.push(zstdDecompress(buffer.subarray(cursor, end)).toString("utf8"));
 +    } catch {
 +      // A frame we cannot decode is worse than a stale row; stop where we are
 +      // and let the caller retry from the same offset.
@@ -2734,11 +2873,71 @@ index 000000000..0767cce0d
 +  }
 +}
 +
++/** Tokens one session has spent, as dsh's projection cache totals them. */
++export interface DshTokenTotals {
++  /** Prompt tokens that missed the cache, plus any cache writes. */
++  inputTokens: number;
++  /** Prompt tokens served from the provider's cache. */
++  cachedInputTokens: number;
++  outputTokens: number;
++}
++
++/**
++ * Read a session's token totals out of its projection cache.
++ *
++ * dsh keeps `tokenUsage.totals` per session — the parent's and every child's —
++ * and writes it write-behind while the session runs. It is the only place the
++ * numbers survive: the transcript carries no usage at all.
++ */
++export function readDshTokenTotals(home: string, sessionId: string): DshTokenTotals | null {
++  const file = path.join(home, "storages", "session_projcache", "sessions", `${sessionId}.json`);
++  let document: unknown;
++  try {
++    document = JSON.parse(readFileSync(file, "utf8"));
++  } catch {
++    return null;
++  }
++  const buckets = asRecord(pick(document, "record", "rows", "tokenUsage", "val", "totals"));
++  if (!buckets) {
++    return null;
++  }
++  const input = readCount(buckets["uncachedInputTokens"]);
++  const cacheWrite = readCount(buckets["cacheWriteTokens"]);
++  const cached = readCount(buckets["cacheReadTokens"]);
++  const output = readCount(buckets["outputTokens"]);
++  if (input === null && cacheWrite === null && cached === null && output === null) {
++    return null;
++  }
++  return {
++    inputTokens: (input ?? 0) + (cacheWrite ?? 0),
++    cachedInputTokens: cached ?? 0,
++    outputTokens: output ?? 0,
++  };
++}
++
++function pick(value: unknown, ...keys: string[]): unknown {
++  let current: unknown = value;
++  for (const key of keys) {
++    const record = asRecord(current);
++    if (!record) {
++      return undefined;
++    }
++    current = record[key];
++  }
++  return current;
++}
++
++function readCount(value: unknown): number | null {
++  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
++}
++
 +/** One child session as dsh records it in the parent's transcript. */
 +export interface DshSubagentFacts {
 +  childId: string;
 +  createdAt: number | null;
 +  label: string | null;
++  /** `continuable`, or `fork` for a child that shares its parent's transcript. */
++  mode: string | null;
 +  settled: "completed" | "canceled" | null;
 +  closingMessage: string | null;
 +}
@@ -2763,6 +2962,7 @@ index 000000000..0767cce0d
 +      childId,
 +      createdAt: null,
 +      label: null,
++      mode: null,
 +      settled: null,
 +      closingMessage: null,
 +    };
@@ -2789,6 +2989,7 @@ index 000000000..0767cce0d
 +      }
 +      const entry = ensure(childId);
 +      entry.label = asString(data?.["label"]) ?? entry.label;
++      entry.mode = asString(data?.["mode"]) ?? entry.mode;
 +      const createdAt = data?.["childCreatedAt"];
 +      entry.createdAt = typeof createdAt === "number" ? createdAt : entry.createdAt;
 +      continue;
