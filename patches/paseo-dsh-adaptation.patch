@@ -1639,6 +1639,362 @@ index 000000000..32445f680
 +function readFiniteNumber(value: unknown): number | undefined {
 +  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 +}
+diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
+new file mode 100644
+index 000000000..2c151f500
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
+@@ -0,0 +1,184 @@
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { zstdCompressSync } from "node:zlib";
++import { afterEach, describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import type { AgentStreamEvent } from "../../agent-sdk-types.js";
++import { DshSubagentBridge } from "./native-bridge.js";
++
++const tempDirs: string[] = [];
++
++function createTempDir(): string {
++  const dir = mkdtempSync(path.join(tmpdir(), "paseo-dsh-bridge-"));
++  tempDirs.push(dir);
++  return dir;
++}
++
++afterEach(() => {
++  while (tempDirs.length > 0) {
++    const dir = tempDirs.pop();
++    if (dir) {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  }
++});
++
++const SESSION = "ff8f7020-8f6b-45c8-a24d-8082bf797232";
++const CHILD = "d50f5a53-c77d-4bcf-b573-d419d8844e12";
++
++function frame(lines: unknown[]): Buffer {
++  return zstdCompressSync(Buffer.from(`${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, "utf8"));
++}
++
++function sessionFile(home: string): string {
++  const dir = path.join(home, "sessions", "--Users-me-Projects-demo--", SESSION);
++  mkdirSync(dir, { recursive: true });
++  const file = path.join(dir, "session.v4.jsonl.zstd");
++  writeFileSync(file, Buffer.alloc(0));
++  return file;
++}
++
++function catalogFrame(): Buffer {
++  return frame([
++    { type: "session", version: 4, id: SESSION, cwd: "/tmp/demo" },
++    {
++      type: "subagent/catalog",
++      data: { version: 0, childId: CHILD, childCreatedAt: 1_700_000_000_000, mode: "continuable", label: "Inspect the toolbar" },
++    },
++  ]);
++}
++
++function settleFrame(text: string): Buffer {
++  return frame([
++    {
++      type: "user/message",
++      data: {
++        source: { kind: "subagent-settled" },
++        content: [{ type: "text", text }],
++      },
++    },
++  ]);
++}
++
++function createBridge(home: string, events: AgentStreamEvent[]): DshSubagentBridge {
++  return new DshSubagentBridge({
++    sessionId: SESSION,
++    home,
++    provider: "dsh",
++    logger: createTestLogger(),
++    emit: (event) => events.push(event),
++  });
++}
++
++describe("DshSubagentBridge", () => {
++  test("reports a child the transcript registers", async () => {
++    const home = createTempDir();
++    writeFileSync(sessionFile(home), catalogFrame());
++    const events: AgentStreamEvent[] = [];
++    const bridge = createBridge(home, events);
++
++    await bridge.pollOnce();
++
++    expect(events).toEqual([
++      {
++        type: "provider_subagent",
++        provider: "dsh",
++        event: {
++          type: "upsert",
++          id: CHILD,
++          title: null,
++          description: "Inspect the toolbar",
++          status: "running",
++          toolCallId: null,
++          subtitle: null,
++        },
++      },
++    ]);
++    bridge.stop();
++  });
++
++  test("closes the row and carries the closing message once", async () => {
++    const home = createTempDir();
++    const file = sessionFile(home);
++    const head = catalogFrame();
++    writeFileSync(file, head);
++    const events: AgentStreamEvent[] = [];
++    const bridge = createBridge(home, events);
++    await bridge.pollOnce();
++    events.length = 0;
++
++    writeFileSync(
++      file,
++      Buffer.concat([
++        head,
++        settleFrame(
++          `Background subagent ${CHILD} finished and will do no further work unless you send it more. Its closing message: 6 checks passed`,
++        ),
++      ]),
++    );
++    await bridge.pollOnce();
++
++    expect(events).toEqual([
++      {
++        type: "provider_subagent",
++        provider: "dsh",
++        event: {
++          type: "upsert",
++          id: CHILD,
++          title: null,
++          description: "Inspect the toolbar",
++          status: "completed",
++          toolCallId: null,
++          subtitle: null,
++        },
++      },
++      {
++        type: "provider_subagent",
++        provider: "dsh",
++        event: {
++          type: "timeline",
++          id: CHILD,
++          item: { type: "assistant_message", text: "6 checks passed", messageId: `${CHILD}:final` },
++        },
++      },
++    ]);
++
++    // A second pass over the same transcript must not repeat the row.
++    events.length = 0;
++    await bridge.pollOnce();
++    expect(events).toEqual([]);
++    bridge.stop();
++  });
++
++  test("reports a child that was stopped as canceled", async () => {
++    const home = createTempDir();
++    writeFileSync(
++      sessionFile(home),
++      settleFrame(`Background subagent ${CHILD} was stopped before it finished. It left no closing message.`),
++    );
++    const events: AgentStreamEvent[] = [];
++    const bridge = createBridge(home, events);
++
++    await bridge.pollOnce();
++
++    expect(events).toHaveLength(1);
++    const [event] = events;
++    expect(event?.type === "provider_subagent" && event.event.type === "upsert" && event.event.status).toBe(
++      "canceled",
++    );
++    bridge.stop();
++  });
++
++  test("waits for the transcript to exist", async () => {
++    const home = createTempDir();
++    mkdirSync(path.join(home, "sessions"), { recursive: true });
++    const events: AgentStreamEvent[] = [];
++    const bridge = createBridge(home, events);
++
++    await expect(bridge.pollOnce()).resolves.toBeUndefined();
++    expect(events).toEqual([]);
++    bridge.stop();
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
+new file mode 100644
+index 000000000..6e67de6e9
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
+@@ -0,0 +1,160 @@
++import type { Logger } from "pino";
++
++import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
++import type { ProviderSubagentStatus } from "../../provider-subagents/store.js";
++import {
++  collectDshSubagentFacts,
++  readDshSessionLog,
++  resolveDshSessionLogPath,
++  type DshSubagentFacts,
++} from "./session-store.js";
++
++/** Default cadence. A transcript poll is a `stat` until dsh flushes, so this is cheap. */
++const DEFAULT_POLL_INTERVAL_MS = 1_000;
++
++export interface DshSubagentBridgeOptions {
++  sessionId: string;
++  /** dsh home; the transcript lives under `<home>/sessions`. */
++  home: string;
++  provider: AgentProvider;
++  logger: Logger;
++  emit: (event: AgentStreamEvent) => void;
++  pollIntervalMs?: number;
++}
++
++/**
++ * Reads the subagent rail out of dsh's own transcript.
++ *
++ * dsh spawns children in-process and never mentions them on the ACP stream —
++ * `dsh-acp` has no `_meta` at all, and `session/list` filters subagent sessions
++ * out. The transcript is the only place the edges survive: `subagent/catalog`
++ * registers a child, and a `subagent-settled` notice ends it. Tailing that file
++ * is the same shape Kimi Code's bridge uses, and it lands on the same
++ * `provider_subagent` rail the ACP projector feeds.
++ */
++export class DshSubagentBridge {
++  private readonly sessionId: string;
++  private readonly home: string;
++  private readonly provider: AgentProvider;
++  private readonly logger: Logger;
++  private readonly emit: (event: AgentStreamEvent) => void;
++  private readonly pollIntervalMs: number;
++
++  private file: string | null = null;
++  private offset = 0;
++  private timer: ReturnType<typeof setTimeout> | null = null;
++  private started = false;
++  private stopped = false;
++  private polling = false;
++  /** Last status reported per child, so a re-read never repeats an upsert. */
++  private readonly reported = new Map<string, ProviderSubagentStatus>();
++  /** Children whose closing message already went out; a compaction re-read must not duplicate it. */
++  private readonly closingSent = new Set<string>();
++
++  constructor(options: DshSubagentBridgeOptions) {
++    this.sessionId = options.sessionId;
++    this.home = options.home;
++    this.provider = options.provider;
++    this.logger = options.logger;
++    this.emit = options.emit;
++    this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
++  }
++
++  /** Idempotent. Reads what the session already produced, then keeps up with it. */
++  start(): void {
++    if (this.started || this.stopped) {
++      return;
++    }
++    this.started = true;
++    void this.pollOnce();
++    this.schedule();
++  }
++
++  /** Idempotent. */
++  stop(): void {
++    this.stopped = true;
++    if (this.timer) {
++      clearTimeout(this.timer);
++      this.timer = null;
++    }
++  }
++
++  /** One read. Exposed for tests; the timer calls it with the same body. */
++  async pollOnce(): Promise<void> {
++    if (this.stopped || this.polling) {
++      return;
++    }
++    this.polling = true;
++    try {
++      if (this.file === null) {
++        this.file = resolveDshSessionLogPath(this.home, this.sessionId);
++        if (this.file === null) {
++          return;
++        }
++      }
++      const read = readDshSessionLog(this.file, this.offset);
++      if (read.text.length === 0) {
++        return;
++      }
++      this.offset = read.offset;
++      const facts = collectDshSubagentFacts(read.text.split("\n"));
++      for (const entry of facts) {
++        this.report(entry);
++      }
++    } catch (error) {
++      this.logger.warn({ err: error, sessionId: this.sessionId }, "dsh subagent bridge read failed");
++    } finally {
++      this.polling = false;
++    }
++  }
++
++  private report(entry: DshSubagentFacts): void {
++    const status: ProviderSubagentStatus = entry.settled ?? "running";
++    const previous = this.reported.get(entry.childId);
++    if (previous === status) {
++      return;
++    }
++    this.reported.set(entry.childId, status);
++    this.emit({
++      type: "provider_subagent",
++      provider: this.provider,
++      event: {
++        type: "upsert",
++        id: entry.childId,
++        // dsh records the task, not a type: the label is the only name a child has.
++        title: null,
++        description: entry.label,
++        status,
++        toolCallId: null,
++        subtitle: null,
++      },
++    });
++    if (entry.settled && entry.closingMessage && !this.closingSent.has(entry.childId)) {
++      this.closingSent.add(entry.childId);
++      this.emit({
++        type: "provider_subagent",
++        provider: this.provider,
++        event: {
++          type: "timeline",
++          id: entry.childId,
++          item: {
++            type: "assistant_message",
++            text: entry.closingMessage,
++            messageId: `${entry.childId}:final`,
++          },
++        },
++      });
++    }
++  }
++
++  private schedule(): void {
++    if (this.stopped) {
++      return;
++    }
++    this.timer = setTimeout(() => {
++      this.timer = null;
++      void this.pollOnce().finally(() => this.schedule());
++    }, this.pollIntervalMs);
++    this.timer.unref?.();
++  }
++}
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
 new file mode 100644
 index 000000000..30d9abd37
@@ -1816,10 +2172,10 @@ index 000000000..30d9abd37
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
 new file mode 100644
-index 000000000..c82249e18
+index 000000000..4c30e73fe
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,183 @@
 +import type { AgentPromptInput } from "../../agent-sdk-types.js";
 +import type { AgentGoal } from "../../agent-sdk-types.js";
 +import type { ACPProviderHooks } from "../acp-agent.js";
@@ -1830,6 +2186,7 @@ index 000000000..c82249e18
 +  resolveDshHome,
 +  watchDshGoal,
 +} from "./goal-projection.js";
++import { DshSubagentBridge } from "./native-bridge.js";
 +import { DshSubagentProjector } from "./subagents.js";
 +
 +export interface DshProviderHooksOptions {
@@ -1897,12 +2254,18 @@ index 000000000..c82249e18
 + * next round whenever the goal is still active and the turn actually produced
 + * output.
 + *
-+ * The same stream carries the child sessions dsh spawns for `subagent` and
-+ * `subagent_fork`, tagged with `_meta.dsh`. Those are claimed here and reported as
-+ * `provider_subagent` events, which is the same rail Kimi Code's subagents use.
++ * dsh says nothing about the child sessions it spawns for `subagent` and
++ * `subagent_fork` on the ACP stream — the transport has no `_meta` at all and
++ * `session/list` filters those sessions out. The transcript is the only place
++ * the edges survive, so each session also runs a {@link DshSubagentBridge} that
++ * tails it and reports the children as `provider_subagent` events, the same rail
++ * Kimi Code's subagents use. The `_meta` projector stays wired for the day dsh
++ * starts forwarding children itself.
 + */
 +export function createDshProviderHooks(options: DshProviderHooksOptions = {}): ACPProviderHooks {
 +  const watchers = new Map<string, DshGoalWatcher>();
++  /** Transcript readers; dsh never reports its children over ACP. */
++  const bridges = new Map<string, DshSubagentBridge>();
 +  /** Last goal the watcher reported, kept for the moments the cache lags behind. */
 +  const lastObserved = new Map<string, AgentGoal>();
 +  /** Sessions whose newest turn created a goal the cache has not flushed yet. */
@@ -1929,12 +2292,28 @@ index 000000000..c82249e18
 +        pollIntervalMs: options.pollIntervalMs,
 +      });
 +      watchers.set(ctx.acpSessionId, watcher);
++
++      // dsh spawns its children in-process and says nothing about them on the
++      // ACP stream, so the rail is read out of the session's own transcript.
++      const bridge = new DshSubagentBridge({
++        sessionId: ctx.acpSessionId,
++        home: resolveDshHome(options.dshHome),
++        provider: ctx.provider,
++        logger: ctx.logger,
++        emit: ctx.emit,
++        pollIntervalMs: options.pollIntervalMs,
++      });
++      bridges.set(ctx.acpSessionId, bridge);
++      bridge.start();
++
 +      return {
 +        onClose: () => {
 +          watchers.delete(ctx.acpSessionId);
++          bridges.delete(ctx.acpSessionId);
 +          lastObserved.delete(ctx.acpSessionId);
 +          pendingGoalStart.delete(ctx.acpSessionId);
 +          watcher.stop();
++          bridge.stop();
 +        },
 +      };
 +    },
@@ -1979,6 +2358,496 @@ index 000000000..c82249e18
 +      return null;
 +    },
 +  };
++}
+diff --git a/packages/server/src/server/agent/providers/dsh/session-store.test.ts b/packages/server/src/server/agent/providers/dsh/session-store.test.ts
+new file mode 100644
+index 000000000..0e3c4c37c
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/session-store.test.ts
+@@ -0,0 +1,180 @@
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import path from "node:path";
++import { zstdCompressSync } from "node:zlib";
++import { afterEach, describe, expect, test } from "vitest";
++
++import {
++  collectDshSubagentFacts,
++  readDshSessionLog,
++  resolveDshSessionLogPath,
++} from "./session-store.js";
++
++const tempDirs: string[] = [];
++
++function createTempDir(): string {
++  const dir = mkdtempSync(path.join(tmpdir(), "paseo-dsh-store-"));
++  tempDirs.push(dir);
++  return dir;
++}
++
++afterEach(() => {
++  while (tempDirs.length > 0) {
++    const dir = tempDirs.pop();
++    if (dir) {
++      rmSync(dir, { recursive: true, force: true });
++    }
++  }
++});
++
++/** dsh appends one zstd frame per flush, so a fixture is concatenated frames. */
++function frame(lines: Array<string | Record<string, unknown>>): Buffer {
++  const encoded = lines.map((line) => (typeof line === "string" ? line : JSON.stringify(line)));
++  return zstdCompressSync(Buffer.from(`${encoded.join("\n")}\n`, "utf8"));
++}
++
++function sessionFile(home: string, sessionId: string, workspace = "--Users-me-Projects-demo--"): string {
++  const dir = path.join(home, "sessions", workspace, sessionId);
++  mkdirSync(dir, { recursive: true });
++  const file = path.join(dir, "session.v4.jsonl.zstd");
++  writeFileSync(file, Buffer.alloc(0));
++  return file;
++}
++
++const CHILD = "d50f5a53-c77d-4bcf-b573-d419d8844e12";
++const HEADER = JSON.stringify({ type: "session", version: 4, id: "parent-1", cwd: "/tmp/demo" });
++const CATALOG = JSON.stringify({
++  type: "subagent/catalog",
++  data: { version: 0, childId: CHILD, childCreatedAt: 1_700_000_000_000, mode: "continuable", label: "Inspect the toolbar" },
++});
++
++describe("resolveDshSessionLogPath", () => {
++  test("finds the session under whichever workspace directory holds it", () => {
++    const home = createTempDir();
++    const file = sessionFile(home, "parent-1", "--Users-me-Other-project--");
++    expect(resolveDshSessionLogPath(home, "parent-1")).toBe(file);
++  });
++
++  test("returns null before dsh flushes anything", () => {
++    const home = createTempDir();
++    mkdirSync(path.join(home, "sessions"), { recursive: true });
++    expect(resolveDshSessionLogPath(home, "missing")).toBeNull();
++  });
++});
++
++describe("readDshSessionLog", () => {
++  test("returns one frame at a time and never re-reads what it consumed", () => {
++    const home = createTempDir();
++    const file = sessionFile(home, "parent-1");
++    writeFileSync(file, Buffer.concat([frame([HEADER, CATALOG])]));
++
++    const first = readDshSessionLog(file, 0);
++    expect(first.text.split("\n").filter(Boolean)).toHaveLength(2);
++    expect(first.pending).toBe(false);
++
++    const second = readDshSessionLog(file, first.offset);
++    expect(second.text).toBe("");
++    expect(second.offset).toBe(first.offset);
++  });
++
++  test("picks up a frame appended after the first read", () => {
++    const home = createTempDir();
++    const file = sessionFile(home, "parent-1");
++    const head = frame([HEADER]);
++    writeFileSync(file, head);
++    const first = readDshSessionLog(file, 0);
++
++    const settle = frame([
++      JSON.stringify({
++        type: "user/message",
++        data: {
++          source: { kind: "subagent-settled" },
++          content: [
++            {
++              type: "text",
++              text: `Background subagent ${CHILD} finished and will do no further work unless you send it more. Its closing message: done`,
++            },
++          ],
++        },
++      }),
++    ]);
++    writeFileSync(file, Buffer.concat([head, settle]));
++
++    const second = readDshSessionLog(file, first.offset);
++    expect(second.text).toContain("subagent-settled");
++    expect(second.offset).toBeGreaterThan(first.offset);
++  });
++
++  test("holds a torn frame until the rest of it lands", () => {
++    const home = createTempDir();
++    const file = sessionFile(home, "parent-1");
++    const whole = frame([HEADER, CATALOG]);
++    writeFileSync(file, whole.subarray(0, whole.length - 3));
++    const first = readDshSessionLog(file, 0);
++    expect(first.text).toBe("");
++    expect(first.pending).toBe(true);
++    expect(first.offset).toBe(0);
++
++    writeFileSync(file, whole);
++    const second = readDshSessionLog(file, first.offset);
++    expect(second.text.split("\n").filter(Boolean)).toHaveLength(2);
++  });
++});
++
++describe("collectDshSubagentFacts", () => {
++  test("registers a child from the catalogue row", () => {
++    expect(collectDshSubagentFacts([CATALOG])).toEqual([
++      {
++        childId: CHILD,
++        createdAt: 1_700_000_000_000,
++        label: "Inspect the toolbar",
++        settled: null,
++        closingMessage: null,
++      },
++    ]);
++  });
++
++  test("reads a finished child and its closing message", () => {
++    const settle = JSON.stringify({
++      type: "user/message",
++      data: {
++        source: { kind: "subagent-settled" },
++        content: [
++          {
++            type: "text",
++            text: `Background subagent ${CHILD} finished and will do no further work unless you send it more. Its closing message: 6 checks passed`,
++          },
++        ],
++      },
++    });
++    const [facts] = collectDshSubagentFacts([CATALOG, settle]);
++    expect(facts?.settled).toBe("completed");
++    expect(facts?.closingMessage).toBe("6 checks passed");
++  });
++
++  test("reads a stopped child as canceled", () => {
++    const settle = JSON.stringify({
++      type: "user/message",
++      data: {
++        source: { kind: "subagent-settled" },
++        content: [
++          {
++            type: "text",
++            text: `Background subagent ${CHILD} was stopped before it finished. It left no closing message.`,
++          },
++        ],
++      },
++    });
++    const [facts] = collectDshSubagentFacts([settle]);
++    expect(facts?.settled).toBe("canceled");
++    expect(facts?.closingMessage).toBeNull();
++  });
++
++  test("ignores notices that are not about a subagent", () => {
++    const other = JSON.stringify({
++      type: "user/message",
++      data: { source: { kind: "user" }, content: [{ type: "text", text: "hello" }] },
++    });
++    expect(collectDshSubagentFacts([other])).toEqual([]);
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/dsh/session-store.ts b/packages/server/src/server/agent/providers/dsh/session-store.ts
+new file mode 100644
+index 000000000..0767cce0d
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/session-store.ts
+@@ -0,0 +1,298 @@
++import { readdirSync, readFileSync, statSync } from "node:fs";
++import path from "node:path";
++import { zstdDecompressSync } from "node:zlib";
++
++/**
++ * dsh keeps a session's transcript in `session.v4.jsonl.zstd`: newline-delimited
++ * JSON, compressed as a sequence of independent zstd frames — one frame per
++ * flush. Node's zstd decoder stops at the first frame, so a reader has to walk
++ * the frames itself; that walk is also what makes an incremental read possible.
++ */
++
++/** `28 B5 2F FD`, the frame magic as it appears on the wire. */
++const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
++
++/** A transcript past this size is not worth decoding on a poll; dsh rotates nothing, so this is a guard, not a limit we expect to hit. */
++const MAX_LOG_BYTES = 64 * 1024 * 1024;
++
++/** Where dsh writes one session's transcript, or null when the session has not flushed yet. */
++export function resolveDshSessionLogPath(home: string, sessionId: string): string | null {
++  if (sessionId.length === 0) {
++    return null;
++  }
++  const sessionsDir = path.join(home, "sessions");
++  let entries: string[];
++  try {
++    entries = readdirSync(sessionsDir);
++  } catch {
++    return null;
++  }
++  for (const entry of entries) {
++    const candidate = path.join(sessionsDir, entry, sessionId, "session.v4.jsonl.zstd");
++    try {
++      if (statSync(candidate).isFile()) {
++        return candidate;
++      }
++    } catch {
++      // Keep scanning; one unreadable workspace directory must not hide the real one.
++    }
++  }
++  return null;
++}
++
++export interface DshLogRead {
++  /** Decoded text that starts exactly at the requested offset. */
++  text: string;
++  /** Offset to pass on the next read. Only complete frames advance it. */
++  offset: number;
++  /** True when the file ends mid-frame; the next poll picks it up. */
++  pending: boolean;
++}
++
++/**
++ * Read the frames appended after `offset`.
++ *
++ * A frame is only decoded once it is whole: a flush may be in progress, and
++ * decoding half a frame would either throw or quietly drop the tail. Anything
++ * already consumed is never re-read, which is what keeps a 20 MB transcript from
++ * costing 20 MB per poll.
++ */
++export function readDshSessionLog(file: string, offset: number): DshLogRead {
++  let size: number;
++  try {
++    size = statSync(file).size;
++  } catch {
++    return { text: "", offset, pending: true };
++  }
++  if (size <= offset) {
++    return { text: "", offset, pending: size < offset };
++  }
++  if (size > MAX_LOG_BYTES) {
++    return { text: "", offset: size, pending: false };
++  }
++
++  let buffer: Buffer;
++  try {
++    buffer = readFileSync(file);
++  } catch {
++    return { text: "", offset, pending: true };
++  }
++
++  let start = offset;
++  // The offset always lands on a frame boundary. If it does not, the file was
++  // rewritten rather than appended to, and the only safe move is a fresh read.
++  if (start > 0 && !hasMagic(buffer, start)) {
++    start = 0;
++  }
++
++  const chunks: string[] = [];
++  let cursor = start;
++  for (;;) {
++    const end = nextFrameEnd(buffer, cursor);
++    if (end === null || end <= cursor) {
++      break;
++    }
++    try {
++      chunks.push(zstdDecompressSync(buffer.subarray(cursor, end)).toString("utf8"));
++    } catch {
++      // A frame we cannot decode is worse than a stale row; stop where we are
++      // and let the caller retry from the same offset.
++      return { text: chunks.join(""), offset: cursor, pending: true };
++    }
++    cursor = end;
++  }
++  return { text: chunks.join(""), offset: cursor, pending: cursor < buffer.length };
++}
++
++function hasMagic(buffer: Buffer, offset: number): boolean {
++  if (offset + ZSTD_MAGIC.length > buffer.length) {
++    return false;
++  }
++  return ZSTD_MAGIC.every((byte, index) => buffer[offset + index] === byte);
++}
++
++/**
++ * Byte offset just past the frame starting at `start`, or null when the frame is
++ * incomplete. Walks the header and the block table without decompressing: raw
++ * and RLE blocks are skipped, compressed blocks are skipped by their declared
++ * size.
++ */
++function nextFrameEnd(buffer: Buffer, start: number): number | null {
++  if (!hasMagic(buffer, start)) {
++    return start;
++  }
++  let cursor = start + ZSTD_MAGIC.length;
++  if (cursor >= buffer.length) {
++    return null;
++  }
++  const descriptor = buffer[cursor]!;
++  cursor += 1;
++
++  const frameContentSizeFlag = descriptor >> 6;
++  const singleSegment = (descriptor & 0x20) !== 0;
++  const checksum = (descriptor & 0x04) !== 0;
++  const dictionaryFlag = descriptor & 0x03;
++
++  if (!singleSegment) {
++    cursor += 1; // window descriptor
++  }
++  cursor += dictionaryFlag === 3 ? 4 : dictionaryFlag; // 0/1/2/4 bytes
++  cursor +=
++    frameContentSizeFlag === 0
++      ? singleSegment
++        ? 1
++        : 0
++      : frameContentSizeFlag === 1
++        ? 2
++        : frameContentSizeFlag === 2
++          ? 4
++          : 8;
++  if (cursor > buffer.length) {
++    return null;
++  }
++
++  for (;;) {
++    if (cursor + 3 > buffer.length) {
++      return null;
++    }
++    const header = buffer.readUIntLE(cursor, 3);
++    cursor += 3;
++    const lastBlock = (header & 0x01) !== 0;
++    const blockType = (header >> 1) & 0x03;
++    const blockSize = header >> 3;
++    if (blockType === 0) {
++      cursor += blockSize; // raw
++    } else if (blockType === 1) {
++      cursor += 1; // RLE: one byte, repeated
++    } else if (blockType === 2) {
++      cursor += blockSize; // compressed
++    } else {
++      return null; // reserved block type: give up on this frame
++    }
++    if (cursor > buffer.length) {
++      return null;
++    }
++    if (lastBlock) {
++      if (checksum) {
++        cursor += 4;
++      }
++      return cursor <= buffer.length ? cursor : null;
++    }
++  }
++}
++
++/** One child session as dsh records it in the parent's transcript. */
++export interface DshSubagentFacts {
++  childId: string;
++  createdAt: number | null;
++  label: string | null;
++  settled: "completed" | "canceled" | null;
++  closingMessage: string | null;
++}
++
++const CHILD_ID = /subagent ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
++
++/**
++ * Read the subagent edges out of decoded transcript lines.
++ *
++ * dsh writes the registry row as `subagent/catalog` and the end as a notice on
++ * the parent's own stream (`source.kind === "subagent-settled"`), so the
++ * transcript — not the ACP stream — is where both halves live.
++ */
++export function collectDshSubagentFacts(lines: Iterable<string>): DshSubagentFacts[] {
++  const facts = new Map<string, DshSubagentFacts>();
++  const ensure = (childId: string): DshSubagentFacts => {
++    const existing = facts.get(childId);
++    if (existing) {
++      return existing;
++    }
++    const created: DshSubagentFacts = {
++      childId,
++      createdAt: null,
++      label: null,
++      settled: null,
++      closingMessage: null,
++    };
++    facts.set(childId, created);
++    return created;
++  };
++
++  for (const line of lines) {
++    if (line.length === 0) {
++      continue;
++    }
++    let record: Record<string, unknown>;
++    try {
++      record = JSON.parse(line) as Record<string, unknown>;
++    } catch {
++      continue;
++    }
++    const type = record["type"];
++    if (type === "subagent/catalog") {
++      const data = asRecord(record["data"]);
++      const childId = asString(data?.["childId"]);
++      if (!childId) {
++        continue;
++      }
++      const entry = ensure(childId);
++      entry.label = asString(data?.["label"]) ?? entry.label;
++      const createdAt = data?.["childCreatedAt"];
++      entry.createdAt = typeof createdAt === "number" ? createdAt : entry.createdAt;
++      continue;
++    }
++    if (type !== "user/message") {
++      continue;
++    }
++    const data = asRecord(record["data"]);
++    const source = asRecord(data?.["source"]);
++    if (asString(source?.["kind"]) !== "subagent-settled") {
++      continue;
++    }
++    const text = messageText(data?.["content"]);
++    const childId = CHILD_ID.exec(text)?.[1];
++    if (!childId) {
++      continue;
++    }
++    const entry = ensure(childId);
++    entry.settled = text.includes("was stopped before it finished") ? "canceled" : "completed";
++    entry.closingMessage = closingMessage(text) ?? entry.closingMessage;
++  }
++
++  return Array.from(facts.values());
++}
++
++function closingMessage(text: string): string | null {
++  const marker = "Its closing message:";
++  const index = text.indexOf(marker);
++  if (index < 0) {
++    return null;
++  }
++  const message = text.slice(index + marker.length).trim();
++  return message.length > 0 ? message : null;
++}
++
++function messageText(content: unknown): string {
++  if (typeof content === "string") {
++    return content;
++  }
++  if (!Array.isArray(content)) {
++    return "";
++  }
++  const parts: string[] = [];
++  for (const block of content) {
++    const record = asRecord(block);
++    const text = asString(record?.["text"]);
++    if (text) {
++      parts.push(text);
++    }
++  }
++  return parts.join("\n");
++}
++
++function asRecord(value: unknown): Record<string, unknown> | null {
++  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
++}
++
++function asString(value: unknown): string | null {
++  return typeof value === "string" && value.length > 0 ? value : null;
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/subagents.test.ts b/packages/server/src/server/agent/providers/dsh/subagents.test.ts
 new file mode 100644

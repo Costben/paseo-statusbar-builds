@@ -704,6 +704,36 @@ const MARKERS = [
     path: "packages/server/src/server/agent/providers/dsh/provider-hooks.ts",
     needle: "const GOAL_CONTINUATION_PROMPT =",
   },
+  {
+    label: "dsh answers the catalogue for every workspace from one probe",
+    path: "packages/server/src/server/agent/provider-registry.ts",
+    needle: 'catalogCacheKey: "host",',
+  },
+  {
+    label: "ACP probes reuse one warm process instead of booting per call",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "private readonly pooledProbes = new Map<string, ACPPooledProbe>();",
+  },
+  {
+    label: "A force-canceled turn is reaped instead of wedging the agent",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: "this.runs.clearAgentRun(agentId);",
+  },
+  {
+    label: "A newer MCP client is not locked out by the protocol header check",
+    path: "packages/server/src/server/bootstrap.ts",
+    needle: 'const MCP_COMPATIBLE_PROTOCOL_VERSIONS = ["2026-07-28"];',
+  },
+  {
+    label: "dsh subagents are read out of the session transcript",
+    path: "packages/server/src/server/agent/providers/dsh/native-bridge.ts",
+    needle: "export class DshSubagentBridge {",
+  },
+  {
+    label: "the dsh transcript reader walks concatenated zstd frames",
+    path: "packages/server/src/server/agent/providers/dsh/session-store.ts",
+    needle: "export function readDshSessionLog(",
+  },
 ];
 
 function fail(message) {
