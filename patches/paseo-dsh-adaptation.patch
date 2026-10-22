@@ -1,9 +1,9 @@
 diff --git a/packages/app/src/components/dsh-trajectory-sheet.tsx b/packages/app/src/components/dsh-trajectory-sheet.tsx
 new file mode 100644
-index 000000000..e986ab1c8
+index 000000000..393aa08e2
 --- /dev/null
 +++ b/packages/app/src/components/dsh-trajectory-sheet.tsx
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,402 @@
 +import { useEffect, useMemo, useState } from "react";
 +import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 +import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -28,7 +28,13 @@ index 000000000..e986ab1c8
 +}));
 +
 +type Row = DshTrajectoryPayload["rows"][number];
-+type Filter = "all" | "tool" | "assistant";
++type Turn = DshTrajectoryPayload["turns"][number];
++type Bucket = "duration" | "turns" | "calls";
++
++/** dsh's own colour language: model work reads violet, tool work reads amber. */
++const TOOL_COLOR = "#f59e0b";
++const ASSISTANT_COLOR = "#a855f7";
++const USER_COLOR = "#71717a";
 +
 +/**
 + * dsh's trajectory table: what the agent actually did, in its own terms — turn,
@@ -53,7 +59,7 @@ index 000000000..e986ab1c8
 +  const [error, setError] = useState<string | null>(null);
 +  const [loading, setLoading] = useState(false);
 +  const [query, setQuery] = useState("");
-+  const [filter, setFilter] = useState<Filter>("all");
++  const [bucket, setBucket] = useState<Bucket>("calls");
 +
 +  const { sheetRef, handleSheetChange, handleSheetDismiss } = useIsolatedBottomSheetVisibility({
 +    visible: open,
@@ -92,22 +98,17 @@ index 000000000..e986ab1c8
 +  const rows = useMemo(() => {
 +    const all = payload?.rows ?? [];
 +    const needle = query.trim().toLowerCase();
-+    return all.filter((row) => {
-+      if (filter === "tool" && row.kind !== "tool") {
-+        return false;
-+      }
-+      if (filter === "assistant" && row.kind !== "assistant") {
-+        return false;
-+      }
-+      if (needle.length === 0) {
-+        return true;
-+      }
-+      return `${row.name ?? ""}\n${row.text}\n${row.result ?? ""}`.toLowerCase().includes(needle);
-+    });
-+  }, [filter, payload, query]);
++    if (needle.length === 0) {
++      return all;
++    }
++    return all.filter((row) =>
++      `${row.name ?? ""}\n${row.text}\n${row.result ?? ""}`.toLowerCase().includes(needle),
++    );
++  }, [payload, query]);
 +
 +  const header = useMemo(() => ({ title: t("dshTrajectory.title") }), [t]);
 +  const contentStyle = useMemo(() => ({ paddingBottom: insets.bottom + 16 }), [insets.bottom]);
++  const summary = payload?.summary ?? null;
 +
 +  return (
 +    <ThemedBottomSheetModal
@@ -122,7 +123,24 @@ index 000000000..e986ab1c8
 +    >
 +      <SheetHeaderView header={header} onClose={onClose} />
 +      <BottomSheetScrollView contentContainerStyle={contentStyle}>
++        {summary ? <SummaryBar summary={summary} /> : null}
++        {payload ? <Strip rows={payload.rows} turns={payload.turns} bucket={bucket} /> : null}
 +        <View style={styles.toolbar}>
++          <View style={styles.buckets}>
++            {(["duration", "turns", "calls"] as const).map((value) => (
++              <Pressable
++                key={value}
++                onPress={() => setBucket(value)}
++                style={[styles.bucket, bucket === value ? styles.bucketActive : null]}
++              >
++                <Text
++                  style={[styles.bucketLabel, bucket === value ? styles.bucketLabelActive : null]}
++                >
++                  {t(`dshTrajectory.mode.${value}`)}
++                </Text>
++              </Pressable>
++            ))}
++          </View>
 +          <TextInput
 +            value={query}
 +            onChangeText={setQuery}
@@ -132,19 +150,6 @@ index 000000000..e986ab1c8
 +            autoCapitalize="none"
 +            autoCorrect={false}
 +          />
-+        </View>
-+        <View style={styles.filters}>
-+          {(["all", "tool", "assistant"] as const).map((value) => (
-+            <Pressable
-+              key={value}
-+              onPress={() => setFilter(value)}
-+              style={[styles.chip, filter === value ? styles.chipActive : null]}
-+            >
-+              <Text style={[styles.chipLabel, filter === value ? styles.chipLabelActive : null]}>
-+                {t(`dshTrajectory.filter.${value}`)}
-+              </Text>
-+            </Pressable>
-+          ))}
 +        </View>
 +
 +        {loading ? (
@@ -171,14 +176,125 @@ index 000000000..e986ab1c8
 +  );
 +}
 +
++function SummaryBar({ summary }: { summary: DshTrajectoryPayload["summary"] }) {
++  const { t } = useTranslation();
++  const seconds = summary.durationMs / 1_000;
++  const rate = seconds > 0 ? Math.round(summary.outputTokens / seconds) : 0;
++  const promptTokens = summary.inputTokens + summary.cachedInputTokens;
++  const cacheHit = promptTokens > 0 ? Math.round((summary.cachedInputTokens / promptTokens) * 100) : 0;
++  const total = summary.inputTokens + summary.cachedInputTokens + summary.outputTokens;
++  return (
++    <View style={styles.summary}>
++      <Text style={styles.summaryItem}>
++        {t("dshTrajectory.summary.turnsSteps", { turns: summary.turns, steps: summary.steps })}
++        {"  ·  "}
++        {t("dshTrajectory.summary.rate", { rate })}
++      </Text>
++      <Text style={styles.summaryItem}>
++        {t("dshTrajectory.summary.tokens", { tokens: formatTokens(total) })}
++        {"  ·  "}
++        {t("dshTrajectory.summary.cacheHit", { percent: cacheHit })}
++      </Text>
++    </View>
++  );
++}
++
++/**
++ * The strip above the table. dsh draws one bar per bucket; the toggles pick the
++ * bucket — every call, every turn, or a time slice — so a long session has a
++ * shape you can scan before reading any row.
++ */
++function Strip({ rows, turns, bucket }: { rows: Row[]; turns: Turn[]; bucket: Bucket }) {
++  const columns = useMemo(() => {
++    if (bucket === "calls") {
++      return rows.slice(-120).map((row) => ({
++        id: row.id,
++        tool: row.kind === "tool" ? 1 : 0,
++        assistant: row.kind === "assistant" ? 1 : 0,
++      }));
++    }
++    if (bucket === "turns") {
++      return turns.slice(-60).map((turn) => {
++        const mine = rows.filter((row) => row.turn === turn.turn);
++        return {
++          id: `turn-${turn.turn}`,
++          tool: mine.filter((row) => row.kind === "tool").length,
++          assistant: mine.filter((row) => row.kind === "assistant").length,
++        };
++      });
++    }
++    // Duration: one column per minute of the session's wall clock.
++    const start = turns.find((turn) => turn.startedAt !== null)?.startedAt ?? null;
++    if (start === null) {
++      return [];
++    }
++    const byMinute = new Map<number, { tool: number; assistant: number }>();
++    for (const row of rows) {
++      if (row.at === null) {
++        continue;
++      }
++      const minute = Math.floor((row.at - start) / 60_000);
++      const entry = byMinute.get(minute) ?? { tool: 0, assistant: 0 };
++      if (row.kind === "tool") {
++        entry.tool += 1;
++      } else if (row.kind === "assistant") {
++        entry.assistant += 1;
++      }
++      byMinute.set(minute, entry);
++    }
++    return Array.from(byMinute.entries())
++      .sort((left, right) => left[0] - right[0])
++      .map(([minute, counts]) => ({ id: `min-${minute}`, ...counts }));
++  }, [bucket, rows, turns]);
++
++  if (columns.length === 0) {
++    return null;
++  }
++  const peak = Math.max(1, ...columns.map((column) => Math.max(column.tool, column.assistant)));
++  return (
++    <View style={styles.strip}>
++      {columns.map((column) => (
++        <View key={column.id} style={styles.stripColumn}>
++          <View
++            style={[
++              styles.stripBar,
++              {
++                backgroundColor: ASSISTANT_COLOR,
++                height: 2 + (column.assistant / peak) * 12,
++                opacity: column.assistant > 0 ? 0.9 : 0.15,
++              },
++            ]}
++          />
++          <View
++            style={[
++              styles.stripBar,
++              {
++                backgroundColor: TOOL_COLOR,
++                height: 2 + (column.tool / peak) * 12,
++                opacity: column.tool > 0 ? 0.9 : 0.15,
++              },
++            ]}
++          />
++        </View>
++      ))}
++    </View>
++  );
++}
++
 +function TrajectoryRow({ row }: { row: Row }) {
 +  const { t } = useTranslation();
++  const color =
++    row.kind === "tool" ? TOOL_COLOR : row.kind === "assistant" ? ASSISTANT_COLOR : USER_COLOR;
 +  const label =
-+    row.kind === "tool" ? (row.name ?? t("dshTrajectory.filter.tool")) : t(`dshTrajectory.kind.${row.kind}`);
++    row.kind === "tool"
++      ? (row.name ?? t("dshTrajectory.kind.tool"))
++      : t(`dshTrajectory.kind.${row.kind}`);
 +  return (
 +    <View style={styles.row}>
 +      <View style={styles.rowHead}>
-+        <Text style={styles.rowKind}>{label}</Text>
++        <View style={[styles.badge, { borderColor: color }]}>
++          <Text style={[styles.badgeLabel, { color }]}>{label}</Text>
++        </View>
 +        {row.turn > 0 ? (
 +          <Text style={styles.rowMeta}>
 +            {t("dshTrajectory.turn")} {row.turn}
@@ -187,11 +303,11 @@ index 000000000..e986ab1c8
 +        ) : null}
 +        {row.status === "error" ? <Text style={styles.rowError}>{t("dshTrajectory.failed")}</Text> : null}
 +      </View>
-+      <Text style={styles.rowText} numberOfLines={3}>
++      <Text style={styles.rowText} numberOfLines={4}>
 +        {row.text}
 +      </Text>
 +      {row.result ? (
-+        <Text style={styles.rowResult} numberOfLines={3}>
++        <Text style={styles.rowResult} numberOfLines={4}>
 +          → {row.result}
 +        </Text>
 +      ) : null}
@@ -199,28 +315,65 @@ index 000000000..e986ab1c8
 +  );
 +}
 +
++function formatTokens(count: number): string {
++  if (count < 1_000) {
++    return String(count);
++  }
++  if (count < 1_000_000) {
++    const thousands = count / 1_000;
++    return `${thousands < 10 ? thousands.toFixed(1) : Math.round(thousands)}k`;
++  }
++  return `${(count / 1_000_000).toFixed(1)}M`;
++}
++
 +const styles = StyleSheet.create((theme) => ({
-+  toolbar: { paddingHorizontal: 16, paddingTop: 8 },
-+  search: {
-+    borderWidth: 1,
-+    borderColor: theme.colors.border,
-+    borderRadius: theme.borderRadius.lg,
-+    paddingHorizontal: 12,
-+    paddingVertical: 8,
-+    color: theme.colors.foreground,
-+    backgroundColor: theme.colors.surface1,
++  summary: {
++    flexDirection: "row",
++    flexWrap: "wrap",
++    gap: 12,
++    paddingHorizontal: 16,
++    paddingTop: 4,
++    paddingBottom: 8,
 +  },
-+  filters: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
-+  chip: {
-+    paddingHorizontal: 12,
++  summaryItem: { color: theme.colors.foregroundMuted, fontSize: 12 },
++  strip: {
++    flexDirection: "row",
++    alignItems: "flex-end",
++    gap: 2,
++    paddingHorizontal: 16,
++    paddingBottom: 10,
++    height: 44,
++  },
++  stripColumn: { flex: 1, gap: 2, justifyContent: "flex-end" },
++  stripBar: { borderRadius: 2 },
++  toolbar: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 8,
++    paddingHorizontal: 16,
++    paddingVertical: 8,
++  },
++  buckets: { flexDirection: "row", gap: 6 },
++  bucket: {
++    paddingHorizontal: 10,
 +    paddingVertical: 4,
 +    borderRadius: 9999,
 +    borderWidth: 1,
 +    borderColor: theme.colors.border,
 +  },
-+  chipActive: { backgroundColor: theme.colors.surface2, borderColor: theme.colors.borderAccent },
-+  chipLabel: { color: theme.colors.foregroundMuted, fontSize: 12 },
-+  chipLabelActive: { color: theme.colors.foreground },
++  bucketActive: { backgroundColor: theme.colors.surface2, borderColor: theme.colors.borderAccent },
++  bucketLabel: { color: theme.colors.foregroundMuted, fontSize: 12 },
++  bucketLabelActive: { color: theme.colors.foreground },
++  search: {
++    flex: 1,
++    borderWidth: 1,
++    borderColor: theme.colors.border,
++    borderRadius: theme.borderRadius.lg,
++    paddingHorizontal: 10,
++    paddingVertical: 6,
++    color: theme.colors.foreground,
++    backgroundColor: theme.colors.surface1,
++  },
 +  state: { paddingVertical: 32, alignItems: "center" },
 +  stateText: { paddingHorizontal: 16, paddingVertical: 24, color: theme.colors.foregroundMuted },
 +  row: {
@@ -231,11 +384,27 @@ index 000000000..e986ab1c8
 +    gap: 4,
 +  },
 +  rowHead: { flexDirection: "row", alignItems: "center", gap: 8 },
-+  rowKind: { color: theme.colors.foreground, fontSize: 13, fontWeight: theme.fontWeight.medium },
++  badge: {
++    paddingHorizontal: 6,
++    paddingVertical: 1,
++    borderRadius: 4,
++    borderWidth: 1,
++  },
++  badgeLabel: { fontSize: 10, fontWeight: theme.fontWeight.medium, letterSpacing: 0.5 },
 +  rowMeta: { color: theme.colors.foregroundMuted, fontSize: 11 },
 +  rowError: { color: theme.colors.statusDanger, fontSize: 11 },
-+  rowText: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 16 },
-+  rowResult: { color: theme.colors.foreground, fontSize: 12, lineHeight: 16 },
++  rowText: {
++    color: theme.colors.foreground,
++    fontSize: 12,
++    lineHeight: 16,
++    fontFamily: theme.fontFamily.mono,
++  },
++  rowResult: {
++    color: theme.colors.foregroundMuted,
++    fontSize: 12,
++    lineHeight: 16,
++    fontFamily: theme.fontFamily.mono,
++  },
 +}));
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
 index f3b247e93..59c5990ae 100644
@@ -296,7 +465,7 @@ index f3b247e93..59c5990ae 100644
                    voiceServerId={serverId}
 diff --git a/packages/app/src/composer/trajectory-pill.tsx b/packages/app/src/composer/trajectory-pill.tsx
 new file mode 100644
-index 000000000..bfe702df4
+index 000000000..7a46e7468
 --- /dev/null
 +++ b/packages/app/src/composer/trajectory-pill.tsx
 @@ -0,0 +1,65 @@
@@ -307,7 +476,7 @@ index 000000000..bfe702df4
 +import { useTranslation } from "react-i18next";
 +import { DshTrajectorySheet } from "@/components/dsh-trajectory-sheet";
 +
-+const ThemedRoute = withUnistyles(Route);
++const ThemedRoute = withUnistyles(Route, (theme) => ({ color: theme.colors.foregroundMuted }));
 +
 +/**
 + * dsh's trajectory table, one press away. Only dsh keeps a transcript this
@@ -366,14 +535,21 @@ index 000000000..bfe702df4
 +  label: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 14 },
 +}));
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 388f9be16..d81dd48ec 100644
+index 388f9be16..ebbf5865b 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2040,6 +2040,17 @@ export const ar: TranslationResources = {
+@@ -2040,6 +2040,24 @@ export const ar: TranslationResources = {
      sessionCost: "تكلفة الجلسة{{cost}}",
      accessibility: "تم استخدام نافذة السياق{{percentage}}%",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -388,14 +564,21 @@ index 388f9be16..d81dd48ec 100644
      feedback: {
        send: "إرسال الملاحظات ({{count}})",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index d64c19871..2e81cfb69 100644
+index d64c19871..68bf4e314 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2065,6 +2065,17 @@ export const en = {
+@@ -2065,6 +2065,24 @@ export const en = {
      sessionCost: "Session cost {{cost}}",
      accessibility: "Context window {{percentage}}% used",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -410,14 +593,21 @@ index d64c19871..2e81cfb69 100644
      feedback: {
        send: "Send feedback ({{count}})",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 27c4ab840..8485d3d23 100644
+index 27c4ab840..6b3bcb3cc 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2088,6 +2088,17 @@ export const es: TranslationResources = {
+@@ -2088,6 +2088,24 @@ export const es: TranslationResources = {
      sessionCost: "Costo de la sesión{{cost}}",
      accessibility: "Ventana de contexto{{percentage}}% utilizada",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -432,14 +622,21 @@ index 27c4ab840..8485d3d23 100644
      feedback: {
        send: "Enviar comentarios ({{count}})",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 29464ca9e..159a0a241 100644
+index 29464ca9e..f378764e6 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2087,6 +2087,17 @@ export const fr: TranslationResources = {
+@@ -2087,6 +2087,24 @@ export const fr: TranslationResources = {
      sessionCost: "Coût de la session : {{cost}}",
      accessibility: "Fenêtre de contexte : {{percentage}} % utilisés",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -454,14 +651,21 @@ index 29464ca9e..159a0a241 100644
      feedback: {
        send: "Envoyer les commentaires ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index e3dba618e..6d2e94fde 100644
+index e3dba618e..2ecbfde64 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2060,6 +2060,17 @@ export const ja: TranslationResources = {
+@@ -2060,6 +2060,24 @@ export const ja: TranslationResources = {
      sessionCost: "セッションコスト: {{cost}}",
      accessibility: "コンテキストウィンドウ{{percentage}}%使用",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -476,14 +680,21 @@ index e3dba618e..6d2e94fde 100644
      feedback: {
        send: "フィードバックを送信 ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index 0c82504aa..545312883 100644
+index 0c82504aa..fa587e088 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2050,6 +2050,17 @@ export const ko: TranslationResources = {
+@@ -2050,6 +2050,24 @@ export const ko: TranslationResources = {
      sessionCost: "세션 비용 {{cost}}",
      accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -498,14 +709,21 @@ index 0c82504aa..545312883 100644
      feedback: {
        send: "피드백 보내기 ({{count}})",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 842dea8f5..0144e2f4b 100644
+index 842dea8f5..9d6a7c4c7 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2073,6 +2073,17 @@ export const ptBR: TranslationResources = {
+@@ -2073,6 +2073,24 @@ export const ptBR: TranslationResources = {
      sessionCost: "Custo da sessão {{cost}}",
      accessibility: "Janela de contexto {{percentage}}% usada",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -520,14 +738,21 @@ index 842dea8f5..0144e2f4b 100644
      feedback: {
        send: "Enviar comentários ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 7a5881c1b..d44615933 100644
+index 7a5881c1b..ee51fc03c 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2073,6 +2073,17 @@ export const ru: TranslationResources = {
+@@ -2073,6 +2073,24 @@ export const ru: TranslationResources = {
      sessionCost: "Стоимость сессии: {{cost}}",
      accessibility: "Использовано {{percentage}}% контекстного окна",
    },
 +  dshTrajectory: {
++    mode: { duration: "Duration", turns: "Turns", calls: "Calls" },
++    summary: {
++      turnsSteps: "{{turns}} turns {{steps}} steps",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "Cache hit {{percent}}%",
++    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
 +    search: "Search tools, arguments or results",
@@ -542,14 +767,21 @@ index 7a5881c1b..d44615933 100644
      feedback: {
        send: "Отправить отзыв ({{count}})",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index 6cd2be6e8..b12ae660f 100644
+index 6cd2be6e8..b019c0061 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2018,6 +2018,17 @@ export const zhCN: TranslationResources = {
+@@ -2018,6 +2018,24 @@ export const zhCN: TranslationResources = {
      sessionCost: "会话费用 {{cost}}",
      accessibility: "上下文窗口已使用 {{percentage}}%",
    },
 +  dshTrajectory: {
++    mode: { duration: "时长", turns: "轮次", calls: "调用" },
++    summary: {
++      turnsSteps: "{{turns}} 轮 {{steps}} 步",
++      rate: "{{rate}} tok/s",
++      tokens: "{{tokens}} tok",
++      cacheHit: "缓存命中 {{percent}}%",
++    },
 +    title: "轨迹",
 +    open: "打开轨迹",
 +    search: "搜索工具、参数或结果",
@@ -614,7 +846,7 @@ index de127c5b6..7469e5e8a 100644
      parentAgentId: string,
      subagentId: string,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 821661af6..e2225189a 100644
+index 821661af6..de4b24e0a 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -1963,6 +1963,12 @@ export const ProviderSubagentListRequestMessageSchema = z.object({
@@ -638,7 +870,7 @@ index 821661af6..e2225189a 100644
    ProviderSubagentListRequestMessageSchema,
    ProviderSubagentTimelineRequestMessageSchema,
    SetAgentTimelineSubscriptionRequestMessageSchema,
-@@ -4834,6 +4841,37 @@ export const ProviderSubagentListResponseMessageSchema = z.object({
+@@ -4834,6 +4841,49 @@ export const ProviderSubagentListResponseMessageSchema = z.object({
    }),
  });
  
@@ -661,6 +893,17 @@ index 821661af6..e2225189a 100644
 +  at: z.number().nullable(),
 +});
 +
++export const DshTrajectorySummarySchema = z.object({
++  turns: z.number().int(),
++  steps: z.number().int(),
++  toolCalls: z.number().int(),
++  assistantMessages: z.number().int(),
++  durationMs: z.number(),
++  inputTokens: z.number(),
++  cachedInputTokens: z.number(),
++  outputTokens: z.number(),
++});
++
 +export const DshTrajectoryResponseMessageSchema = z.object({
 +  type: z.literal("agent.dsh.trajectory.response"),
 +  payload: z.object({
@@ -669,6 +912,7 @@ index 821661af6..e2225189a 100644
 +    turns: z.array(DshTrajectoryTurnSchema),
 +    rows: z.array(DshTrajectoryRowSchema),
 +    truncated: z.boolean(),
++    summary: DshTrajectorySummarySchema,
 +    error: z.string().nullable(),
 +  }),
 +});
@@ -676,7 +920,7 @@ index 821661af6..e2225189a 100644
  export const ProviderSubagentTimelineResponseMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.response"),
    payload: z.object({
-@@ -7050,6 +7088,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+@@ -7050,6 +7100,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
    AgentTimelineReplacementMessageSchema,
    AgentTimelineSearchResponseMessageSchema,
    AgentTimelineListPromptsResponseMessageSchema,
@@ -4579,11 +4823,11 @@ index 000000000..ead712fe6
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/trajectory.ts b/packages/server/src/server/agent/providers/dsh/trajectory.ts
 new file mode 100644
-index 000000000..c93372cbb
+index 000000000..ba9ed9020
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/trajectory.ts
-@@ -0,0 +1,236 @@
-+import { readDshSessionLog, resolveDshSessionLogPath } from "./session-store.js";
+@@ -0,0 +1,294 @@
++import { readDshSessionLog, readDshTokenTotals, resolveDshSessionLogPath } from "./session-store.js";
 +
 +/** Rows past this are dropped from the front; the table is a view, not an archive. */
 +export const MAX_TRAJECTORY_ROWS = 2_000;
@@ -4613,11 +4857,25 @@ index 000000000..c93372cbb
 +  reason: string | null;
 +}
 +
++/** The strip dsh puts above its table: how much ran, how fast, and what it cost. */
++export interface DshTrajectorySummary {
++  turns: number;
++  steps: number;
++  toolCalls: number;
++  assistantMessages: number;
++  /** Summed turn duration; turns without an end are left out. */
++  durationMs: number;
++  inputTokens: number;
++  cachedInputTokens: number;
++  outputTokens: number;
++}
++
 +export interface DshTrajectory {
 +  turns: DshTrajectoryTurn[];
 +  rows: DshTrajectoryRow[];
 +  /** Turns and rows the preview dropped because the session is long. */
 +  truncated: boolean;
++  summary: DshTrajectorySummary;
 +}
 +
 +/**
@@ -4750,10 +5008,44 @@ index 000000000..c93372cbb
 +
 +  const truncated = rows.length > MAX_TRAJECTORY_ROWS;
 +  const kept = truncated ? rows.slice(rows.length - MAX_TRAJECTORY_ROWS) : rows;
++  const turnList = Array.from(turns.values()).sort((left, right) => left.turn - right.turn);
 +  return {
-+    turns: Array.from(turns.values()).sort((left, right) => left.turn - right.turn),
++    turns: turnList,
 +    rows: kept,
 +    truncated,
++    summary: summarize(turnList, kept),
++  };
++}
++
++function summarize(turns: DshTrajectoryTurn[], rows: DshTrajectoryRow[]): DshTrajectorySummary {
++  const steps = new Set<string>();
++  let toolCalls = 0;
++  let assistantMessages = 0;
++  for (const row of rows) {
++    if (row.step !== null) {
++      steps.add(`${row.turn}:${row.step}`);
++    }
++    if (row.kind === "tool") {
++      toolCalls += 1;
++    } else if (row.kind === "assistant") {
++      assistantMessages += 1;
++    }
++  }
++  let durationMs = 0;
++  for (const turn of turns) {
++    if (turn.startedAt !== null && turn.endedAt !== null && turn.endedAt > turn.startedAt) {
++      durationMs += turn.endedAt - turn.startedAt;
++    }
++  }
++  return {
++    turns: turns.length,
++    steps: steps.size,
++    toolCalls,
++    assistantMessages,
++    durationMs,
++    inputTokens: 0,
++    cachedInputTokens: 0,
++    outputTokens: 0,
 +  };
 +}
 +
@@ -4764,7 +5056,17 @@ index 000000000..c93372cbb
 +    return null;
 +  }
 +  const read = readDshSessionLog(file, 0);
-+  return parseDshTrajectory(read.text.split("\n"));
++  const trajectory = parseDshTrajectory(read.text.split("\n"));
++  const totals = readDshTokenTotals(home, sessionId);
++  return {
++    ...trajectory,
++    summary: {
++      ...trajectory.summary,
++      inputTokens: totals?.inputTokens ?? 0,
++      cachedInputTokens: totals?.cachedInputTokens ?? 0,
++      outputTokens: totals?.outputTokens ?? 0,
++    },
++  };
 +}
 +
 +function assistantText(content: unknown): string {
@@ -4910,19 +5212,30 @@ index 22bf93b62..0df1213a3 100644
          sessionIdGenerator: undefined,
          // NOTE: We enforce a Vite-like host allowlist at the app/websocket layer.
 diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
-index f49191e59..586fb8355 100644
+index f49191e59..97d40da8a 100644
 --- a/packages/server/src/server/session.ts
 +++ b/packages/server/src/server/session.ts
-@@ -13,6 +13,8 @@ import type {
+@@ -13,6 +13,19 @@ import type {
  import { relative } from "node:path";
  import { isAbsolute } from "node:path";
  import { CreationService, type CreatedAgent } from "./creation/index.js";
 +import { resolveDshHome } from "./agent/providers/dsh/goal-projection.js";
 +import { readDshTrajectory } from "./agent/providers/dsh/trajectory.js";
++
++const EMPTY_DSH_TRAJECTORY_SUMMARY = {
++  turns: 0,
++  steps: 0,
++  toolCalls: 0,
++  assistantMessages: 0,
++  durationMs: 0,
++  inputTokens: 0,
++  cachedInputTokens: 0,
++  outputTokens: 0,
++};
  import type { CreationSnapshot, AgentCreateRequest } from "@getpaseo/protocol/messages";
  import type { MessageReceipts } from "./message-receipts/index.js";
  import equal from "fast-deep-equal";
-@@ -2755,6 +2757,8 @@ export class Session {
+@@ -2755,6 +2768,8 @@ export class Session {
          return this.handleAgentTimelineSearchRequest(msg, source);
        case "agent.timeline.list_prompts.request":
          return this.handleAgentTimelineListPromptsRequest(msg, source);
@@ -4931,7 +5244,7 @@ index f49191e59..586fb8355 100644
        case "agent.provider_subagents.list.request":
          return this.handleProviderSubagentListRequest(msg);
        case "agent.provider_subagents.timeline.get.request":
-@@ -7995,6 +7999,52 @@ export class Session {
+@@ -7995,6 +8010,54 @@ export class Session {
      }
    }
  
@@ -4963,6 +5276,7 @@ index f49191e59..586fb8355 100644
 +          turns: trajectory?.turns ?? [],
 +          rows: trajectory?.rows ?? [],
 +          truncated: trajectory?.truncated ?? false,
++          summary: trajectory?.summary ?? EMPTY_DSH_TRAJECTORY_SUMMARY,
 +          error: trajectory ? null : "The session transcript has not been written yet",
 +        },
 +      });
@@ -4975,6 +5289,7 @@ index f49191e59..586fb8355 100644
 +          turns: [],
 +          rows: [],
 +          truncated: false,
++          summary: EMPTY_DSH_TRAJECTORY_SUMMARY,
 +          error: error instanceof Error ? error.message : String(error),
 +        },
 +      });
