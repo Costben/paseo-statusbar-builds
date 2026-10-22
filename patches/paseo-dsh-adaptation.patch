@@ -1,15 +1,15 @@
 diff --git a/packages/app/src/components/dsh-trajectory-sheet.tsx b/packages/app/src/components/dsh-trajectory-sheet.tsx
 new file mode 100644
-index 000000000..0bf5cdc87
+index 000000000..e986ab1c8
 --- /dev/null
 +++ b/packages/app/src/components/dsh-trajectory-sheet.tsx
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,233 @@
 +import { useEffect, useMemo, useState } from "react";
 +import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 +import { StyleSheet, withUnistyles } from "react-native-unistyles";
 +import { useTranslation } from "react-i18next";
 +import { useSafeAreaInsets } from "react-native-safe-area-context";
-+import type { DaemonClient } from "@getpaseo/client";
++import type { DshTrajectoryPayload } from "@getpaseo/client/internal/daemon-client";
 +import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 +import { SheetHeaderView } from "@/components/adaptive-modal-sheet";
 +import {
@@ -27,7 +27,6 @@ index 000000000..0bf5cdc87
 +  handleIndicatorStyle: { backgroundColor: theme.colors.palette.zinc[600] },
 +}));
 +
-+type DshTrajectoryPayload = Awaited<ReturnType<DaemonClient["getDshTrajectory"]>>;
 +type Row = DshTrajectoryPayload["rows"][number];
 +type Filter = "all" | "tool" | "assistant";
 +
