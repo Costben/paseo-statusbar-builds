@@ -734,6 +734,16 @@ const MARKERS = [
     path: "packages/server/src/server/agent/providers/dsh/session-store.ts",
     needle: "export function readDshSessionLog(",
   },
+  {
+    label: "dsh's trajectory table is built from the transcript",
+    path: "packages/server/src/server/agent/providers/dsh/trajectory.ts",
+    needle: "export function parseDshTrajectory(",
+  },
+  {
+    label: "the trajectory sheet is reachable from the composer",
+    path: "packages/app/src/composer/trajectory-pill.tsx",
+    needle: "export function TrajectoryPill(",
+  },
 ];
 
 function fail(message) {

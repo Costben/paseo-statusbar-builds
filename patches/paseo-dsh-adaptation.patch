@@ -1,3 +1,690 @@
+diff --git a/packages/app/src/components/dsh-trajectory-sheet.tsx b/packages/app/src/components/dsh-trajectory-sheet.tsx
+new file mode 100644
+index 000000000..0bf5cdc87
+--- /dev/null
++++ b/packages/app/src/components/dsh-trajectory-sheet.tsx
+@@ -0,0 +1,234 @@
++import { useEffect, useMemo, useState } from "react";
++import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import { useTranslation } from "react-i18next";
++import { useSafeAreaInsets } from "react-native-safe-area-context";
++import type { DaemonClient } from "@getpaseo/client";
++import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
++import { SheetHeaderView } from "@/components/adaptive-modal-sheet";
++import {
++  IsolatedBottomSheetModal,
++  useIsolatedBottomSheetVisibility,
++} from "@/components/ui/isolated-bottom-sheet-modal";
++import { useHostRuntimeClient } from "@/runtime/host-runtime";
++
++const ThemedBottomSheetModal = withUnistyles(IsolatedBottomSheetModal, (theme) => ({
++  backgroundStyle: {
++    backgroundColor: theme.colors.surface0,
++    borderTopLeftRadius: theme.borderRadius["2xl"],
++    borderTopRightRadius: theme.borderRadius["2xl"],
++  },
++  handleIndicatorStyle: { backgroundColor: theme.colors.palette.zinc[600] },
++}));
++
++type DshTrajectoryPayload = Awaited<ReturnType<DaemonClient["getDshTrajectory"]>>;
++type Row = DshTrajectoryPayload["rows"][number];
++type Filter = "all" | "tool" | "assistant";
++
++/**
++ * dsh's trajectory table: what the agent actually did, in its own terms — turn,
++ * step, tool, result. The rows come from the session transcript, which the
++ * daemon reads; the ACP stream carries none of it.
++ */
++export function DshTrajectorySheet({
++  serverId,
++  agentId,
++  open,
++  onClose,
++}: {
++  serverId: string;
++  agentId: string;
++  open: boolean;
++  onClose: () => void;
++}) {
++  const { t } = useTranslation();
++  const insets = useSafeAreaInsets();
++  const client = useHostRuntimeClient(serverId);
++  const [payload, setPayload] = useState<DshTrajectoryPayload | null>(null);
++  const [error, setError] = useState<string | null>(null);
++  const [loading, setLoading] = useState(false);
++  const [query, setQuery] = useState("");
++  const [filter, setFilter] = useState<Filter>("all");
++
++  const { sheetRef, handleSheetChange, handleSheetDismiss } = useIsolatedBottomSheetVisibility({
++    visible: open,
++    onClose,
++  });
++
++  useEffect(() => {
++    if (!open || !client) {
++      return;
++    }
++    let cancelled = false;
++    setLoading(true);
++    setError(null);
++    void client
++      .getDshTrajectory(agentId)
++      .then((next) => {
++        if (!cancelled) {
++          setPayload(next);
++        }
++      })
++      .catch((cause: unknown) => {
++        if (!cancelled) {
++          setError(cause instanceof Error ? cause.message : String(cause));
++        }
++      })
++      .finally(() => {
++        if (!cancelled) {
++          setLoading(false);
++        }
++      });
++    return () => {
++      cancelled = true;
++    };
++  }, [agentId, client, open]);
++
++  const rows = useMemo(() => {
++    const all = payload?.rows ?? [];
++    const needle = query.trim().toLowerCase();
++    return all.filter((row) => {
++      if (filter === "tool" && row.kind !== "tool") {
++        return false;
++      }
++      if (filter === "assistant" && row.kind !== "assistant") {
++        return false;
++      }
++      if (needle.length === 0) {
++        return true;
++      }
++      return `${row.name ?? ""}\n${row.text}\n${row.result ?? ""}`.toLowerCase().includes(needle);
++    });
++  }, [filter, payload, query]);
++
++  const header = useMemo(() => ({ title: t("dshTrajectory.title") }), [t]);
++  const contentStyle = useMemo(() => ({ paddingBottom: insets.bottom + 16 }), [insets.bottom]);
++
++  return (
++    <ThemedBottomSheetModal
++      ref={sheetRef}
++      contextBridge={null}
++      enableDynamicSizing
++      maxDynamicContentSize={720}
++      onChange={handleSheetChange}
++      onDismiss={handleSheetDismiss}
++      backdropOpacity={0.45}
++      enablePanDownToClose
++    >
++      <SheetHeaderView header={header} onClose={onClose} />
++      <BottomSheetScrollView contentContainerStyle={contentStyle}>
++        <View style={styles.toolbar}>
++          <TextInput
++            value={query}
++            onChangeText={setQuery}
++            placeholder={t("dshTrajectory.search")}
++            placeholderTextColor="#8b8b8b"
++            style={styles.search}
++            autoCapitalize="none"
++            autoCorrect={false}
++          />
++        </View>
++        <View style={styles.filters}>
++          {(["all", "tool", "assistant"] as const).map((value) => (
++            <Pressable
++              key={value}
++              onPress={() => setFilter(value)}
++              style={[styles.chip, filter === value ? styles.chipActive : null]}
++            >
++              <Text style={[styles.chipLabel, filter === value ? styles.chipLabelActive : null]}>
++                {t(`dshTrajectory.filter.${value}`)}
++              </Text>
++            </Pressable>
++          ))}
++        </View>
++
++        {loading ? (
++          <View style={styles.state}>
++            <ActivityIndicator />
++          </View>
++        ) : error ? (
++          <Text style={styles.stateText}>{error}</Text>
++        ) : rows.length === 0 ? (
++          <Text style={styles.stateText}>{t("dshTrajectory.empty")}</Text>
++        ) : (
++          <FlatList
++            data={rows}
++            scrollEnabled={false}
++            keyExtractor={(row) => row.id}
++            renderItem={({ item }) => <TrajectoryRow row={item} />}
++          />
++        )}
++        {payload?.truncated ? (
++          <Text style={styles.stateText}>{t("dshTrajectory.truncated")}</Text>
++        ) : null}
++      </BottomSheetScrollView>
++    </ThemedBottomSheetModal>
++  );
++}
++
++function TrajectoryRow({ row }: { row: Row }) {
++  const { t } = useTranslation();
++  const label =
++    row.kind === "tool" ? (row.name ?? t("dshTrajectory.filter.tool")) : t(`dshTrajectory.kind.${row.kind}`);
++  return (
++    <View style={styles.row}>
++      <View style={styles.rowHead}>
++        <Text style={styles.rowKind}>{label}</Text>
++        {row.turn > 0 ? (
++          <Text style={styles.rowMeta}>
++            {t("dshTrajectory.turn")} {row.turn}
++            {row.step === null ? "" : ` · ${row.step}`}
++          </Text>
++        ) : null}
++        {row.status === "error" ? <Text style={styles.rowError}>{t("dshTrajectory.failed")}</Text> : null}
++      </View>
++      <Text style={styles.rowText} numberOfLines={3}>
++        {row.text}
++      </Text>
++      {row.result ? (
++        <Text style={styles.rowResult} numberOfLines={3}>
++          → {row.result}
++        </Text>
++      ) : null}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create((theme) => ({
++  toolbar: { paddingHorizontal: 16, paddingTop: 8 },
++  search: {
++    borderWidth: 1,
++    borderColor: theme.colors.border,
++    borderRadius: theme.borderRadius.lg,
++    paddingHorizontal: 12,
++    paddingVertical: 8,
++    color: theme.colors.foreground,
++    backgroundColor: theme.colors.surface1,
++  },
++  filters: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
++  chip: {
++    paddingHorizontal: 12,
++    paddingVertical: 4,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.border,
++  },
++  chipActive: { backgroundColor: theme.colors.surface2, borderColor: theme.colors.borderAccent },
++  chipLabel: { color: theme.colors.foregroundMuted, fontSize: 12 },
++  chipLabelActive: { color: theme.colors.foreground },
++  state: { paddingVertical: 32, alignItems: "center" },
++  stateText: { paddingHorizontal: 16, paddingVertical: 24, color: theme.colors.foregroundMuted },
++  row: {
++    paddingHorizontal: 16,
++    paddingVertical: 10,
++    borderTopWidth: StyleSheet.hairlineWidth,
++    borderTopColor: theme.colors.border,
++    gap: 4,
++  },
++  rowHead: { flexDirection: "row", alignItems: "center", gap: 8 },
++  rowKind: { color: theme.colors.foreground, fontSize: 13, fontWeight: theme.fontWeight.medium },
++  rowMeta: { color: theme.colors.foregroundMuted, fontSize: 11 },
++  rowError: { color: theme.colors.statusDanger, fontSize: 11 },
++  rowText: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 16 },
++  rowResult: { color: theme.colors.foreground, fontSize: 12, lineHeight: 16 },
++}));
+diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
+index f3b247e93..59c5990ae 100644
+--- a/packages/app/src/composer/index.tsx
++++ b/packages/app/src/composer/index.tsx
+@@ -56,6 +56,7 @@ import {
+ import { ContextWindowMeter } from "@/components/context-window-meter";
+ import { GoalPill } from "@/composer/goal-pill";
+ import { BackgroundTaskPill } from "@/composer/background-task-pill";
++import { TrajectoryPill } from "@/composer/trajectory-pill";
+ import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+ import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
+ import { useFilePicker } from "@/hooks/use-file-picker";
+@@ -2093,11 +2094,27 @@ function ComposerContentImpl({
+   // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
+   const backgroundTaskVoiceReplacement =
+     agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
++  // dsh keeps a trajectory table of its own; nothing else does, so the pill is provider-scoped.
++  const trajectoryPill = useMemo(
++    () =>
++      hasAgent && agentState.provider === "dsh" ? (
++        <TrajectoryPill serverId={serverId} agentId={agentId} />
++      ) : null,
++    [agentId, agentState.provider, hasAgent, serverId],
++  );
++  // On a phone the trajectory button is worth more than the mic, so it takes that slot.
++  const voiceButtonReplacement =
++    isCompactLayout && trajectoryPill ? (
++      <TrajectoryPill serverId={serverId} agentId={agentId} compact />
++    ) : (
++      backgroundTaskVoiceReplacement
++    );
+   const beforeVoiceContent = useMemo(
+     () =>
+       hasAgent ? (
+         <View style={styles.composerToolbarSlot}>
+           {goalPill}
++          {trajectoryPill}
+           <View style={styles.contextWindowMeterSlot}>
+             <ContextWindowMeter
+               serverId={serverId}
+@@ -2119,6 +2136,7 @@ function ComposerContentImpl({
+       agentState.totalCostUsd,
+       contextWindowMeterGlyphSize,
+       goalPill,
++      trajectoryPill,
+     ],
+   );
+ 
+@@ -2505,7 +2523,7 @@ function ComposerContentImpl({
+                   disabled={isSubmitLoading}
+                   leftContent={leftContent}
+                   beforeVoiceContent={beforeVoiceContent}
+-                  voiceButtonReplacement={backgroundTaskVoiceReplacement}
++                  voiceButtonReplacement={voiceButtonReplacement}
+                   rightContent={rightContent}
+                   activeActionContent={activeActionContent}
+                   voiceServerId={serverId}
+diff --git a/packages/app/src/composer/trajectory-pill.tsx b/packages/app/src/composer/trajectory-pill.tsx
+new file mode 100644
+index 000000000..bfe702df4
+--- /dev/null
++++ b/packages/app/src/composer/trajectory-pill.tsx
+@@ -0,0 +1,65 @@
++import { useState, type ReactElement } from "react";
++import { Pressable, Text, View } from "react-native";
++import { Route } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import { useTranslation } from "react-i18next";
++import { DshTrajectorySheet } from "@/components/dsh-trajectory-sheet";
++
++const ThemedRoute = withUnistyles(Route);
++
++/**
++ * dsh's trajectory table, one press away. Only dsh keeps a transcript this
++ * readable, so the caller mounts it for that provider alone.
++ */
++export function TrajectoryPill({
++  serverId,
++  agentId,
++  compact = false,
++}: {
++  serverId: string;
++  agentId: string;
++  compact?: boolean;
++}): ReactElement {
++  const { t } = useTranslation();
++  const [open, setOpen] = useState(false);
++
++  return (
++    <>
++      <Pressable
++        accessibilityRole="button"
++        accessibilityLabel={t("dshTrajectory.open")}
++        onPress={() => setOpen(true)}
++        style={({ pressed }) => [styles.pill, pressed ? styles.pillPressed : null]}
++      >
++        <View style={styles.icon}>
++          <ThemedRoute size={compact ? 16 : 14} />
++        </View>
++        <Text style={styles.label}>{t("dshTrajectory.title")}</Text>
++      </Pressable>
++      <DshTrajectorySheet
++        serverId={serverId}
++        agentId={agentId}
++        open={open}
++        onClose={() => setOpen(false)}
++      />
++    </>
++  );
++}
++
++const styles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.border,
++    backgroundColor: theme.colors.surface1,
++  },
++  pillPressed: { backgroundColor: theme.colors.surface2 },
++  icon: { alignItems: "center", justifyContent: "center" },
++  label: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 14 },
++}));
+diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
+index 388f9be16..d81dd48ec 100644
+--- a/packages/app/src/i18n/resources/ar.ts
++++ b/packages/app/src/i18n/resources/ar.ts
+@@ -2040,6 +2040,17 @@ export const ar: TranslationResources = {
+     sessionCost: "تكلفة الجلسة{{cost}}",
+     accessibility: "تم استخدام نافذة السياق{{percentage}}%",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "إرسال الملاحظات ({{count}})",
+diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
+index d64c19871..2e81cfb69 100644
+--- a/packages/app/src/i18n/resources/en.ts
++++ b/packages/app/src/i18n/resources/en.ts
+@@ -2065,6 +2065,17 @@ export const en = {
+     sessionCost: "Session cost {{cost}}",
+     accessibility: "Context window {{percentage}}% used",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "Send feedback ({{count}})",
+diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
+index 27c4ab840..8485d3d23 100644
+--- a/packages/app/src/i18n/resources/es.ts
++++ b/packages/app/src/i18n/resources/es.ts
+@@ -2088,6 +2088,17 @@ export const es: TranslationResources = {
+     sessionCost: "Costo de la sesión{{cost}}",
+     accessibility: "Ventana de contexto{{percentage}}% utilizada",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "Enviar comentarios ({{count}})",
+diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
+index 29464ca9e..159a0a241 100644
+--- a/packages/app/src/i18n/resources/fr.ts
++++ b/packages/app/src/i18n/resources/fr.ts
+@@ -2087,6 +2087,17 @@ export const fr: TranslationResources = {
+     sessionCost: "Coût de la session : {{cost}}",
+     accessibility: "Fenêtre de contexte : {{percentage}} % utilisés",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "Envoyer les commentaires ({{count}})",
+diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
+index e3dba618e..6d2e94fde 100644
+--- a/packages/app/src/i18n/resources/ja.ts
++++ b/packages/app/src/i18n/resources/ja.ts
+@@ -2060,6 +2060,17 @@ export const ja: TranslationResources = {
+     sessionCost: "セッションコスト: {{cost}}",
+     accessibility: "コンテキストウィンドウ{{percentage}}%使用",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "フィードバックを送信 ({{count}})",
+diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
+index 0c82504aa..545312883 100644
+--- a/packages/app/src/i18n/resources/ko.ts
++++ b/packages/app/src/i18n/resources/ko.ts
+@@ -2050,6 +2050,17 @@ export const ko: TranslationResources = {
+     sessionCost: "세션 비용 {{cost}}",
+     accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "피드백 보내기 ({{count}})",
+diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
+index 842dea8f5..0144e2f4b 100644
+--- a/packages/app/src/i18n/resources/pt-BR.ts
++++ b/packages/app/src/i18n/resources/pt-BR.ts
+@@ -2073,6 +2073,17 @@ export const ptBR: TranslationResources = {
+     sessionCost: "Custo da sessão {{cost}}",
+     accessibility: "Janela de contexto {{percentage}}% usada",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "Enviar comentários ({{count}})",
+diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
+index 7a5881c1b..d44615933 100644
+--- a/packages/app/src/i18n/resources/ru.ts
++++ b/packages/app/src/i18n/resources/ru.ts
+@@ -2073,6 +2073,17 @@ export const ru: TranslationResources = {
+     sessionCost: "Стоимость сессии: {{cost}}",
+     accessibility: "Использовано {{percentage}}% контекстного окна",
+   },
++  dshTrajectory: {
++    title: "Trajectory",
++    open: "Open trajectory",
++    search: "Search tools, arguments or results",
++    empty: "This session has no trajectory yet",
++    truncated: "Showing the most recent rows only",
++    turn: "Turn",
++    failed: "failed",
++    filter: { all: "All", tool: "Tools", assistant: "Assistant" },
++    kind: { tool: "Tool", assistant: "Assistant", user: "User" },
++  },
+   review: {
+     feedback: {
+       send: "Отправить отзыв ({{count}})",
+diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
+index 6cd2be6e8..b12ae660f 100644
+--- a/packages/app/src/i18n/resources/zh-CN.ts
++++ b/packages/app/src/i18n/resources/zh-CN.ts
+@@ -2018,6 +2018,17 @@ export const zhCN: TranslationResources = {
+     sessionCost: "会话费用 {{cost}}",
+     accessibility: "上下文窗口已使用 {{percentage}}%",
+   },
++  dshTrajectory: {
++    title: "轨迹",
++    open: "打开轨迹",
++    search: "搜索工具、参数或结果",
++    empty: "这个会话还没有轨迹记录",
++    truncated: "只显示最近的部分记录",
++    turn: "轮次",
++    failed: "失败",
++    filter: { all: "全部", tool: "工具", assistant: "助手" },
++    kind: { tool: "工具", assistant: "助手", user: "用户" },
++  },
+   review: {
+     feedback: {
+       send: "发送反馈 ({{count}})",
+diff --git a/packages/client/src/daemon-client.ts b/packages/client/src/daemon-client.ts
+index de127c5b6..7469e5e8a 100644
+--- a/packages/client/src/daemon-client.ts
++++ b/packages/client/src/daemon-client.ts
+@@ -706,6 +706,10 @@ export type ProviderSubagentListPayload = Extract<
+   SessionOutboundMessage,
+   { type: "agent.provider_subagents.list.response" }
+ >["payload"];
++export type DshTrajectoryPayload = Extract<
++  SessionOutboundMessage,
++  { type: "agent.dsh.trajectory.response" }
++>["payload"];
+ export type ProviderSubagentTimelinePayload = Extract<
+   SessionOutboundMessage,
+   { type: "agent.provider_subagents.timeline.get.response" }
+@@ -3635,6 +3639,34 @@ export class DaemonClient {
+     return payload;
+   }
+ 
++  /** dsh's own trajectory table, read from the session transcript by the daemon. */
++  async getDshTrajectory(
++    agentId: string,
++    options: { requestId?: string; timeout?: number } = {},
++  ): Promise<DshTrajectoryPayload> {
++    const requestId = this.createRequestId(options.requestId);
++    const message = SessionInboundMessageSchema.parse({
++      type: "agent.dsh.trajectory.request",
++      agentId,
++      requestId,
++    });
++    const payload = await this.sendRequest({
++      requestId,
++      message,
++      timeout: options.timeout,
++      options: { skipQueue: true },
++      select: (response) =>
++        response.type === "agent.dsh.trajectory.response" &&
++        response.payload.requestId === requestId
++          ? response.payload
++          : null,
++    });
++    if (payload.error) {
++      throw new Error(payload.error);
++    }
++    return payload;
++  }
++
+   async fetchProviderSubagentTimeline(
+     parentAgentId: string,
+     subagentId: string,
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index 821661af6..e2225189a 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -1963,6 +1963,12 @@ export const ProviderSubagentListRequestMessageSchema = z.object({
+   requestId: z.string(),
+ });
+ 
++export const DshTrajectoryRequestMessageSchema = z.object({
++  type: z.literal("agent.dsh.trajectory.request"),
++  agentId: z.string(),
++  requestId: z.string(),
++});
++
+ export const ProviderSubagentTimelineRequestMessageSchema = z.object({
+   type: z.literal("agent.provider_subagents.timeline.get.request"),
+   parentAgentId: z.string(),
+@@ -3371,6 +3377,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+   FetchAgentTimelineRequestMessageSchema,
+   AgentTimelineSearchRequestMessageSchema,
+   AgentTimelineListPromptsRequestMessageSchema,
++  DshTrajectoryRequestMessageSchema,
+   ProviderSubagentListRequestMessageSchema,
+   ProviderSubagentTimelineRequestMessageSchema,
+   SetAgentTimelineSubscriptionRequestMessageSchema,
+@@ -4834,6 +4841,37 @@ export const ProviderSubagentListResponseMessageSchema = z.object({
+   }),
+ });
+ 
++export const DshTrajectoryTurnSchema = z.object({
++  turn: z.number().int(),
++  startedAt: z.number().nullable(),
++  endedAt: z.number().nullable(),
++  reason: z.string().nullable(),
++});
++
++export const DshTrajectoryRowSchema = z.object({
++  id: z.string(),
++  turn: z.number().int(),
++  step: z.number().int().nullable(),
++  kind: z.enum(["tool", "assistant", "user"]),
++  name: z.string().nullable(),
++  text: z.string(),
++  result: z.string().nullable(),
++  status: z.enum(["ok", "error"]).nullable(),
++  at: z.number().nullable(),
++});
++
++export const DshTrajectoryResponseMessageSchema = z.object({
++  type: z.literal("agent.dsh.trajectory.response"),
++  payload: z.object({
++    requestId: z.string(),
++    agentId: z.string(),
++    turns: z.array(DshTrajectoryTurnSchema),
++    rows: z.array(DshTrajectoryRowSchema),
++    truncated: z.boolean(),
++    error: z.string().nullable(),
++  }),
++});
++
+ export const ProviderSubagentTimelineResponseMessageSchema = z.object({
+   type: z.literal("agent.provider_subagents.timeline.get.response"),
+   payload: z.object({
+@@ -7050,6 +7088,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+   AgentTimelineReplacementMessageSchema,
+   AgentTimelineSearchResponseMessageSchema,
+   AgentTimelineListPromptsResponseMessageSchema,
++  DshTrajectoryResponseMessageSchema,
+   ProviderSubagentListResponseMessageSchema,
+   ProviderSubagentTimelineResponseMessageSchema,
+   ProviderSubagentUpdateMessageSchema,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
 index c2e811774..a513cec75 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
@@ -3694,6 +4381,384 @@ index 000000000..50baf0282
 +    return wrapped;
 +  }
 +}
+diff --git a/packages/server/src/server/agent/providers/dsh/trajectory.test.ts b/packages/server/src/server/agent/providers/dsh/trajectory.test.ts
+new file mode 100644
+index 000000000..ead712fe6
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/trajectory.test.ts
+@@ -0,0 +1,130 @@
++import { describe, expect, test } from "vitest";
++
++import { parseDshTrajectory } from "./trajectory.js";
++
++function record(value: unknown): string {
++  return JSON.stringify(value);
++}
++
++const TURN_ONE = [
++  record({ type: "session", version: 4, id: "parent-1" }),
++  record({ type: "turn/start", seq: 1, time: 1_000, data: { turn: 1 } }),
++  record({
++    type: "tool/call",
++    seq: 2,
++    time: 1_100,
++    data: { turn: 1, step: 1, callId: "call-1", name: "bash", arguments: '{"command":"ls"}' },
++  }),
++  record({
++    type: "tool/result",
++    seq: 3,
++    time: 1_400,
++    data: {
++      turn: 1,
++      step: 1,
++      message: { role: "tool", toolCallId: "call-1", content: [{ type: "text", text: "a.txt" }] },
++    },
++  }),
++  record({
++    type: "assistant/message",
++    seq: 4,
++    time: 1_500,
++    data: { turn: 1, step: 1, message: { role: "assistant", content: [{ type: "text", text: "只有一个文件" }] } },
++  }),
++  record({ type: "turn/end", seq: 5, time: 2_000, data: { turn: 1, reason: { kind: "completed" } } }),
++];
++
++describe("parseDshTrajectory", () => {
++  test("builds turns with their duration and reason", () => {
++    const { turns } = parseDshTrajectory(TURN_ONE);
++    expect(turns).toEqual([{ turn: 1, startedAt: 1_000, endedAt: 2_000, reason: "completed" }]);
++  });
++
++  test("pairs a tool call with its result", () => {
++    const { rows } = parseDshTrajectory(TURN_ONE);
++    const tool = rows.find((row) => row.kind === "tool");
++    expect(tool).toMatchObject({
++      turn: 1,
++      step: 1,
++      name: "bash",
++      text: '{"command":"ls"}',
++      result: "a.txt",
++      status: "ok",
++    });
++  });
++
++  test("keeps the assistant's text and drops reasoning blocks", () => {
++    const lines = [
++      record({
++        type: "assistant/message",
++        seq: 9,
++        time: 1_500,
++        data: {
++          turn: 2,
++          step: 1,
++          message: {
++            role: "assistant",
++            content: [
++              { type: "reasoning", text: "先想想" },
++              { type: "text", text: "做完了" },
++            ],
++          },
++        },
++      }),
++    ];
++    const { rows } = parseDshTrajectory(lines);
++    expect(rows).toHaveLength(1);
++    expect(rows[0]).toMatchObject({ kind: "assistant", text: "做完了", name: null });
++  });
++
++  test("marks a failed tool result", () => {
++    const lines = [
++      record({
++        type: "tool/call",
++        seq: 1,
++        time: 1,
++        data: { turn: 1, step: 1, callId: "c", name: "bash", arguments: "{}" },
++      }),
++      record({
++        type: "tool/result",
++        seq: 2,
++        time: 2,
++        data: {
++          turn: 1,
++          step: 1,
++          message: { role: "tool", toolCallId: "c", isError: true, content: [{ type: "text", text: "boom" }] },
++        },
++      }),
++    ];
++    const { rows } = parseDshTrajectory(lines);
++    expect(rows[0]).toMatchObject({ status: "error", result: "boom" });
++  });
++
++  test("ignores records it does not model", () => {
++    const { rows, turns } = parseDshTrajectory([
++      record({ type: "usage", data: {} }),
++      "not json",
++      "",
++    ]);
++    expect(rows).toEqual([]);
++    expect(turns).toEqual([]);
++  });
++
++  test("truncates a very long session from the front", () => {
++    const lines: string[] = [];
++    for (let index = 0; index < 2_100; index += 1) {
++      lines.push(
++        record({
++          type: "tool/call",
++          seq: index,
++          time: index,
++          data: { turn: 1, step: index, callId: `c${index}`, name: "bash", arguments: "{}" },
++        }),
++      );
++    }
++    const { rows, truncated } = parseDshTrajectory(lines);
++    expect(truncated).toBe(true);
++    expect(rows).toHaveLength(2_000);
++    expect(rows[0]?.id).toBe("call:c100");
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/dsh/trajectory.ts b/packages/server/src/server/agent/providers/dsh/trajectory.ts
+new file mode 100644
+index 000000000..c93372cbb
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/dsh/trajectory.ts
+@@ -0,0 +1,236 @@
++import { readDshSessionLog, resolveDshSessionLogPath } from "./session-store.js";
++
++/** Rows past this are dropped from the front; the table is a view, not an archive. */
++export const MAX_TRAJECTORY_ROWS = 2_000;
++/** Preview length per text field. The transcript holds megabytes; a row holds a glance. */
++const PREVIEW_CHARS = 600;
++
++export interface DshTrajectoryRow {
++  id: string;
++  turn: number;
++  step: number | null;
++  kind: "tool" | "assistant" | "user";
++  /** Tool name for `tool` rows; null otherwise. */
++  name: string | null;
++  /** Tool arguments, assistant text, or the user's prompt. */
++  text: string;
++  /** Tool result, once the call settles. */
++  result: string | null;
++  status: "ok" | "error" | null;
++  at: number | null;
++}
++
++export interface DshTrajectoryTurn {
++  turn: number;
++  startedAt: number | null;
++  endedAt: number | null;
++  /** dsh's own end reason: `completed`, `interrupted`, … */
++  reason: string | null;
++}
++
++export interface DshTrajectory {
++  turns: DshTrajectoryTurn[];
++  rows: DshTrajectoryRow[];
++  /** Turns and rows the preview dropped because the session is long. */
++  truncated: boolean;
++}
++
++/**
++ * Build the trajectory table out of a session transcript.
++ *
++ * This is dsh's own view of its work — turn, step, tool, result — which the ACP
++ * stream never carries. The transcript is the only place all four survive, and
++ * reading it is the same move the goal projection and the subagent rail make.
++ */
++export function parseDshTrajectory(lines: Iterable<string>): DshTrajectory {
++  const turns = new Map<number, DshTrajectoryTurn>();
++  const rows: DshTrajectoryRow[] = [];
++  const rowByCallId = new Map<string, DshTrajectoryRow>();
++
++  const turnFor = (turn: number): DshTrajectoryTurn => {
++    const existing = turns.get(turn);
++    if (existing) {
++      return existing;
++    }
++    const created: DshTrajectoryTurn = { turn, startedAt: null, endedAt: null, reason: null };
++    turns.set(turn, created);
++    return created;
++  };
++
++  for (const line of lines) {
++    if (line.length === 0) {
++      continue;
++    }
++    let record: Record<string, unknown>;
++    try {
++      record = JSON.parse(line) as Record<string, unknown>;
++    } catch {
++      continue;
++    }
++    const type = asString(record["type"]);
++    const data = asRecord(record["data"]);
++    const at = typeof record["time"] === "number" ? (record["time"] as number) : null;
++    if (type === "turn/start") {
++      const turn = asNumber(data?.["turn"]);
++      if (turn !== null) {
++        const entry = turnFor(turn);
++        entry.startedAt ??= at;
++      }
++      continue;
++    }
++    if (type === "turn/end") {
++      const turn = asNumber(data?.["turn"]);
++      if (turn !== null) {
++        const entry = turnFor(turn);
++        entry.endedAt = at;
++        entry.reason = asString(asRecord(data?.["reason"])?.["kind"]);
++      }
++      continue;
++    }
++    if (type === "tool/call") {
++      const callId = asString(data?.["callId"]);
++      const turn = asNumber(data?.["turn"]) ?? 0;
++      if (!callId) {
++        continue;
++      }
++      turnFor(turn);
++      const row: DshTrajectoryRow = {
++        id: `call:${callId}`,
++        turn,
++        step: asNumber(data?.["step"]),
++        kind: "tool",
++        name: asString(data?.["name"]),
++        text: preview(asString(data?.["arguments"]) ?? ""),
++        result: null,
++        status: null,
++        at,
++      };
++      rows.push(row);
++      rowByCallId.set(callId, row);
++      continue;
++    }
++    if (type === "tool/result") {
++      const message = asRecord(data?.["message"]);
++      const callId = asString(message?.["toolCallId"]);
++      if (!callId) {
++        continue;
++      }
++      const row = rowByCallId.get(callId);
++      if (!row) {
++        continue;
++      }
++      row.result = preview(messageText(message?.["content"]));
++      row.status = message?.["isError"] === true ? "error" : "ok";
++      continue;
++    }
++    if (type === "assistant/message") {
++      const message = asRecord(data?.["message"]);
++      const text = preview(assistantText(message?.["content"]));
++      if (text.length === 0) {
++        continue;
++      }
++      rows.push({
++        id: `assistant:${String(record["seq"] ?? rows.length)}`,
++        turn: asNumber(data?.["turn"]) ?? 0,
++        step: asNumber(data?.["step"]),
++        kind: "assistant",
++        name: null,
++        text,
++        result: null,
++        status: null,
++        at,
++      });
++      continue;
++    }
++    if (type === "user/message") {
++      const source = asRecord(data?.["source"]);
++      const kind = asString(source?.["kind"]);
++      const text = preview(messageText(data?.["content"]));
++      if (text.length === 0) {
++        continue;
++      }
++      rows.push({
++        id: `user:${String(record["seq"] ?? rows.length)}`,
++        turn: 0,
++        step: null,
++        kind: "user",
++        name: kind,
++        text,
++        result: null,
++        status: null,
++        at,
++      });
++    }
++  }
++
++  const truncated = rows.length > MAX_TRAJECTORY_ROWS;
++  const kept = truncated ? rows.slice(rows.length - MAX_TRAJECTORY_ROWS) : rows;
++  return {
++    turns: Array.from(turns.values()).sort((left, right) => left.turn - right.turn),
++    rows: kept,
++    truncated,
++  };
++}
++
++/** Read one session's trajectory straight from its transcript. */
++export function readDshTrajectory(home: string, sessionId: string): DshTrajectory | null {
++  const file = resolveDshSessionLogPath(home, sessionId);
++  if (!file) {
++    return null;
++  }
++  const read = readDshSessionLog(file, 0);
++  return parseDshTrajectory(read.text.split("\n"));
++}
++
++function assistantText(content: unknown): string {
++  if (!Array.isArray(content)) {
++    return "";
++  }
++  const parts: string[] = [];
++  for (const block of content) {
++    const record = asRecord(block);
++    if (asString(record?.["type"]) !== "text") {
++      continue;
++    }
++    const text = asString(record?.["text"]);
++    if (text) {
++      parts.push(text);
++    }
++  }
++  return parts.join("\n");
++}
++
++function messageText(content: unknown): string {
++  if (typeof content === "string") {
++    return content;
++  }
++  if (!Array.isArray(content)) {
++    return "";
++  }
++  const parts: string[] = [];
++  for (const block of content) {
++    const record = asRecord(block);
++    const text = asString(record?.["text"]);
++    if (text) {
++      parts.push(text);
++    }
++  }
++  return parts.join("\n");
++}
++
++function preview(text: string): string {
++  const trimmed = text.trim();
++  return trimmed.length > PREVIEW_CHARS ? `${trimmed.slice(0, PREVIEW_CHARS)}…` : trimmed;
++}
++
++function asRecord(value: unknown): Record<string, unknown> | null {
++  return value !== null && typeof value === "object" ? (value as Record<string, unknown>) : null;
++}
++
++function asString(value: unknown): string | null {
++  return typeof value === "string" && value.length > 0 ? value : null;
++}
++
++function asNumber(value: unknown): number | null {
++  return typeof value === "number" && Number.isFinite(value) ? value : null;
++}
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 index 292901814..460d9625b 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
@@ -3761,3 +4826,78 @@ index 22bf93b62..0df1213a3 100644
        const transport = new StreamableHTTPServerTransport({
          sessionIdGenerator: undefined,
          // NOTE: We enforce a Vite-like host allowlist at the app/websocket layer.
+diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
+index f49191e59..586fb8355 100644
+--- a/packages/server/src/server/session.ts
++++ b/packages/server/src/server/session.ts
+@@ -13,6 +13,8 @@ import type {
+ import { relative } from "node:path";
+ import { isAbsolute } from "node:path";
+ import { CreationService, type CreatedAgent } from "./creation/index.js";
++import { resolveDshHome } from "./agent/providers/dsh/goal-projection.js";
++import { readDshTrajectory } from "./agent/providers/dsh/trajectory.js";
+ import type { CreationSnapshot, AgentCreateRequest } from "@getpaseo/protocol/messages";
+ import type { MessageReceipts } from "./message-receipts/index.js";
+ import equal from "fast-deep-equal";
+@@ -2755,6 +2757,8 @@ export class Session {
+         return this.handleAgentTimelineSearchRequest(msg, source);
+       case "agent.timeline.list_prompts.request":
+         return this.handleAgentTimelineListPromptsRequest(msg, source);
++      case "agent.dsh.trajectory.request":
++        return this.handleDshTrajectoryRequest(msg);
+       case "agent.provider_subagents.list.request":
+         return this.handleProviderSubagentListRequest(msg);
+       case "agent.provider_subagents.timeline.get.request":
+@@ -7995,6 +7999,52 @@ export class Session {
+     }
+   }
+ 
++  /**
++   * dsh's own trajectory view: turn, step, tool, result. None of it crosses the
++   * ACP stream, so the daemon reads it back from the session transcript.
++   */
++  private async handleDshTrajectoryRequest(
++    msg: Extract<SessionInboundMessage, { type: "agent.dsh.trajectory.request" }>,
++  ): Promise<void> {
++    try {
++      const agent = this.agentManager.getAgent(msg.agentId);
++      if (!agent) {
++        throw new Error(`Unknown agent ${msg.agentId}`);
++      }
++      if (agent.provider !== "dsh") {
++        throw new Error("The trajectory table is only available for dsh agents");
++      }
++      const sessionId = agent.runtimeInfo?.sessionId ?? null;
++      if (!sessionId) {
++        throw new Error("This agent has no dsh session yet");
++      }
++      const trajectory = readDshTrajectory(resolveDshHome(), sessionId);
++      this.emit({
++        type: "agent.dsh.trajectory.response",
++        payload: {
++          requestId: msg.requestId,
++          agentId: msg.agentId,
++          turns: trajectory?.turns ?? [],
++          rows: trajectory?.rows ?? [],
++          truncated: trajectory?.truncated ?? false,
++          error: trajectory ? null : "The session transcript has not been written yet",
++        },
++      });
++    } catch (error) {
++      this.emit({
++        type: "agent.dsh.trajectory.response",
++        payload: {
++          requestId: msg.requestId,
++          agentId: msg.agentId,
++          turns: [],
++          rows: [],
++          truncated: false,
++          error: error instanceof Error ? error.message : String(error),
++        },
++      });
++    }
++  }
++
+   private async handleProviderSubagentListRequest(
+     msg: Extract<SessionInboundMessage, { type: "agent.provider_subagents.list.request" }>,
+   ): Promise<void> {
