@@ -1902,10 +1902,10 @@ index 000000000..7bfc0bb24
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
 new file mode 100644
-index 000000000..768bd8061
+index 000000000..4e2df199f
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
-@@ -0,0 +1,216 @@
+@@ -0,0 +1,246 @@
 +import type { Logger } from "pino";
 +
 +import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
@@ -2026,6 +2026,9 @@ index 000000000..768bd8061
 +    } catch (error) {
 +      this.logger.warn({ err: error, sessionId: this.sessionId }, "dsh subagent bridge read failed");
 +    } finally {
++      if (this.reported.size > 0) {
++        this.refreshSpend();
++      }
 +      this.polling = false;
 +    }
 +  }
@@ -2036,26 +2039,16 @@ index 000000000..768bd8061
 +    const label = entry.label ?? previous?.label ?? null;
 +    const mode = entry.mode ?? previous?.mode ?? null;
 +    const subtitle = this.subtitleFor(entry.childId, mode);
-+    // The spend keeps moving while a child works, so a row is re-sent whenever
-+    // its numbers change — not only when it finishes.
-+    if (previous?.status === status && previous.subtitle === subtitle && previous.label === label) {
++    if (
++      previous?.status === status &&
++      previous.subtitle === subtitle &&
++      previous.label === label
++    ) {
 +      return;
 +    }
-+    this.reported.set(entry.childId, { status, subtitle, label, mode });
-+    this.emit({
-+      type: "provider_subagent",
-+      provider: this.provider,
-+      event: {
-+        type: "upsert",
-+        id: entry.childId,
-+        // dsh records the task, not a type: the label is the only name a child has.
-+        title: null,
-+        description: label,
-+        status,
-+        toolCallId: null,
-+        subtitle,
-+      },
-+    });
++    const next = { status, subtitle, label, mode };
++    this.reported.set(entry.childId, next);
++    this.emitRow(entry.childId, next);
 +    if (entry.settled && entry.closingMessage && !this.closingSent.has(entry.childId)) {
 +      this.closingSent.add(entry.childId);
 +      this.emit({
@@ -2072,6 +2065,43 @@ index 000000000..768bd8061
 +        },
 +      });
 +    }
++  }
++
++  /**
++   * The spend keeps moving while a child works, and a running child writes
++   * nothing to its parent's transcript — the cache is the only thing that
++   * changes. Re-read it every poll so the row's numbers tick along instead of
++   * waiting for the child to finish.
++   */
++  private refreshSpend(): void {
++    for (const [childId, state] of this.reported) {
++      const subtitle = this.subtitleFor(childId, state.mode);
++      if (subtitle === state.subtitle) {
++        continue;
++      }
++      state.subtitle = subtitle;
++      this.emitRow(childId, state);
++    }
++  }
++
++  private emitRow(
++    childId: string,
++    row: { status: ProviderSubagentStatus; subtitle: string | null; label: string | null },
++  ): void {
++    this.emit({
++      type: "provider_subagent",
++      provider: this.provider,
++      event: {
++        type: "upsert",
++        id: childId,
++        // dsh records the task, not a type: the label is the only name a child has.
++        title: null,
++        description: row.label,
++        status: row.status,
++        toolCallId: null,
++        subtitle: row.subtitle,
++      },
++    });
 +  }
 +
 +  /**
