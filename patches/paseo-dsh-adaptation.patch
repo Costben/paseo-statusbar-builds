@@ -1641,10 +1641,10 @@ index 000000000..32445f680
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
 new file mode 100644
-index 000000000..6bb15341d
+index 000000000..7bfc0bb24
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,255 @@
 +import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 +import { tmpdir } from "node:os";
 +import path from "node:path";
@@ -1860,6 +1860,35 @@ index 000000000..6bb15341d
 +    bridge.stop();
 +  });
 +
++  test("re-sends a running row when its spend moves", async () => {
++    const home = createTempDir();
++    writeFileSync(sessionFile(home), catalogFrame());
++    const cacheDir = path.join(home, "storages", "session_projcache", "sessions");
++    mkdirSync(cacheDir, { recursive: true });
++    const cacheFile = path.join(cacheDir, `${CHILD}.json`);
++    const writeTotals = (input: number) =>
++      writeFileSync(
++        cacheFile,
++        JSON.stringify({
++          record: { rows: { tokenUsage: { val: { totals: { uncachedInputTokens: input, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } } } } },
++        }),
++      );
++    writeTotals(1_000);
++    const events: AgentStreamEvent[] = [];
++    const bridge = createBridge(home, events);
++
++    await bridge.pollOnce();
++    writeTotals(2_000);
++    await bridge.pollOnce();
++
++    expect(events).toHaveLength(2);
++    const subtitles = events.map((event) =>
++      event.type === "provider_subagent" && event.event.type === "upsert" ? event.event.subtitle : null,
++    );
++    expect(subtitles).toEqual(["1.0k in · 0 out", "2.0k in · 0 out"]);
++    bridge.stop();
++  });
++
 +  test("waits for the transcript to exist", async () => {
 +    const home = createTempDir();
 +    mkdirSync(path.join(home, "sessions"), { recursive: true });
@@ -1873,10 +1902,10 @@ index 000000000..6bb15341d
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
 new file mode 100644
-index 000000000..1094a18c0
+index 000000000..768bd8061
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,216 @@
 +import type { Logger } from "pino";
 +
 +import type { AgentProvider, AgentStreamEvent } from "../../agent-sdk-types.js";
@@ -1927,8 +1956,20 @@ index 000000000..1094a18c0
 +  private started = false;
 +  private stopped = false;
 +  private polling = false;
-+  /** Last status reported per child, so a re-read never repeats an upsert. */
-+  private readonly reported = new Map<string, ProviderSubagentStatus>();
++  /**
++   * Last row reported per child. The transcript hands the catalogue row and the
++   * settle notice to different polls, so the name has to outlive the batch that
++   * carried it.
++   */
++  private readonly reported = new Map<
++    string,
++    {
++      status: ProviderSubagentStatus;
++      subtitle: string | null;
++      label: string | null;
++      mode: string | null;
++    }
++  >();
 +  /** Children whose closing message already went out; a compaction re-read must not duplicate it. */
 +  private readonly closingSent = new Set<string>();
 +
@@ -1992,10 +2033,15 @@ index 000000000..1094a18c0
 +  private report(entry: DshSubagentFacts): void {
 +    const status: ProviderSubagentStatus = entry.settled ?? "running";
 +    const previous = this.reported.get(entry.childId);
-+    if (previous === status) {
++    const label = entry.label ?? previous?.label ?? null;
++    const mode = entry.mode ?? previous?.mode ?? null;
++    const subtitle = this.subtitleFor(entry.childId, mode);
++    // The spend keeps moving while a child works, so a row is re-sent whenever
++    // its numbers change — not only when it finishes.
++    if (previous?.status === status && previous.subtitle === subtitle && previous.label === label) {
 +      return;
 +    }
-+    this.reported.set(entry.childId, status);
++    this.reported.set(entry.childId, { status, subtitle, label, mode });
 +    this.emit({
 +      type: "provider_subagent",
 +      provider: this.provider,
@@ -2004,10 +2050,10 @@ index 000000000..1094a18c0
 +        id: entry.childId,
 +        // dsh records the task, not a type: the label is the only name a child has.
 +        title: null,
-+        description: entry.label,
++        description: label,
 +        status,
 +        toolCallId: null,
-+        subtitle: this.subtitleFor(entry),
++        subtitle,
 +      },
 +    });
 +    if (entry.settled && entry.closingMessage && !this.closingSent.has(entry.childId)) {
@@ -2033,12 +2079,12 @@ index 000000000..1094a18c0
 +   * Totals come from the child's own projection cache — dsh writes one per
 +   * session, so a subagent's spend is readable the same way its parent's is.
 +   */
-+  private subtitleFor(entry: DshSubagentFacts): string | null {
++  private subtitleFor(childId: string, mode: string | null): string | null {
 +    const parts: string[] = [];
-+    if (entry.mode === "fork") {
++    if (mode === "fork") {
 +      parts.push("fork");
 +    }
-+    const totals = readDshTokenTotals(this.home, entry.childId);
++    const totals = readDshTokenTotals(this.home, childId);
 +    if (totals) {
 +      parts.push(formatTokenUsage(totals));
 +    }
