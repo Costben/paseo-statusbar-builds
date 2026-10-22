@@ -743,7 +743,7 @@ index c902a4cb8..e63eaa113 100644
      capabilities = {
        supportsStreaming: true,
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index a6ab75c21..640d01dc6 100644
+index a6ab75c21..b2e62af7f 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -754,7 +754,7 @@ index a6ab75c21..640d01dc6 100644
  import {
    ACP_AGENT_PRESET_FEATURE_OPTION,
    GenericACPAgentClient,
-@@ -870,6 +871,29 @@ function addDerivedProviders(
+@@ -870,6 +871,33 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -779,6 +779,10 @@ index a6ab75c21..640d01dc6 100644
 +              // catalogue by cwd and re-boots dsh (its plugin graph takes tens
 +              // of seconds on a cold cache) for each project.
 +              catalogCacheKey: "host",
++              // dsh's permission mode already says whether anything is asked —
++              // full access means "no permission prompts" — so a second
++              // auto-approve switch would only contradict it.
++              supportsAutoAccept: false,
 +            });
 +          }
            return new GenericACPAgentClient({
@@ -989,7 +993,7 @@ index 9d42b2683..e8e605ba0 100644
 +});
 \ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index fdd5c946f..5f2273120 100644
+index fdd5c946f..35a2e4c60 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -344,6 +344,41 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
@@ -1105,7 +1109,7 @@ index fdd5c946f..5f2273120 100644
    /**
     * The provider queues a prompt that arrives while it is busy and runs it once
     * the current turn ends. Enables steering: a message sent during a turn is
-@@ -607,6 +692,12 @@ interface ACPAgentClientOptions {
+@@ -607,6 +692,18 @@ interface ACPAgentClientOptions {
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
    providerHooks?: ACPProviderHooks;
@@ -1115,14 +1119,29 @@ index fdd5c946f..5f2273120 100644
 +   * AgentClient.getCatalogCacheKey). Omit to key the catalogue by workspace.
 +   */
 +  catalogCacheKey?: string;
++  /**
++   * Whether this agent exposes Paseo's auto-accept toggle. Agents whose own
++   * permission mode already decides whether anything is asked (dsh) get one
++   * control instead of two.
++   */
++  supportsAutoAccept?: boolean;
    now?: () => number;
  }
  
-@@ -1084,6 +1175,15 @@ export class ACPAgentClient implements AgentClient {
+@@ -646,6 +743,7 @@ interface ACPAgentSessionOptions {
+   lateTimelineGraceMs?: number;
+   terminateProcess?: ProcessTerminator;
+   providerHooks?: ACPProviderHooks;
++  supportsAutoAccept?: boolean;
+ }
+ 
+ export interface SpawnedACPProcess {
+@@ -1084,6 +1182,16 @@ export class ACPAgentClient implements AgentClient {
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
 +  private readonly catalogCacheKey?: string;
++  private readonly supportsAutoAccept: boolean;
 +  private readonly probeIdleTtlMs: number;
 +  private readonly featureCacheTtlMs: number;
 +  private readonly featureCache = new Map<string, ACPFeatureCacheEntry>();
@@ -1134,17 +1153,34 @@ index fdd5c946f..5f2273120 100644
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
  
-@@ -1115,6 +1215,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1115,6 +1223,10 @@ export class ACPAgentClient implements AgentClient {
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
      this.providerHooks = options.providerHooks;
 +    this.catalogCacheKey = options.catalogCacheKey;
++    this.supportsAutoAccept = options.supportsAutoAccept ?? true;
 +    this.probeIdleTtlMs = ACP_PROBE_IDLE_TTL_MS;
 +    this.featureCacheTtlMs = ACP_FEATURE_CACHE_TTL_MS;
      this.now = options.now ?? Date.now;
    }
  
-@@ -1223,65 +1326,40 @@ export class ACPAgentClient implements AgentClient {
+@@ -1140,6 +1252,7 @@ export class ACPAgentClient implements AgentClient {
+         configFeatureOptions: this.configFeatureOptions,
+         clientCapabilities: providerOptions.clientCapabilities ?? this.clientCapabilities,
+         clientCapabilityMeta: this.clientCapabilityMeta,
++        supportsAutoAccept: this.supportsAutoAccept,
+         modeIdTransformer: this.modeIdTransformer,
+         toolSnapshotTransformer: this.toolSnapshotTransformer,
+         providerModeWriter: this.providerModeWriter,
+@@ -1199,6 +1312,7 @@ export class ACPAgentClient implements AgentClient {
+       configFeatureOptions: this.configFeatureOptions,
+       clientCapabilities: providerOptions.clientCapabilities ?? this.clientCapabilities,
+       clientCapabilityMeta: this.clientCapabilityMeta,
++      supportsAutoAccept: this.supportsAutoAccept,
+       modeIdTransformer: this.modeIdTransformer,
+       toolSnapshotTransformer: this.toolSnapshotTransformer,
+       providerModeWriter: this.providerModeWriter,
+@@ -1223,65 +1337,40 @@ export class ACPAgentClient implements AgentClient {
      return session;
    }
  
@@ -1236,7 +1272,7 @@ index fdd5c946f..5f2273120 100644
        const transformed = this.transformSessionResponse(response);
        const derivedModels = deriveModelDefinitionsFromACP(
          this.provider,
-@@ -1291,9 +1369,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1291,9 +1380,9 @@ export class ACPAgentClient implements AgentClient {
        const models = this.catalogModelResolver
          ? await runProviderRefreshActivity(context, "catalog.resolve", () =>
              raceProviderRefreshAbort(
@@ -1248,7 +1284,7 @@ index fdd5c946f..5f2273120 100644
                  sessionId: response.sessionId,
                  models: derivedModels,
                  configOptions: transformed.configOptions,
-@@ -1314,13 +1392,13 @@ export class ACPAgentClient implements AgentClient {
+@@ -1314,39 +1403,274 @@ export class ACPAgentClient implements AgentClient {
          transformed.configOptions,
        );
        return {
@@ -1268,7 +1304,11 @@ index fdd5c946f..5f2273120 100644
    }
  
    async listFeatures(config: AgentSessionConfig): Promise<AgentFeature[]> {
-@@ -1330,23 +1408,258 @@ export class ACPAgentClient implements AgentClient {
+-    const autoAcceptFeature = buildACPAutoAcceptFeature(config);
++    const autoAcceptFeature = this.supportsAutoAccept ? [buildACPAutoAcceptFeature(config)] : [];
+     if (this.configFeatureOptions.length === 0) {
+-      return [autoAcceptFeature];
++      return autoAcceptFeature;
      }
  
      this.assertProvider(config);
@@ -1306,7 +1346,7 @@ index fdd5c946f..5f2273120 100644
 +        return {
 +          sessionId: response.sessionId,
 +          value: [
-+            autoAcceptFeature,
++            ...autoAcceptFeature,
 +            ...deriveFeaturesFromACP(transformed.configOptions, this.configFeatureOptions),
 +          ],
 +        };
@@ -1542,7 +1582,7 @@ index fdd5c946f..5f2273120 100644
      }
    }
  
-@@ -1911,6 +2224,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1911,9 +2235,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private currentTurnUpdateCount = 0;
    private currentTurnMismatchedUpdateCount = 0;
    private currentTurnStartedAt = 0;
@@ -1553,7 +1593,19 @@ index fdd5c946f..5f2273120 100644
    private lastStreamedContentAt: number | null = null;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
-@@ -2369,6 +2686,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
++  private readonly supportsAutoAccept: boolean;
+   private providerSessionCleanup: (() => void) | null = null;
+   private currentTurnUsage: AgentUsage | undefined;
+   private activeForegroundTurnId: string | null = null;
+@@ -1980,6 +2309,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.lateTimelineGraceMs = options.lateTimelineGraceMs ?? ACP_LATE_TIMELINE_GRACE_MS;
+     this.extensionCommandsParser = options.extensionCommandsParser;
+     this.providerHooks = options.providerHooks;
++    this.supportsAutoAccept = options.supportsAutoAccept ?? true;
+     if (options.providerHooks?.acceptsQueuedPrompts) {
+       this.steerActiveTurn = (prompt, steerOptions) =>
+         this.steerIntoProviderQueue(prompt, steerOptions);
+@@ -2369,6 +2699,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      await Promise.race([settledHold, waitForAbortSignal(signal)]);
    }
  
@@ -1632,7 +1684,7 @@ index fdd5c946f..5f2273120 100644
    /**
     * Ask the provider why a turn produced no timeline item. A throwing hook must
     * never change the failure, so a rejection keeps the generic code.
-@@ -2499,6 +2888,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2499,6 +2901,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      prompt: AgentPromptInput,
      options: AgentRunOptions | undefined,
      announceUserMessage: boolean,
@@ -1640,7 +1692,7 @@ index fdd5c946f..5f2273120 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2517,6 +2907,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2517,6 +2920,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
@@ -1648,7 +1700,16 @@ index fdd5c946f..5f2273120 100644
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
-@@ -3776,6 +4167,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2608,7 +3012,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+ 
+   get features(): AgentFeature[] {
+     return [
+-      buildACPAutoAcceptFeature(this.config),
++      ...(this.supportsAutoAccept ? [buildACPAutoAcceptFeature(this.config)] : []),
+       ...deriveFeaturesFromACP(this.configOptions, this.configFeatureOptions),
+     ];
+   }
+@@ -3776,6 +4180,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
        return [];
      }
@@ -1661,7 +1722,7 @@ index fdd5c946f..5f2273120 100644
      if (update.sessionUpdate === "user_message_chunk") {
        return this.handleUserMessageChunk(update);
      }
-@@ -3792,6 +4189,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3792,6 +4202,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return events;
    }
  
@@ -1712,7 +1773,7 @@ index fdd5c946f..5f2273120 100644
    private translateSessionUpdateBody(
      update: SessionUpdate,
      pendingUserEvents: AgentStreamEvent[],
-@@ -4200,6 +4641,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4200,6 +4654,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -1720,7 +1781,7 @@ index fdd5c946f..5f2273120 100644
          break;
      }
    }
-@@ -4804,8 +5246,40 @@ function mapToolDetail(
+@@ -4804,8 +5259,40 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -1762,7 +1823,7 @@ index fdd5c946f..5f2273120 100644
  }
  
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-@@ -5143,10 +5617,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -5143,10 +5630,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -4759,23 +4820,26 @@ index 000000000..c93372cbb
 +  return typeof value === "number" && Number.isFinite(value) ? value : null;
 +}
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 292901814..460d9625b 100644
+index 292901814..1edde6438 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-@@ -49,6 +49,8 @@ interface GenericACPAgentClientOptions {
+@@ -49,6 +49,10 @@ interface GenericACPAgentClientOptions {
    now?: () => number;
    capabilityOverrides?: Partial<AgentCapabilityFlags>;
    providerHooks?: ACPProviderHooks;
 +  /** Static catalogue identity; set when models and modes come from host config. */
 +  catalogCacheKey?: string;
++  /** Set false when the agent's own permission mode is the only control worth showing. */
++  supportsAutoAccept?: boolean;
  }
  
  export class GenericACPAgentClient extends ACPAgentClient {
-@@ -80,6 +82,7 @@ export class GenericACPAgentClient extends ACPAgentClient {
+@@ -80,6 +84,8 @@ export class GenericACPAgentClient extends ACPAgentClient {
        catalogModelResolver: options.catalogModelResolver,
        now: options.now,
        providerHooks: options.providerHooks,
 +      catalogCacheKey: options.catalogCacheKey,
++      supportsAutoAccept: options.supportsAutoAccept,
      });
  
      this.command = options.command;
