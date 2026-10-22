@@ -1,9 +1,9 @@
 diff --git a/packages/app/src/components/dsh-trajectory-sheet.tsx b/packages/app/src/components/dsh-trajectory-sheet.tsx
 new file mode 100644
-index 000000000..393aa08e2
+index 000000000..5faadf9c1
 --- /dev/null
 +++ b/packages/app/src/components/dsh-trajectory-sheet.tsx
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,416 @@
 +import { useEffect, useMemo, useState } from "react";
 +import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from "react-native";
 +import { StyleSheet, withUnistyles } from "react-native-unistyles";
@@ -46,11 +46,14 @@ index 000000000..393aa08e2
 +  agentId,
 +  open,
 +  onClose,
++  contextPercent = null,
 +}: {
 +  serverId: string;
 +  agentId: string;
 +  open: boolean;
 +  onClose: () => void;
++  /** The composer's context meter, so the summary matches the rest of the app. */
++  contextPercent?: number | null;
 +}) {
 +  const { t } = useTranslation();
 +  const insets = useSafeAreaInsets();
@@ -123,7 +126,7 @@ index 000000000..393aa08e2
 +    >
 +      <SheetHeaderView header={header} onClose={onClose} />
 +      <BottomSheetScrollView contentContainerStyle={contentStyle}>
-+        {summary ? <SummaryBar summary={summary} /> : null}
++        {summary ? <SummaryBar summary={summary} contextPercent={contextPercent} /> : null}
 +        {payload ? <Strip rows={payload.rows} turns={payload.turns} bucket={bucket} /> : null}
 +        <View style={styles.toolbar}>
 +          <View style={styles.buckets}>
@@ -176,7 +179,13 @@ index 000000000..393aa08e2
 +  );
 +}
 +
-+function SummaryBar({ summary }: { summary: DshTrajectoryPayload["summary"] }) {
++function SummaryBar({
++  summary,
++  contextPercent,
++}: {
++  summary: DshTrajectoryPayload["summary"];
++  contextPercent: number | null;
++}) {
 +  const { t } = useTranslation();
 +  const seconds = summary.durationMs / 1_000;
 +  const rate = seconds > 0 ? Math.round(summary.outputTokens / seconds) : 0;
@@ -195,6 +204,11 @@ index 000000000..393aa08e2
 +        {"  ·  "}
 +        {t("dshTrajectory.summary.cacheHit", { percent: cacheHit })}
 +      </Text>
++      {contextPercent === null ? null : (
++        <Text style={styles.summaryItem}>
++          {t("dshTrajectory.summary.context", { percent: Math.round(contextPercent) })}
++        </Text>
++      )}
 +    </View>
 +  );
 +}
@@ -407,7 +421,7 @@ index 000000000..393aa08e2
 +  },
 +}));
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index f3b247e93..59c5990ae 100644
+index f3b247e93..53e4ac9c6 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -56,6 +56,7 @@ import {
@@ -418,22 +432,39 @@ index f3b247e93..59c5990ae 100644
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
  import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
  import { useFilePicker } from "@/hooks/use-file-picker";
-@@ -2093,11 +2094,27 @@ function ComposerContentImpl({
+@@ -2093,11 +2094,44 @@ function ComposerContentImpl({
    // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
    const backgroundTaskVoiceReplacement =
      agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
 +  // dsh keeps a trajectory table of its own; nothing else does, so the pill is provider-scoped.
++  const contextPercent = useMemo(() => {
++    const max = agentState.contextWindowMaxTokens;
++    const used = agentState.contextWindowUsedTokens;
++    if (typeof max !== "number" || typeof used !== "number" || max <= 0) {
++      return null;
++    }
++    return (used / max) * 100;
++  }, [agentState.contextWindowMaxTokens, agentState.contextWindowUsedTokens]);
 +  const trajectoryPill = useMemo(
 +    () =>
 +      hasAgent && agentState.provider === "dsh" ? (
-+        <TrajectoryPill serverId={serverId} agentId={agentId} />
++        <TrajectoryPill
++          serverId={serverId}
++          agentId={agentId}
++          contextPercent={contextPercent}
++        />
 +      ) : null,
-+    [agentId, agentState.provider, hasAgent, serverId],
++    [agentId, agentState.provider, contextPercent, hasAgent, serverId],
 +  );
 +  // On a phone the trajectory button is worth more than the mic, so it takes that slot.
 +  const voiceButtonReplacement =
 +    isCompactLayout && trajectoryPill ? (
-+      <TrajectoryPill serverId={serverId} agentId={agentId} compact />
++      <TrajectoryPill
++        serverId={serverId}
++        agentId={agentId}
++        compact
++        contextPercent={contextPercent}
++      />
 +    ) : (
 +      backgroundTaskVoiceReplacement
 +    );
@@ -446,7 +477,7 @@ index f3b247e93..59c5990ae 100644
            <View style={styles.contextWindowMeterSlot}>
              <ContextWindowMeter
                serverId={serverId}
-@@ -2119,6 +2136,7 @@ function ComposerContentImpl({
+@@ -2119,6 +2153,7 @@ function ComposerContentImpl({
        agentState.totalCostUsd,
        contextWindowMeterGlyphSize,
        goalPill,
@@ -454,7 +485,7 @@ index f3b247e93..59c5990ae 100644
      ],
    );
  
-@@ -2505,7 +2523,7 @@ function ComposerContentImpl({
+@@ -2505,7 +2540,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
@@ -465,10 +496,10 @@ index f3b247e93..59c5990ae 100644
                    voiceServerId={serverId}
 diff --git a/packages/app/src/composer/trajectory-pill.tsx b/packages/app/src/composer/trajectory-pill.tsx
 new file mode 100644
-index 000000000..7a46e7468
+index 000000000..8753fffe2
 --- /dev/null
 +++ b/packages/app/src/composer/trajectory-pill.tsx
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,68 @@
 +import { useState, type ReactElement } from "react";
 +import { Pressable, Text, View } from "react-native";
 +import { Route } from "lucide-react-native";
@@ -486,10 +517,12 @@ index 000000000..7a46e7468
 +  serverId,
 +  agentId,
 +  compact = false,
++  contextPercent = null,
 +}: {
 +  serverId: string;
 +  agentId: string;
 +  compact?: boolean;
++  contextPercent?: number | null;
 +}): ReactElement {
 +  const { t } = useTranslation();
 +  const [open, setOpen] = useState(false);
@@ -512,6 +545,7 @@ index 000000000..7a46e7468
 +        agentId={agentId}
 +        open={open}
 +        onClose={() => setOpen(false)}
++        contextPercent={contextPercent}
 +      />
 +    </>
 +  );
@@ -535,10 +569,10 @@ index 000000000..7a46e7468
 +  label: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 14 },
 +}));
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 388f9be16..ebbf5865b 100644
+index 388f9be16..c4f7fef52 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2040,6 +2040,24 @@ export const ar: TranslationResources = {
+@@ -2040,6 +2040,25 @@ export const ar: TranslationResources = {
      sessionCost: "تكلفة الجلسة{{cost}}",
      accessibility: "تم استخدام نافذة السياق{{percentage}}%",
    },
@@ -549,6 +583,7 @@ index 388f9be16..ebbf5865b 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -564,10 +599,10 @@ index 388f9be16..ebbf5865b 100644
      feedback: {
        send: "إرسال الملاحظات ({{count}})",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index d64c19871..68bf4e314 100644
+index d64c19871..f5626600f 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2065,6 +2065,24 @@ export const en = {
+@@ -2065,6 +2065,25 @@ export const en = {
      sessionCost: "Session cost {{cost}}",
      accessibility: "Context window {{percentage}}% used",
    },
@@ -578,6 +613,7 @@ index d64c19871..68bf4e314 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -593,10 +629,10 @@ index d64c19871..68bf4e314 100644
      feedback: {
        send: "Send feedback ({{count}})",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 27c4ab840..6b3bcb3cc 100644
+index 27c4ab840..2f3096a67 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2088,6 +2088,24 @@ export const es: TranslationResources = {
+@@ -2088,6 +2088,25 @@ export const es: TranslationResources = {
      sessionCost: "Costo de la sesión{{cost}}",
      accessibility: "Ventana de contexto{{percentage}}% utilizada",
    },
@@ -607,6 +643,7 @@ index 27c4ab840..6b3bcb3cc 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -622,10 +659,10 @@ index 27c4ab840..6b3bcb3cc 100644
      feedback: {
        send: "Enviar comentarios ({{count}})",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 29464ca9e..f378764e6 100644
+index 29464ca9e..d261d3036 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2087,6 +2087,24 @@ export const fr: TranslationResources = {
+@@ -2087,6 +2087,25 @@ export const fr: TranslationResources = {
      sessionCost: "Coût de la session : {{cost}}",
      accessibility: "Fenêtre de contexte : {{percentage}} % utilisés",
    },
@@ -636,6 +673,7 @@ index 29464ca9e..f378764e6 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -651,10 +689,10 @@ index 29464ca9e..f378764e6 100644
      feedback: {
        send: "Envoyer les commentaires ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index e3dba618e..2ecbfde64 100644
+index e3dba618e..81bd166c2 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2060,6 +2060,24 @@ export const ja: TranslationResources = {
+@@ -2060,6 +2060,25 @@ export const ja: TranslationResources = {
      sessionCost: "セッションコスト: {{cost}}",
      accessibility: "コンテキストウィンドウ{{percentage}}%使用",
    },
@@ -665,6 +703,7 @@ index e3dba618e..2ecbfde64 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -680,10 +719,10 @@ index e3dba618e..2ecbfde64 100644
      feedback: {
        send: "フィードバックを送信 ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index 0c82504aa..fa587e088 100644
+index 0c82504aa..3c4d38176 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2050,6 +2050,24 @@ export const ko: TranslationResources = {
+@@ -2050,6 +2050,25 @@ export const ko: TranslationResources = {
      sessionCost: "세션 비용 {{cost}}",
      accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
    },
@@ -694,6 +733,7 @@ index 0c82504aa..fa587e088 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -709,10 +749,10 @@ index 0c82504aa..fa587e088 100644
      feedback: {
        send: "피드백 보내기 ({{count}})",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 842dea8f5..9d6a7c4c7 100644
+index 842dea8f5..96cffb664 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2073,6 +2073,24 @@ export const ptBR: TranslationResources = {
+@@ -2073,6 +2073,25 @@ export const ptBR: TranslationResources = {
      sessionCost: "Custo da sessão {{cost}}",
      accessibility: "Janela de contexto {{percentage}}% usada",
    },
@@ -723,6 +763,7 @@ index 842dea8f5..9d6a7c4c7 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -738,10 +779,10 @@ index 842dea8f5..9d6a7c4c7 100644
      feedback: {
        send: "Enviar comentários ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 7a5881c1b..ee51fc03c 100644
+index 7a5881c1b..cb86eb2d5 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2073,6 +2073,24 @@ export const ru: TranslationResources = {
+@@ -2073,6 +2073,25 @@ export const ru: TranslationResources = {
      sessionCost: "Стоимость сессии: {{cost}}",
      accessibility: "Использовано {{percentage}}% контекстного окна",
    },
@@ -752,6 +793,7 @@ index 7a5881c1b..ee51fc03c 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "Cache hit {{percent}}%",
++      context: "Context {{percent}}%",
 +    },
 +    title: "Trajectory",
 +    open: "Open trajectory",
@@ -767,10 +809,10 @@ index 7a5881c1b..ee51fc03c 100644
      feedback: {
        send: "Отправить отзыв ({{count}})",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index 6cd2be6e8..b019c0061 100644
+index 6cd2be6e8..fa33caa86 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2018,6 +2018,24 @@ export const zhCN: TranslationResources = {
+@@ -2018,6 +2018,25 @@ export const zhCN: TranslationResources = {
      sessionCost: "会话费用 {{cost}}",
      accessibility: "上下文窗口已使用 {{percentage}}%",
    },
@@ -781,6 +823,7 @@ index 6cd2be6e8..b019c0061 100644
 +      rate: "{{rate}} tok/s",
 +      tokens: "{{tokens}} tok",
 +      cacheHit: "缓存命中 {{percent}}%",
++      context: "上下文 {{percent}}%",
 +    },
 +    title: "轨迹",
 +    open: "打开轨迹",
