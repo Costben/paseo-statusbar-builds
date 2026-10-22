@@ -303,10 +303,10 @@ index 9d42b2683..e8e605ba0 100644
 +});
 \ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index fdd5c946f..9d692c9f2 100644
+index fdd5c946f..5f2273120 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -344,6 +344,40 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
+@@ -344,6 +344,41 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
@@ -330,6 +330,7 @@ index fdd5c946f..9d692c9f2 100644
 +  inFlight: number;
 +  sessions: number;
 +  disposeWhenIdle: boolean;
++  retired: boolean;
 +  idleTimer: ReturnType<typeof setTimeout> | null;
 +}
 +
@@ -347,7 +348,7 @@ index fdd5c946f..9d692c9f2 100644
  
  function summarizeMalformedACPStdoutError(error: unknown): { type: string; message: string } {
    return {
-@@ -488,6 +522,27 @@ export interface ACPProviderHookContext {
+@@ -488,6 +523,27 @@ export interface ACPProviderHookContext {
    lastStreamedContentAt?: () => number | null;
  }
  
@@ -375,7 +376,7 @@ index fdd5c946f..9d692c9f2 100644
  /**
   * Optional provider-side behaviour for one ACP session. Hooks are threaded from
   * the provider client down to `ACPAgentSession`, so a provider can attach
-@@ -527,6 +582,21 @@ export interface ACPProviderHooks {
+@@ -527,6 +583,21 @@ export interface ACPProviderHooks {
      signal: AbortSignal;
      sawTimeline: boolean;
    }): Promise<void> | null;
@@ -397,7 +398,7 @@ index fdd5c946f..9d692c9f2 100644
    /**
     * Called when a foreground turn is about to send its prompt, with the prompt
     * as it will be sent. Not called for a prompt queued through steering.
-@@ -555,6 +625,20 @@ export interface ACPProviderHooks {
+@@ -555,6 +626,20 @@ export interface ACPProviderHooks {
     * output of the turn.
     */
    shouldDropSessionUpdate?(update: SessionUpdate): boolean;
@@ -418,7 +419,7 @@ index fdd5c946f..9d692c9f2 100644
    /**
     * The provider queues a prompt that arrives while it is busy and runs it once
     * the current turn ends. Enables steering: a message sent during a turn is
-@@ -607,6 +691,12 @@ interface ACPAgentClientOptions {
+@@ -607,6 +692,12 @@ interface ACPAgentClientOptions {
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
    providerHooks?: ACPProviderHooks;
@@ -431,7 +432,7 @@ index fdd5c946f..9d692c9f2 100644
    now?: () => number;
  }
  
-@@ -1084,6 +1174,12 @@ export class ACPAgentClient implements AgentClient {
+@@ -1084,6 +1175,15 @@ export class ACPAgentClient implements AgentClient {
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
@@ -441,10 +442,13 @@ index fdd5c946f..9d692c9f2 100644
 +  private readonly featureCache = new Map<string, ACPFeatureCacheEntry>();
 +  private readonly featureLoadsInFlight = new Map<string, Promise<AgentFeature[]>>();
 +  private readonly pooledProbes = new Map<string, ACPPooledProbe>();
++  // In-flight spawns, so two probes that arrive together share one boot instead
++  // of racing each other into two processes (one of which nothing would own).
++  private readonly probeSpawns = new Map<string, Promise<ACPPooledProbe>>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
  
-@@ -1115,6 +1211,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1115,6 +1215,9 @@ export class ACPAgentClient implements AgentClient {
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
      this.providerHooks = options.providerHooks;
@@ -454,7 +458,7 @@ index fdd5c946f..9d692c9f2 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1223,65 +1322,40 @@ export class ACPAgentClient implements AgentClient {
+@@ -1223,65 +1326,40 @@ export class ACPAgentClient implements AgentClient {
      return session;
    }
  
@@ -546,7 +550,7 @@ index fdd5c946f..9d692c9f2 100644
        const transformed = this.transformSessionResponse(response);
        const derivedModels = deriveModelDefinitionsFromACP(
          this.provider,
-@@ -1291,9 +1365,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1291,9 +1369,9 @@ export class ACPAgentClient implements AgentClient {
        const models = this.catalogModelResolver
          ? await runProviderRefreshActivity(context, "catalog.resolve", () =>
              raceProviderRefreshAbort(
@@ -558,7 +562,7 @@ index fdd5c946f..9d692c9f2 100644
                  sessionId: response.sessionId,
                  models: derivedModels,
                  configOptions: transformed.configOptions,
-@@ -1314,13 +1388,13 @@ export class ACPAgentClient implements AgentClient {
+@@ -1314,13 +1392,13 @@ export class ACPAgentClient implements AgentClient {
          transformed.configOptions,
        );
        return {
@@ -578,7 +582,7 @@ index fdd5c946f..9d692c9f2 100644
    }
  
    async listFeatures(config: AgentSessionConfig): Promise<AgentFeature[]> {
-@@ -1330,23 +1404,232 @@ export class ACPAgentClient implements AgentClient {
+@@ -1330,23 +1408,258 @@ export class ACPAgentClient implements AgentClient {
      }
  
      this.assertProvider(config);
@@ -706,6 +710,24 @@ index fdd5c946f..9d692c9f2 100644
 +    }
 +  }
 +
++  private async spawnPooledProbe(
++    key: string,
++    providerOptions: Record<string, unknown> | undefined,
++  ): Promise<ACPPooledProbe> {
++    const probe = await this.spawnProcess(PROBE_ENV, { providerOptions });
++    const entry: ACPPooledProbe = {
++      key,
++      probe,
++      inFlight: 0,
++      sessions: 0,
++      disposeWhenIdle: false,
++      retired: false,
++      idleTimer: null,
++    };
++    this.pooledProbes.set(key, entry);
++    return entry;
++  }
++
 +  private async acquirePooledProbe(
 +    providerOptions: Record<string, unknown> | undefined,
 +  ): Promise<ACPPooledProbeLease> {
@@ -721,16 +743,18 @@ index fdd5c946f..9d692c9f2 100644
 +
 +    const fresh = entry === undefined;
 +    if (!entry) {
-+      const probe = await this.spawnProcess(PROBE_ENV, { providerOptions });
-+      entry = {
-+        key,
-+        probe,
-+        inFlight: 0,
-+        sessions: 0,
-+        disposeWhenIdle: false,
-+        idleTimer: null,
-+      };
-+      this.pooledProbes.set(key, entry);
++      let spawn = this.probeSpawns.get(key);
++      if (!spawn) {
++        spawn = this.spawnPooledProbe(key, providerOptions);
++        this.probeSpawns.set(key, spawn);
++        const settle = () => {
++          if (this.probeSpawns.get(key) === spawn) {
++            this.probeSpawns.delete(key);
++          }
++        };
++        void spawn.then(settle, settle);
++      }
++      entry = await spawn;
 +    }
 +    if (entry.idleTimer) {
 +      clearTimeout(entry.idleTimer);
@@ -760,8 +784,10 @@ index fdd5c946f..9d692c9f2 100644
 +      return;
 +    }
 +    if (this.pooledProbes.get(entry.key) !== entry) {
-+      // Already retired (shutdown, or a newer probe took the slot): nothing to
-+      // keep warm and nothing left to arm.
++      // Not the probe this key currently owns — an orphan from a spawn race, or
++      // one retired at shutdown. Nothing will ever reuse it, so drop it here
++      // instead of leaving a warm process behind.
++      await this.disposePooledProbe(entry);
 +      return;
 +    }
 +    if (entry.disposeWhenIdle) {
@@ -816,17 +842,21 @@ index fdd5c946f..9d692c9f2 100644
 +        clearTimeout(target.idleTimer);
 +        target.idleTimer = null;
 +      }
++      if (target.retired) {
++        continue;
++      }
 +      if (target.inFlight > 0 && !force) {
 +        target.disposeWhenIdle = true;
 +        continue;
 +      }
++      target.retired = true;
 +      // Route through closeProbe so subclasses (and tests) keep their seam for
 +      // process teardown.
 +      await this.closeProbe(target.probe);
      }
    }
  
-@@ -1911,6 +2194,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1911,6 +2224,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private currentTurnUpdateCount = 0;
    private currentTurnMismatchedUpdateCount = 0;
    private currentTurnStartedAt = 0;
@@ -837,7 +867,7 @@ index fdd5c946f..9d692c9f2 100644
    private lastStreamedContentAt: number | null = null;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
-@@ -2369,6 +2656,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2369,6 +2686,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      await Promise.race([settledHold, waitForAbortSignal(signal)]);
    }
  
@@ -916,7 +946,7 @@ index fdd5c946f..9d692c9f2 100644
    /**
     * Ask the provider why a turn produced no timeline item. A throwing hook must
     * never change the failure, so a rejection keeps the generic code.
-@@ -2499,6 +2858,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2499,6 +2888,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      prompt: AgentPromptInput,
      options: AgentRunOptions | undefined,
      announceUserMessage: boolean,
@@ -924,7 +954,7 @@ index fdd5c946f..9d692c9f2 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2517,6 +2877,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2517,6 +2907,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
@@ -932,7 +962,7 @@ index fdd5c946f..9d692c9f2 100644
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
-@@ -3776,6 +4137,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3776,6 +4167,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
        return [];
      }
@@ -945,7 +975,7 @@ index fdd5c946f..9d692c9f2 100644
      if (update.sessionUpdate === "user_message_chunk") {
        return this.handleUserMessageChunk(update);
      }
-@@ -3792,6 +4159,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3792,6 +4189,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return events;
    }
  
@@ -996,7 +1026,7 @@ index fdd5c946f..9d692c9f2 100644
    private translateSessionUpdateBody(
      update: SessionUpdate,
      pendingUserEvents: AgentStreamEvent[],
-@@ -4200,6 +4611,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4200,6 +4641,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -1004,7 +1034,7 @@ index fdd5c946f..9d692c9f2 100644
          break;
      }
    }
-@@ -4804,10 +5216,42 @@ function mapToolDetail(
+@@ -4804,8 +5246,40 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -1015,9 +1045,9 @@ index fdd5c946f..9d692c9f2 100644
 +      // details the arguments describe; anything unrecognised keeps the
 +      // generic path.
 +      return inferToolDetailFromArguments(context) ?? buildDefaultToolDetail(context);
-   }
- }
- 
++  }
++}
++
 +/**
 + * Read a detail out of the arguments alone, for providers that label every call
 + * `other`. Only shapes that unambiguously describe a file mutation qualify —
@@ -1037,18 +1067,16 @@ index fdd5c946f..9d692c9f2 100644
 +  const newString = readLooseString(rawInput, ["new_string", "newString", "newText"]);
 +  if (oldString !== undefined && newString !== undefined) {
 +    return { type: "edit", filePath, oldString, newString };
-+  }
+   }
 +  const content = readLooseString(rawInput, ["content"]);
 +  if (content !== undefined) {
 +    return { type: "write", filePath, content };
 +  }
 +  return null;
-+}
-+
+ }
+ 
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-   const { snapshot, firstLocation, textContent, rawInput, rawOutput } = context;
-   return {
-@@ -5143,10 +5587,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -5143,10 +5617,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
