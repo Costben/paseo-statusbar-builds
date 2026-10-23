@@ -1,3 +1,54 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index e8e605b..dbc4d9a 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -3392,7 +3392,7 @@ describe("ACPAgentSession", () => {
+     ]);
+   });
+ 
+-  test("forwards out-of-prompt ACP content without inventing a turn", async () => {
++  test("invents a turn for out-of-prompt ACP content", async () => {
+     const session = createSession();
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+ 
+@@ -3410,22 +3410,22 @@ describe("ACPAgentSession", () => {
+       } as SessionUpdate,
+     });
+ 
+-    expect(events).toEqual([
+-      {
+-        type: "thread_started",
+-        provider: "claude-acp",
+-        sessionId: "session-1",
+-      },
+-      {
+-        type: "timeline",
+-        provider: "claude-acp",
+-        item: {
+-          type: "assistant_message",
+-          text: "Unscoped ACP update",
+-          messageId: "unscoped-message",
+-        },
++    // A provider that opens a turn of its own never sends a prompt request, so the
++    // session synthesises the boundary before the content and carries its turnId.
++    expect(events.map((event) => event.type)).toEqual(["thread_started", "turn_started", "timeline"]);
++    const started = events[1];
++    if (started.type !== "turn_started") throw new Error("expected a synthesised turn_started");
++    expect(started.turnId).toMatch(/^auto-/);
++    expect(events[2]).toEqual({
++      type: "timeline",
++      provider: "claude-acp",
++      item: {
++        type: "assistant_message",
++        text: "Unscoped ACP update",
++        messageId: "unscoped-message",
+       },
+-    ]);
++      turnId: started.turnId,
++    });
+   });
+ 
+   test("startTurn returns before the ACP prompt settles and completes later via subscribers", async () => {
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
 index 35a2e4c..56c099d 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
