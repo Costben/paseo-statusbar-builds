@@ -174,6 +174,22 @@ const PATCHES = [
       needle: "export function createDshProviderHooks(",
     },
   },
+  {
+    // dsh opens turns of its own — a settled subagent wakes the parent, a goal
+    // continues, a background task reports back — and none of them answer an
+    // ACP session/prompt request, so Paseo never sees `turn_started` and the
+    // session sits at "completed" while tool calls keep streaming. The ACP
+    // provider synthesises that boundary whenever content arrives with no
+    // foreground turn, and closes it after 30s of silence (reset by every
+    // event, so a long turn does not flicker at the threshold).
+    name: "acp-autonomous-turn",
+    file: "paseo-acp-autonomous-turn.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: "private maybeOpenAutonomousTurn(event: AgentStreamEvent): void {",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove

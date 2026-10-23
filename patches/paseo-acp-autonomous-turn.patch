@@ -1,0 +1,141 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 823f941..cdffe7c 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -324,6 +324,12 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
+ const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
+ const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
+ const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
++/**
++ * 自发 turn 的静默收尾阈值。dsh 的工具调用是流式推的，但一次慢工具调用
++ * （编译、安装、长 sleep）可以有二三十秒完全没有事件，取 30s 才不会把它
++ * 从中间切断。
++ */
++const ACP_AUTONOMOUS_IDLE_TIMEOUT_MS = 30_000;
+ 
+ function summarizeMalformedACPStdoutError(error: unknown): { type: string; message: string } {
+   return {
+@@ -1759,6 +1765,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
+   private currentTurnUsage: AgentUsage | undefined;
+   private activeForegroundTurnId: string | null = null;
++  /**
++   * A turn the provider opened on its own. ACP carries no prompt request for it,
++   * so Paseo never receives a `turn_started` and the session stays "completed"
++   * while the agent keeps streaming tool calls.
++   */
++  private autonomousTurn: { id: string } | null = null;
++  private autonomousIdleTimer: ReturnType<typeof setTimeout> | null = null;
++  private autonomousOrdinal = 0;
+   private fallbackAssistantMessageId: string | null = null;
+   private closed = false;
+   private historyPending = false;
+@@ -1966,6 +1980,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (!this.connection || !this.sessionId) {
+       throw new Error(`${this.provider} session is not initialized`);
+     }
++    if (this.autonomousTurn) {
++      this.closeAutonomousTurn("superseded");
++    }
+     if (this.activeForegroundTurnId) {
+       throw new Error("A foreground turn is already active");
+     }
+@@ -2559,6 +2576,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return;
+     }
+     this.closed = true;
++    if (this.autonomousIdleTimer) {
++      clearTimeout(this.autonomousIdleTimer);
++      this.autonomousIdleTimer = null;
++    }
++    this.autonomousTurn = null;
+ 
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     this.settleCommandsReady();
+@@ -3343,12 +3365,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   private pushEvent(event: AgentStreamEvent): void {
++    this.maybeOpenAutonomousTurn(event);
+     this.logger.trace(
+       {
+         agentId: this.agentId,
+         provider: this.provider,
+         sessionId: this.sessionId,
+-        turnId: getAgentStreamEventTurnId(event) ?? this.activeForegroundTurnId ?? undefined,
++        turnId:
++          getAgentStreamEventTurnId(event) ??
++          this.activeForegroundTurnId ??
++          this.autonomousTurn?.id ??
++          undefined,
+         event,
+       },
+       "provider.acp.event_emit",
+@@ -3358,6 +3385,67 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
++  /**
++   * dsh 会在内部自己开 turn——子 agent 交回结果、goal 续跑、后台任务回调——这些
++   * turn 不走 ACP 的 prompt 请求，Paseo 收不到 turn_started，会话就一直停在
++   * 「已完成」，可它明明还在推工具调用。
++   *
++   * 只要没有前台 turn、却有内容在推进，就在这里补一个 turn 边界。turn_started
++   * 必须先于 activeForegroundTurnId 落定发出：manager 用
++   * `activeForegroundTurnId === eventTurnId` 判断前台事件，早一步它才会把这一轮
++   * 认成 autonomous 并点亮 running。
++   */
++  private maybeOpenAutonomousTurn(event: AgentStreamEvent): void {
++    if (this.closed) {
++      return;
++    }
++    if (this.autonomousTurn) {
++      // 每个事件都重置静默计时，否则阈值就成了「从开局算起的硬上限」。
++      this.armAutonomousIdle();
++      return;
++    }
++    if (this.activeForegroundTurnId) {
++      return;
++    }
++    if (event.type !== "timeline" || event.item.type === "user_message") {
++      return;
++    }
++    const turnId = `auto-${Date.now().toString(36)}-${this.autonomousOrdinal++}`;
++    this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
++    this.activeForegroundTurnId = turnId;
++    this.autonomousTurn = { id: turnId };
++    this.armAutonomousIdle();
++  }
++
++  /** 静默收尾：没有新事件就认为这一轮结束了。 */
++  private armAutonomousIdle(): void {
++    if (this.autonomousIdleTimer) {
++      clearTimeout(this.autonomousIdleTimer);
++    }
++    this.autonomousIdleTimer = setTimeout(() => {
++      this.autonomousIdleTimer = null;
++      this.closeAutonomousTurn("idle");
++    }, ACP_AUTONOMOUS_IDLE_TIMEOUT_MS);
++    this.autonomousIdleTimer.unref?.();
++  }
++
++  private closeAutonomousTurn(reason: string): void {
++    if (this.autonomousIdleTimer) {
++      clearTimeout(this.autonomousIdleTimer);
++      this.autonomousIdleTimer = null;
++    }
++    const turn = this.autonomousTurn;
++    if (!turn) {
++      return;
++    }
++    this.autonomousTurn = null;
++    this.logger.debug(
++      { agentId: this.agentId, provider: this.provider, turnId: turn.id, reason },
++      "provider.acp.autonomous_turn_closed",
++    );
++    this.finishTurn({ type: "turn_completed", provider: this.provider, turnId: turn.id });
++  }
++
+   private emitSubmittedUserMessage(
+     prompt: AgentPromptInput,
+     messageId: string,
