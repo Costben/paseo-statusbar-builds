@@ -1,5 +1,5 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 35a2e4c..248623a 100644
+index 35a2e4c..56c099d 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -344,6 +344,12 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
@@ -71,7 +71,7 @@ index 35a2e4c..248623a 100644
          event,
        },
        "provider.acp.event_emit",
-@@ -4721,6 +4748,67 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4721,6 +4748,75 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -84,6 +84,10 @@ index 35a2e4c..248623a 100644
 +   * 必须先于 activeForegroundTurnId 落定发出：manager 用
 +   * `activeForegroundTurnId === eventTurnId` 判断前台事件，早一步它才会把这一轮
 +   * 认成 autonomous 并点亮 running。
++   *
++   * `user_message` 与 `compaction` 不算「内容推进」：前者是用户输入的回显，
++   * 后者是上下文压缩的界面标记，两者都不代表 agent 在干活，凭空开 turn 只会
++   * 让侧栏闪一下运行中。
 +   */
 +  private maybeOpenAutonomousTurn(event: AgentStreamEvent): void {
 +    if (this.closed) {
@@ -97,7 +101,11 @@ index 35a2e4c..248623a 100644
 +    if (this.activeForegroundTurnId) {
 +      return;
 +    }
-+    if (event.type !== "timeline" || event.item.type === "user_message") {
++    if (
++      event.type !== "timeline" ||
++      event.item.type === "user_message" ||
++      event.item.type === "compaction"
++    ) {
 +      return;
 +    }
 +    const turnId = `auto-${Date.now().toString(36)}-${this.autonomousOrdinal++}`;
