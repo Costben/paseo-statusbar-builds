@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 823f941..cdffe7c 100644
+index 35a2e4c..248623a 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -324,6 +324,12 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
+@@ -344,6 +344,12 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
@@ -12,11 +12,11 @@ index 823f941..cdffe7c 100644
 + * 从中间切断。
 + */
 +const ACP_AUTONOMOUS_IDLE_TIMEOUT_MS = 30_000;
- 
- function summarizeMalformedACPStdoutError(error: unknown): { type: string; message: string } {
-   return {
-@@ -1759,6 +1765,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
-   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
+ // A probe process can take far longer to boot than the probe itself takes to
+ // answer: dsh loads its whole plugin graph before it replies to `initialize`,
+ // so on a cold page cache the first probe costs tens of seconds while
+@@ -2246,6 +2252,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private providerSessionCleanup: (() => void) | null = null;
    private currentTurnUsage: AgentUsage | undefined;
    private activeForegroundTurnId: string | null = null;
 +  /**
@@ -27,10 +27,10 @@ index 823f941..cdffe7c 100644
 +  private autonomousTurn: { id: string } | null = null;
 +  private autonomousIdleTimer: ReturnType<typeof setTimeout> | null = null;
 +  private autonomousOrdinal = 0;
-   private fallbackAssistantMessageId: string | null = null;
-   private closed = false;
-   private historyPending = false;
-@@ -1966,6 +1980,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   /**
+    * Steers accepted while a prompt of Paseo's own was in flight. Sent one at a
+    * time, each once the turn before it has ended.
+@@ -2909,6 +2923,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (!this.connection || !this.sessionId) {
        throw new Error(`${this.provider} session is not initialized`);
      }
@@ -40,7 +40,7 @@ index 823f941..cdffe7c 100644
      if (this.activeForegroundTurnId) {
        throw new Error("A foreground turn is already active");
      }
-@@ -2559,6 +2576,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3555,6 +3572,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -49,10 +49,10 @@ index 823f941..cdffe7c 100644
 +      this.autonomousIdleTimer = null;
 +    }
 +    this.autonomousTurn = null;
- 
-     this.deliverTranslatedEvents(this.flushPendingUserMessage());
-     this.settleCommandsReady();
-@@ -3343,12 +3365,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.turnAbort?.abort();
+     // Cleared before the first await, so a held message is reported exactly once.
+     const unsent = this.heldQueuedPrompts.splice(0);
+@@ -4706,12 +4728,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private pushEvent(event: AgentStreamEvent): void {
@@ -71,7 +71,7 @@ index 823f941..cdffe7c 100644
          event,
        },
        "provider.acp.event_emit",
-@@ -3358,6 +3385,67 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4721,6 +4748,67 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
