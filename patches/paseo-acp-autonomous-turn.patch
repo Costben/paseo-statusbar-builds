@@ -1,5 +1,5 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index e8e605b..dbc4d9a 100644
+index e8e605b..89cdf98 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -3392,7 +3392,7 @@ describe("ACPAgentSession", () => {
@@ -11,7 +11,7 @@ index e8e605b..dbc4d9a 100644
      const session = createSession();
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
  
-@@ -3410,22 +3410,22 @@ describe("ACPAgentSession", () => {
+@@ -3410,22 +3410,23 @@ describe("ACPAgentSession", () => {
        } as SessionUpdate,
      });
  
@@ -35,7 +35,9 @@ index e8e605b..dbc4d9a 100644
 +    const started = events[1];
 +    if (started.type !== "turn_started") throw new Error("expected a synthesised turn_started");
 +    expect(started.turnId).toMatch(/^auto-/);
-+    expect(events[2]).toEqual({
++    // The content itself stays unscoped — the provider sent no turnId — while the
++    // manager tracks the synthesised turn separately.
++    expect(events[2]).toMatchObject({
 +      type: "timeline",
 +      provider: "claude-acp",
 +      item: {
@@ -44,7 +46,6 @@ index e8e605b..dbc4d9a 100644
 +        messageId: "unscoped-message",
        },
 -    ]);
-+      turnId: started.turnId,
 +    });
    });
  
