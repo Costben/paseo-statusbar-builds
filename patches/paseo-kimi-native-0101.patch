@@ -2626,18 +2626,15 @@ diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/se
 index dcdfdb1cb..cc63aac36 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
-@@ -16,7 +16,12 @@ import { join } from "node:path";
+@@ -15,5 +15,9 @@ import { join } from "node:path";
  import { createTestLogger } from "../../test-utils/test-logger.js";
  import { AgentManager } from "./agent-manager.js";
- import { AgentStorage } from "./agent-storage.js";
--import { setupFinishNotification, waitForAgentRunStartWithTimeout } from "./agent-prompt.js";
+-import { waitForAgentRunStartWithTimeout } from "./agent-prompt.js";
 +import {
-+  setupFinishNotification,
 +  startAgentRun,
 +  type AgentRunController,
 +  waitForAgentRunStartWithTimeout,
 +} from "./agent-prompt.js";
- import type { AgentManagerEvent, ManagedAgent } from "./agent-manager.js";
  import type {
    AgentClient,
 @@ -272,6 +277,76 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
@@ -2714,9 +2711,9 @@ index dcdfdb1cb..cc63aac36 100644
 +  expect(isSystemInjectedEnvelope("<paseo-system>\nnot closed")).toBe(false);
 +});
 +
- test("finish notifications tell the parent the child's last assistant message", async () => {
-   const scenario = createFinishNotificationScenario({
-     childLastAssistantMessage: "Implemented the cleanup and all checks pass.",
+ // Independent of the production constant so shortening the budget breaks this test.
+ const EXPECTED_RUN_START_BUDGET_MS = 60_000;
+ // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
 index 59fb6022e..8551dcd96 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
@@ -8007,9 +8004,9 @@ index 2af8983de..eaf706273 100644
 +  return isMetadata(inner) && inner.model === "<synthetic>";
 +}
 +
- interface ClaudeSidechainHistory {
-   contents: string[];
-   workflowContents: string[];
+ function readLegacyClaudeSubagentId(content: unknown): string | undefined {
+   return /agentId:\s*([\w-]+)/.exec(JSON.stringify(content))?.[1];
+ }
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
 index 0daa5e533..b1054b4cd 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
