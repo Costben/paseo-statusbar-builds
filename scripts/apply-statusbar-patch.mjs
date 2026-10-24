@@ -11,13 +11,14 @@
 // Usage: node apply-statusbar-patch.mjs [sourceDir]   (sourceDir default ".")
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const patchDir = resolve(here, "..", "patches");
 const badgePatch = join(patchDir, "paseo-app-composer-badges.patch");
+const processGuardSrc = join(here, "android-process-guard");
 
 const sourceDir = process.argv[2] ?? ".";
 
@@ -158,6 +159,58 @@ function patchRootLayout(dir) {
   }
 }
 
+function patchProcessGuard(dir) {
+  const pluginDir = join(dir, "packages", "app", "plugins");
+  const templateDir = join(pluginDir, "android-process-guard");
+  if (!existsSync(pluginDir)) fail(`missing plugins dir: ${pluginDir}`);
+
+  mkdirSync(templateDir, { recursive: true });
+  for (const name of ["ProcessGuard.kt", "ProcessGuardProvider.kt"]) {
+    copyFileSync(join(processGuardSrc, name), join(templateDir, name));
+  }
+  copyFileSync(
+    join(processGuardSrc, "with-android-process-guard.js"),
+    join(pluginDir, "with-android-process-guard.js"),
+  );
+
+  const path = join(dir, "packages", "app", "app.config.js");
+  let content = read(path);
+  const original = content;
+  const nl = detectNewline(content);
+
+  if (!/with-android-process-guard/.test(content)) {
+    const needle = 'const withPasteInput = require("./plugins/with-paste-input");';
+    if (!content.includes(needle)) {
+      fail('app.config.js: cannot find anchor `const withPasteInput = require("./plugins/with-paste-input");`');
+    }
+    content = content.replace(
+      needle,
+      () =>
+        `${needle}${nl}const withAndroidProcessGuard = require("./plugins/with-android-process-guard");`,
+    );
+  }
+
+  if (!/withAndroidProcessGuard,/.test(content)) {
+    const needle = /^([ \t]*)withPasteInput,[ \t]*\r?$/m;
+    const match = needle.exec(content);
+    if (!match) fail("app.config.js: cannot find anchor `withPasteInput,` inside the plugins array");
+    content = content.replace(
+      needle,
+      (m) => `${m.replace(/\r$/, "")}${nl}${match[1]}withAndroidProcessGuard,`,
+    );
+  }
+
+  writeIfChanged(path, content, original, "packages/app/app.config.js (process guard)");
+
+  assertContains(path, "./plugins/with-android-process-guard", "app.config.js");
+  assertContains(path, "withAndroidProcessGuard,", "app.config.js");
+  assertContains(
+    join(pluginDir, "with-android-process-guard.js"),
+    "ProcessGuardProvider",
+    "plugins/with-android-process-guard.js",
+  );
+}
+
 function patchComposerBadges(dir) {
   if (!existsSync(badgePatch)) return;
   try {
@@ -184,6 +237,7 @@ console.log(`[statusbar-patch] source dir: ${sourceDir}`);
 assertDependency(sourceDir);
 patchAppConfig(sourceDir);
 patchRootLayout(sourceDir);
+patchProcessGuard(sourceDir);
 patchComposerBadges(sourceDir);
 
 // The badges patch also carries the tool-call display fix: a catch-all ACP tool
