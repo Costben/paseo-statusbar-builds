@@ -20,6 +20,23 @@ const { withAndroidManifest, withMainActivity } = require("expo/config-plugins")
 const HELPER_MARKER = "PaseoMultiDisplayMetrics";
 const CALL = "applyDisplayMetricsFromActivity()";
 
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Index of the `}` that closes the block opened at `openIndex`, or -1. */
+function matchingBrace(text, openIndex) {
+  if (openIndex === -1) return -1;
+  let depth = 0;
+  for (let i = openIndex; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
 const HELPER = `
   // ${HELPER_MARKER}: React Native keeps the primary display's density in
   // DisplayMetricsHolder no matter which display this Activity runs on. Both
@@ -46,21 +63,31 @@ const HELPER = `
     com.facebook.react.uimanager.DisplayMetricsHolder.setWindowDisplayMetrics(windowMetrics)
     com.facebook.react.uimanager.DisplayMetricsHolder.setScreenDisplayMetrics(screenMetrics)
   }
+
 `;
 
-const LIFECYCLE_OVERRIDES = `
+const LIFECYCLE_OVERRIDES = [
+  {
+    signature: "override fun onResume()",
+    body: `
   override fun onResume() {
     super.onResume()
     ${CALL}
     reactDelegate?.reactRootView?.requestLayout()
   }
-
+`,
+  },
+  {
+    signature: "override fun onConfigurationChanged(",
+    body: `
   override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
     super.onConfigurationChanged(newConfig)
     ${CALL}
     reactDelegate?.reactRootView?.requestLayout()
   }
-`;
+`,
+  },
+];
 
 function configureMainActivity(contents) {
   let result = contents;
@@ -91,16 +118,38 @@ function configureMainActivity(contents) {
     );
   }
 
-  if (!result.includes("override fun onResume()")) {
-    const anchor = /^([ \t]*)override fun getMainComponentName\(\)/m;
-    const match = anchor.exec(result);
-    if (!match) {
-      throw new Error("[display-metrics] MainActivity.kt has no `getMainComponentName` override");
+  // Insert the lifecycle overrides right after onCreate so React Native's own
+  // KDoc above the following overrides stays where it belongs.
+  const onCreateDecl = /override fun onCreate\(/m.exec(result);
+  if (!onCreateDecl) {
+    throw new Error("[display-metrics] MainActivity.kt: cannot find the onCreate declaration");
+  }
+  const onCreateEnd = matchingBrace(result, result.indexOf("{", onCreateDecl.index));
+  if (onCreateEnd === -1) {
+    throw new Error("[display-metrics] MainActivity.kt: cannot find the end of onCreate");
+  }
+  let insertAt = onCreateEnd + 1;
+
+  const missing = [];
+  for (const override of LIFECYCLE_OVERRIDES) {
+    const found = new RegExp(`^([ \\t]*)${escapeRegExp(override.signature)}`, "m").exec(result);
+    if (found) {
+      const closing = result.indexOf(`\n${found[1]}}`, found.index + found[0].length);
+      const body = closing === -1 ? result.slice(found.index) : result.slice(found.index, closing);
+      if (!body.includes(CALL)) {
+        throw new Error(
+          `[display-metrics] MainActivity.kt already overrides \`${override.signature}\` without ${CALL}; ` +
+            "React Native would overwrite the metrics right after this fix",
+        );
+      }
+      continue;
     }
-    result = result.replace(
-      /^([ \t]*)override fun getMainComponentName\(\)/m,
-      (line) => `${withNl(LIFECYCLE_OVERRIDES).replace(/^\r?\n/, "")}${nl}${line}`,
-    );
+    missing.push(override.body);
+  }
+
+  if (missing.length > 0) {
+    const snippet = `${nl}${withNl(missing.join("")).replace(/\n$/, "")}`;
+    result = result.slice(0, insertAt) + snippet + result.slice(insertAt);
   }
 
   if (!result.includes("getRealMetrics(screenMetrics)")) {
