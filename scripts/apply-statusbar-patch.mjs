@@ -19,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const patchDir = resolve(here, "..", "patches");
 const badgePatch = join(patchDir, "paseo-app-composer-badges.patch");
 const processGuardSrc = join(here, "android-process-guard");
+const displayMetricsSrc = join(here, "android-display-metrics");
 
 const sourceDir = process.argv[2] ?? ".";
 
@@ -211,6 +212,53 @@ function patchProcessGuard(dir) {
   );
 }
 
+function patchDisplayMetrics(dir) {
+  const pluginDir = join(dir, "packages", "app", "plugins");
+  if (!existsSync(pluginDir)) fail(`missing plugins dir: ${pluginDir}`);
+
+  const pluginName = "with-android-display-metrics";
+  const source = join(displayMetricsSrc, `${pluginName}.js`);
+  if (!existsSync(source)) fail(`missing display metrics plugin: ${source}`);
+  copyFileSync(source, join(pluginDir, `${pluginName}.js`));
+
+  const path = join(dir, "packages", "app", "app.config.js");
+  let content = read(path);
+  const original = content;
+  const nl = detectNewline(content);
+
+  if (!content.includes(`./plugins/${pluginName}`)) {
+    const needle = 'const withPasteInput = require("./plugins/with-paste-input");';
+    if (!content.includes(needle)) {
+      fail('app.config.js: cannot find anchor `const withPasteInput = require("./plugins/with-paste-input");`');
+    }
+    content = content.replace(
+      needle,
+      () =>
+        `${needle}${nl}const withAndroidDisplayMetrics = require("./plugins/${pluginName}");`,
+    );
+  }
+
+  if (!/withAndroidDisplayMetrics,/.test(content)) {
+    const needle = /^([ \t]*)withPasteInput,[ \t]*\r?$/m;
+    const match = needle.exec(content);
+    if (!match) fail("app.config.js: cannot find anchor `withPasteInput,` inside the plugins array");
+    content = content.replace(
+      needle,
+      (m) => `${m.replace(/\r$/, "")}${nl}${match[1]}withAndroidDisplayMetrics,`,
+    );
+  }
+
+  writeIfChanged(path, content, original, "packages/app/app.config.js (display metrics)");
+
+  assertContains(path, `./plugins/${pluginName}`, "app.config.js");
+  assertContains(path, "withAndroidDisplayMetrics,", "app.config.js");
+  assertContains(
+    join(pluginDir, `${pluginName}.js`),
+    "PaseoMultiDisplayMetrics",
+    `plugins/${pluginName}.js`,
+  );
+}
+
 function patchComposerBadges(dir) {
   if (!existsSync(badgePatch)) return;
   try {
@@ -238,6 +286,7 @@ assertDependency(sourceDir);
 patchAppConfig(sourceDir);
 patchRootLayout(sourceDir);
 patchProcessGuard(sourceDir);
+patchDisplayMetrics(sourceDir);
 patchComposerBadges(sourceDir);
 
 // The badges patch also carries the tool-call display fix: a catch-all ACP tool
