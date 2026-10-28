@@ -7508,7 +7508,7 @@ index 52b70c2..f4b538b 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 6516ff8..8fae9df 100644
+index 6516ff8..cd9d970 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -35,9 +35,12 @@ import {
@@ -7615,7 +7615,7 @@ index 6516ff8..8fae9df 100644
 +      return events;
 +    }
 +
-+    this.appendTranscriptGoalEvents(message, events);
++    await this.appendTranscriptGoalEvents(message, events);
 +
      switch (message.type) {
        case "system":
@@ -7628,7 +7628,7 @@ index 6516ff8..8fae9df 100644
          break;
        }
        case "stream_event":
-@@ -4583,6 +4637,197 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4583,6 +4637,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7785,11 +7785,14 @@ index 6516ff8..8fae9df 100644
 +   * attachment into the transcript next to the render, which is where this reads it, and the
 +   * `active_goal` frame takes over from the first evaluation onward.
 +   */
-+  private appendTranscriptGoalEvents(message: unknown, events: AgentStreamEvent[]): void {
++  private async appendTranscriptGoalEvents(
++    message: unknown,
++    events: AgentStreamEvent[],
++  ): Promise<void> {
 +    if (!isClaudeGoalStatusCheckpoint(message)) return;
 +    const sessionId = this.claudeSessionId;
 +    if (!sessionId) return;
-+    const historyPath = this.resolveHistoryPath(sessionId);
++    const historyPath = await this.resolveHistoryPath(sessionId);
 +    if (!historyPath) return;
 +    let stamp: string;
 +    try {
@@ -7826,7 +7829,7 @@ index 6516ff8..8fae9df 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -4910,6 +5155,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4910,6 +5158,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7834,7 +7837,7 @@ index 6516ff8..8fae9df 100644
      const usage = this.convertUsage(message);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -6299,6 +6545,146 @@ async function readClaudeReplayParentFacts(
+@@ -6299,6 +6548,146 @@ async function readClaudeReplayParentFacts(
    };
  }
  

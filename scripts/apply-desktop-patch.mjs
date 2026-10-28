@@ -592,7 +592,7 @@ const MARKERS = [
   {
     label: "That goal is reported before the first evaluation",
     path: "packages/server/src/server/agent/providers/claude/agent.ts",
-    needle: "private appendTranscriptGoalEvents(message: unknown, events: AgentStreamEvent[]): void {",
+    needle: "private async appendTranscriptGoalEvents(",
   },
   {
     label: "A Claude goal set is tested to reach the pill before the turn ends",
