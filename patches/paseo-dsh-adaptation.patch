@@ -424,14 +424,12 @@ diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/ind
 index f3b247e93..53e4ac9c6 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -56,6 +56,7 @@ import {
+@@ -58,4 +58,5 @@ import {
  import { ContextWindowMeter } from "@/components/context-window-meter";
  import { GoalPill } from "@/composer/goal-pill";
  import { BackgroundTaskPill } from "@/composer/background-task-pill";
 +import { TrajectoryPill } from "@/composer/trajectory-pill";
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
- import { selectAgentTurnPresentation, useSessionStore } from "@/stores/session-store";
- import { useFilePicker } from "@/hooks/use-file-picker";
 @@ -2093,11 +2094,44 @@ function ComposerContentImpl({
    // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
    const backgroundTaskVoiceReplacement =

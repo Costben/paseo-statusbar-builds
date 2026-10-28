@@ -1,5 +1,5 @@
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 731046489..0cd5e6040 100644
+index 7310464..0cd5e60 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -20,7 +20,7 @@ index 731046489..0cd5e6040 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f78..dd1da9eeb 100644
+index 704298f..dd1da9e 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -49,10 +49,10 @@ index 704298f78..dd1da9eeb 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index 83b6f228d..c9eef087c 100644
+index bb5679f..5ef21fd 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -258,6 +258,44 @@ describe("bare URL sentence punctuation", () => {
+@@ -287,6 +287,44 @@ describe("bare URL sentence punctuation", () => {
    );
  });
  
@@ -98,7 +98,7 @@ index 83b6f228d..c9eef087c 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 9977ccfef..81bed99bb 100644
+index 5c82088..15eaf98 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -138,7 +138,7 @@ index 9977ccfef..81bed99bb 100644
  function createFilePattern(path: string): RegExp {
    // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
    return new RegExp(
-@@ -122,6 +152,7 @@ export function prepareMarkdownSource(
+@@ -128,6 +158,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
@@ -146,7 +146,7 @@ index 9977ccfef..81bed99bb 100644
      !(workspaceRoot && source.includes("]("))
    ) {
      return { images, ...metadata, render: () => source };
-@@ -196,7 +227,7 @@ export function prepareMarkdownSource(
+@@ -202,7 +233,7 @@ export function prepareMarkdownSource(
        if (lineEnd < end) split(lineEnd);
      }
    }
@@ -155,7 +155,7 @@ index 9977ccfef..81bed99bb 100644
      const start = node.position?.start.offset;
      const end = node.position?.end.offset;
      if (start !== undefined && end !== undefined) {
-@@ -218,17 +249,21 @@ export function prepareMarkdownSource(
+@@ -224,17 +255,21 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -183,7 +183,7 @@ index 9977ccfef..81bed99bb 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 6929b447e..e3839792b 100644
+index 6929b44..e383979 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -408,7 +408,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -198,7 +198,7 @@ index 6929b447e..e3839792b 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..612c2a3e4
+index 0000000..612c2a3
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -378,7 +378,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index 4b6407c87..037066ecc 100644
+index 4b6407c..037066e 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -497,7 +497,7 @@ index 4b6407c87..037066ecc 100644
          {overlay}
        </KeyboardTranslateView>
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 421002352..28757223e 100644
+index 4210023..2875722 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -554,7 +554,7 @@ index 421002352..28757223e 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 44e79e6ef..633dfe3de 100644
+index 44e79e6..633dfe3 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
 @@ -159,3 +159,42 @@ describe("composer viewport", () => {
@@ -601,7 +601,7 @@ index 44e79e6ef..633dfe3de 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index 9c460e172..6a1a4e12b 100644
+index 9c460e1..6a1a4e1 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -67,6 +67,13 @@ export function resolveInlineComposerCapacity(
@@ -629,7 +629,7 @@ index 9c460e172..6a1a4e12b 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 000000000..a0de3d897
+index 0000000..a0de3d8
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -666,7 +666,7 @@ index 000000000..a0de3d897
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 000000000..cd3cc0318
+index 0000000..cd3cc03
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -706,7 +706,7 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 27ca8b8af..ca20ea896 100644
+index d00b6f7..88025f8 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -9,6 +9,7 @@ import { Composer } from "@/composer";
@@ -717,7 +717,7 @@ index 27ca8b8af..ca20ea896 100644
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
  import { AgentStreamView } from "@/agent-stream/view";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
-@@ -593,6 +594,26 @@ export function WorkspaceDraftAgentTab({
+@@ -592,6 +593,26 @@ export function WorkspaceDraftAgentTab({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -744,7 +744,7 @@ index 27ca8b8af..ca20ea896 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -636,7 +657,7 @@ export function WorkspaceDraftAgentTab({
+@@ -635,7 +656,7 @@ export function WorkspaceDraftAgentTab({
          {dockContent}
          <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
            {importPillPress && !isComposerFullscreen ? (
@@ -754,10 +754,10 @@ index 27ca8b8af..ca20ea896 100644
                  <ComposerImportPill onPress={importPillPress} />
                </View>
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 10d670fca..90894fe8a 100644
+index b7088dd..de14341 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -135,6 +135,7 @@ import type {
+@@ -140,6 +140,7 @@ import type {
  import type { SelectedFile } from "@/attachments/selected-file";
  import { resolveComposerAttachmentSubmitFormat } from "@/composer/attachments/submit";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
@@ -765,7 +765,7 @@ index 10d670fca..90894fe8a 100644
  import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
  import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
  import { getFileTypeLabel } from "@/attachments/file-types";
-@@ -280,6 +281,10 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
+@@ -285,6 +286,10 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
        contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
        totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
        model: agent?.model ?? null,
@@ -776,7 +776,7 @@ index 10d670fca..90894fe8a 100644
      };
    };
  }
-@@ -1531,10 +1536,12 @@ function ComposerContentImpl({
+@@ -1550,10 +1555,12 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -791,7 +791,7 @@ index 10d670fca..90894fe8a 100644
    );
  
    useEffect(() => {
-@@ -1598,6 +1605,7 @@ function ComposerContentImpl({
+@@ -1617,6 +1624,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -799,7 +799,7 @@ index 10d670fca..90894fe8a 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2054,6 +2062,13 @@ function ComposerContentImpl({
+@@ -2082,6 +2090,13 @@ function ComposerContentImpl({
    );
  
    const contextWindowMeterGlyphSize = isCompactLayout ? ICON_SIZE.md : buttonIconSize;
@@ -813,7 +813,7 @@ index 10d670fca..90894fe8a 100644
    const beforeVoiceContent = useMemo(
      () =>
        hasAgent ? (
-@@ -2460,6 +2475,7 @@ function ComposerContentImpl({
+@@ -2489,6 +2504,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
@@ -822,19 +822,19 @@ index 10d670fca..90894fe8a 100644
                    activeActionContent={activeActionContent}
                    voiceServerId={serverId}
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index 2c104924c..677d213bc 100644
+index 16acede..22c6666 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
-@@ -25,7 +25,7 @@ import {
+@@ -26,7 +26,7 @@ import {
  } from "react";
  import { StyleSheet, withUnistyles } from "react-native-unistyles";
  import { useTranslation } from "react-i18next";
 -import { ICON_SIZE, type Theme } from "@/styles/theme";
 +import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
  import { ArrowUp, Mic, MicOff, CornerDownLeft, Plus, Square } from "lucide-react-native";
+ import * as Haptics from "expo-haptics";
  import { useDictation } from "@/hooks/use-dictation";
- import { hasFinePointer } from "@/hooks/use-fine-pointer";
-@@ -42,6 +42,7 @@ import {
+@@ -44,6 +44,7 @@ import {
  } from "@/utils/image-attachments-from-files";
  import type { ComposerAttachment } from "@/attachments/types";
  import type { ImageAttachment, MessagePayload, TextReplacement } from "@/composer/types";
@@ -842,7 +842,7 @@ index 2c104924c..677d213bc 100644
  import { focusWithRetries } from "@/utils/web-focus";
  import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
  import { Shortcut } from "@/components/ui/shortcut";
-@@ -150,6 +151,8 @@ export interface MessageInputProps {
+@@ -162,6 +163,8 @@ export interface MessageInputProps {
    leftContent?: React.ReactNode;
    /** Content to render on the right side before the voice button (e.g., context window meter) */
    beforeVoiceContent?: React.ReactNode;
@@ -851,7 +851,7 @@ index 2c104924c..677d213bc 100644
    /** Auxiliary content to render on the right side after the voice button. */
    rightContent?: React.ReactNode;
    /** Primary action to render when the agent is active and the composer has no sendable content. */
-@@ -1098,6 +1101,7 @@ interface ResolvedMessageInputProps {
+@@ -1126,6 +1129,7 @@ interface ResolvedMessageInputProps {
    disabled: boolean;
    leftContent: React.ReactNode;
    beforeVoiceContent: React.ReactNode;
@@ -859,7 +859,7 @@ index 2c104924c..677d213bc 100644
    rightContent: React.ReactNode;
    activeActionContent: React.ReactNode;
    voiceServerId: string | undefined;
-@@ -1145,6 +1149,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+@@ -1174,6 +1178,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
      disabled: props.disabled ?? false,
      leftContent: props.leftContent,
      beforeVoiceContent: props.beforeVoiceContent,
@@ -867,7 +867,7 @@ index 2c104924c..677d213bc 100644
      rightContent: props.rightContent,
      activeActionContent: props.activeActionContent,
      voiceServerId: props.voiceServerId,
-@@ -1222,6 +1227,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -1252,6 +1257,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
        disabled,
        leftContent,
        beforeVoiceContent,
@@ -875,7 +875,7 @@ index 2c104924c..677d213bc 100644
        rightContent,
        activeActionContent,
        voiceServerId,
-@@ -2067,18 +2073,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2123,18 +2129,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            {/* Right: voice button, contextual button (realtime/send/cancel) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
@@ -908,7 +908,7 @@ index 2c104924c..677d213bc 100644
              {rightContent}
              {sendButton}
            </View>
-@@ -2094,6 +2102,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2150,6 +2158,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -916,7 +916,7 @@ index 2c104924c..677d213bc 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2153,6 +2162,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2209,6 +2218,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -952,7 +952,7 @@ index 2c104924c..677d213bc 100644
      return (
        <View
          ref={rootRef}
-@@ -2176,7 +2214,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2232,7 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -961,7 +961,7 @@ index 2c104924c..677d213bc 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2243,6 +2281,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2299,6 +2337,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -971,7 +971,7 @@ index 2c104924c..677d213bc 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2258,6 +2299,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2314,6 +2355,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -982,10 +982,10 @@ index 2c104924c..677d213bc 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index 6f2cdef74..680c85db8 100644
+index ad49297..5dbb394 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
-@@ -193,9 +193,15 @@ describe("dictation transcript behavior", () => {
+@@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
  
  describe("composer send behavior", () => {
    it("sends immediately when queue mode cannot advance past a permission", () => {
@@ -1005,10 +1005,10 @@ index 6f2cdef74..680c85db8 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 698965b5a..aadb22dd2 100644
+index 67c8030..223decb 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
-@@ -8,8 +8,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
+@@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
  export function resolveActiveSendBehavior(
    sendBehavior: SendBehavior,
    hasPendingPermission: boolean,
@@ -1025,7 +1025,7 @@ index 698965b5a..aadb22dd2 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1040,7 +1040,7 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 9b70d9048..1620d8bd6 100644
+index 9115737..067531d 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -39,6 +39,7 @@ import type {
@@ -1060,7 +1060,7 @@ index 9b70d9048..1620d8bd6 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..9a4887f30 100644
+index 4d14f10..9a4887f 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,11 @@
@@ -1098,7 +1098,7 @@ index 4d14f101b..9a4887f30 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index c1c70c640..d1e645ec2 100644
+index 13a7bcd..584290e 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -1109,7 +1109,7 @@ index c1c70c640..d1e645ec2 100644
      ...(agent.lastError ? { lastError: agent.lastError } : {}),
      title: agent.title,
      labels: agent.labels,
-@@ -121,6 +122,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
+@@ -122,6 +123,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
      persistence: snapshot.persistence ?? null,
      runtimeInfo: snapshot.runtimeInfo,
      lastUsage: snapshot.lastUsage,
@@ -1118,10 +1118,10 @@ index c1c70c640..d1e645ec2 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index a7a2182d9..f4a263426 100644
+index 704c7ad..0c38df3 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -380,6 +380,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -420,6 +420,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -1130,7 +1130,7 @@ index a7a2182d9..f4a263426 100644
    })
    .catchall(z.boolean());
  
-@@ -810,6 +812,24 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -850,6 +852,24 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -1155,7 +1155,7 @@ index a7a2182d9..f4a263426 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -831,6 +851,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -871,6 +891,7 @@ export const AgentSnapshotPayloadSchema = z.object({
    persistence: AgentPersistenceHandleSchema.nullable(),
    runtimeInfo: AgentRuntimeInfoSchema.optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -1164,7 +1164,7 @@ index a7a2182d9..f4a263426 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6db2..e00c20d62 100644
+index db0aa6d..e00c20d 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
