@@ -1,0 +1,216 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 963ce581..1bb48e82 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -6555,6 +6555,94 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
+     }
+   });
+ 
++  /** Make the harness agent advertise `_session/steering`, answered by `extMethod`. */
++  function enableSteering(harness: KimiLogHarness, extMethod: ReturnType<typeof vi.fn>): void {
++    const internals = asInternals<{ agentSteers: boolean; connection: Record<string, unknown> }>(
++      harness.session,
++    );
++    internals.agentSteers = true;
++    internals.connection.extMethod = extMethod;
++  }
++
++  function steeredTexts(extMethod: ReturnType<typeof vi.fn>): string[] {
++    return extMethod.mock.calls.map((call) => {
++      const request = call[1] as { prompt: Array<{ text?: string }> };
++      return request.prompt.map((block) => block.text ?? "").join("");
++    });
++  }
++
++  test("injects a steer into Paseo's own turn when Kimi advertises _session/steering", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      const first = gatedPrompt();
++      harness.prompt.mockImplementationOnce(() => first.response);
++      const extMethod = vi.fn(async () => ({ outcome: "injected" }));
++      enableSteering(harness, extMethod);
++      const { turnId } = await harness.session.startTurn("FIRST");
++
++      const result = await harness.session.steerActiveTurn!("follow-up", {
++        expectedTurnId: turnId,
++      });
++
++      expect(result).toEqual({ status: "accepted" });
++      expect(extMethod).toHaveBeenCalledWith(
++        "_session/steering",
++        expect.objectContaining({ sessionId: "session_unstreamed-test" }),
++      );
++      expect(steeredTexts(extMethod)).toEqual([expect.stringContaining("follow-up")]);
++
++      await harness.append(...promptRun(1, "FIRST"));
++      first.release();
++      await harness.waitFor((event) => event.type === "turn_completed" && event.turnId === turnId);
++      await new Promise((resolve) => setTimeout(resolve, 50));
++
++      // The message went into the running turn, so nothing is held for after it.
++      expect(harness.prompt).toHaveBeenCalledTimes(1);
++      expect(turnStartCount(harness.events)).toBe(1);
++      expect(harness.cancel).not.toHaveBeenCalled();
++    } finally {
++      await harness.dispose();
++    }
++  });
++
++  test("holds a steer Kimi leaves unconsumed and sends it after the turn", async () => {
++    const harness = await createKimiLogHarness();
++    try {
++      const first = gatedPrompt();
++      const second = gatedPrompt();
++      harness.prompt
++        .mockImplementationOnce(() => first.response)
++        .mockImplementationOnce(() => second.response);
++      const extMethod = vi.fn(async () => ({ outcome: "unconsumed" }));
++      enableSteering(harness, extMethod);
++      const { turnId: firstTurnId } = await harness.session.startTurn("FIRST");
++
++      const result = await harness.session.steerActiveTurn!("follow-up", {
++        expectedTurnId: firstTurnId,
++      });
++
++      expect(result).toEqual({ status: "accepted" });
++      expect(extMethod).toHaveBeenCalledTimes(1);
++      expect(harness.prompt).toHaveBeenCalledTimes(1);
++
++      await harness.append(...promptRun(1, "FIRST"));
++      first.release();
++      const started = await harness.waitFor(
++        (event) => event.type === "turn_started" && event.turnId !== firstTurnId,
++      );
++      const secondTurnId = started.type === "turn_started" ? started.turnId! : "";
++      expect(sentPromptTexts(harness.prompt)[1]).toContain("follow-up");
++
++      await harness.append(...promptRun(2, "follow-up"));
++      second.release();
++      await harness.waitFor(
++        (event) => event.type === "turn_completed" && event.turnId === secondTurnId,
++      );
++    } finally {
++      await harness.dispose();
++    }
++  });
++
+   test("sends held steers one at a time, each once the turn before it has ended", async () => {
+     const harness = await createKimiLogHarness();
+     try {
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 3acc6ef5..e89ca991 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -184,6 +184,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
+   return value != null && typeof value === "object" && !Array.isArray(value);
+ }
+ 
++/**
++ * Whether the agent answers `_session/steering`, as advertised by
++ * `_meta.steering.supported` in its initialize response. `claude-agent-acp`,
++ * `codex-acp` and the Costben/kimi-code-builds Kimi build share this shape.
++ */
++function advertisesSteering(initialize: InitializeResponse): boolean {
++  const steering = isRecord(initialize._meta) ? initialize._meta["steering"] : undefined;
++  return isRecord(steering) && steering["supported"] === true;
++}
++
+ function isACPError(value: unknown): value is ACPError {
+   return isRecord(value) && typeof value.message === "string" && typeof value.code === "number";
+ }
+@@ -2220,6 +2230,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private child: ChildProcessWithoutNullStreams | null = null;
+   private connection: ClientSideConnection | null = null;
+   private agentCapabilities: ACPAgentCapabilities | null = null;
++  /** The agent can inject a message into a running turn (`_session/steering`). */
++  private agentSteers = false;
+   private sessionId: string | null = null;
+   private readonly earlySessionUpdates: SessionNotification[] = [];
+   private currentMode: string | null = null;
+@@ -2351,6 +2363,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       this.child = spawned.child;
+       this.connection = spawned.connection;
+       this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
++      this.agentSteers = advertisesSteering(spawned.initialize);
+ 
+       const response = await this.runACPRequest(() =>
+         this.connection!.newSession({
+@@ -2389,6 +2402,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       this.child = spawned.child;
+       this.connection = spawned.connection;
+       this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
++      this.agentSteers = advertisesSteering(spawned.initialize);
+       this.sessionId = handle.sessionId;
+       this.bootstrapThreadEventPending = true;
+ 
+@@ -2508,14 +2522,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+ 
+   /**
+    * A steer for a provider that queues prompts. While a prompt of Paseo's own is
+-   * still in flight the message is held, not sent: the provider refuses a second
+-   * concurrent prompt, and replacing the turn would interrupt the work it is
+-   * doing. The held message goes out once that turn ends.
++   * still in flight, an agent that advertises `_session/steering` takes the
++   * message into that turn. Otherwise the message is held, not sent: the
++   * provider refuses a second concurrent prompt, and replacing the turn would
++   * interrupt the work it is doing. The held message goes out once that turn
++   * ends.
+    */
+   private async steerIntoProviderQueue(
+     prompt: AgentPromptInput,
+     options: SteerActiveTurnOptions,
+   ): Promise<SteerResult> {
++    if (this.closed || !this.connection || !this.sessionId) {
++      return { status: "unavailable" };
++    }
++    if (
++      this.agentSteers &&
++      this.activeForegroundTurnId !== null &&
++      this.heldQueuedPrompts.length === 0 &&
++      (await this.steerIntoRunningTurn(prompt))
++    ) {
++      return { status: "accepted" };
++    }
+     if (this.closed || !this.connection || !this.sessionId) {
+       return { status: "unavailable" };
+     }
+@@ -2527,6 +2554,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     return this.sendQueuedPrompt(prompt, options);
+   }
+ 
++  /**
++   * Inject a message into the turn Paseo's own prompt is driving. False when the
++   * agent left it `unconsumed` (no turn of the client's was live by the time it
++   * arrived) or the request failed, so the caller holds the message instead.
++   * `startedNewTurn` counts as delivered: the agent already runs it as a turn of
++   * its own, which reaches Paseo the way the provider's self-started turns do.
++   */
++  private async steerIntoRunningTurn(prompt: AgentPromptInput): Promise<boolean> {
++    const connection = this.connection;
++    const sessionId = this.sessionId;
++    if (!connection || !sessionId) {
++      return false;
++    }
++    try {
++      const response = await connection.extMethod("_session/steering", {
++        sessionId,
++        prompt: toACPContentBlocks(this.applyProviderPromptTransform(prompt)),
++      });
++      const outcome = response["outcome"];
++      this.logger.debug(
++        { agentId: this.agentId, provider: this.provider, outcome },
++        "provider.acp.steer_answered",
++      );
++      return outcome === "injected" || outcome === "startedNewTurn";
++    } catch (error) {
++      this.logger.warn(
++        { agentId: this.agentId, provider: this.provider, err: error },
++        "provider.acp.steer_failed",
++      );
++      return false;
++    }
++  }
++
+   /**
+    * Hand a message to a provider that queues prompts sent while it is busy. No
+    * foreground turn is opened: the provider answers the request at once and

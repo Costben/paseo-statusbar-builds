@@ -190,6 +190,20 @@ const PATCHES = [
       needle: "private maybeOpenAutonomousTurn(event: AgentStreamEvent): void {",
     },
   },
+  {
+    // A steer during a prompt of Paseo's own goes into that running turn through
+    // `_session/steering` when the agent advertises it (Kimi from
+    // Costben/kimi-code-builds, claude-agent-acp, codex-acp). An agent that
+    // leaves it unconsumed, or does not advertise it, keeps the old behaviour:
+    // the message is held until the turn ends.
+    name: "kimi-acp-steering",
+    file: "paseo-kimi-acp-steering.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: "private async steerIntoRunningTurn(prompt: AgentPromptInput): Promise<boolean> {",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
