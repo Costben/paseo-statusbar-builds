@@ -421,16 +421,18 @@ index 000000000..5faadf9c1
 +  },
 +}));
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index f3b247e93..53e4ac9c6 100644
+index c31c5e263..568829b99 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -58,4 +58,5 @@ import {
+@@ -56,6 +56,7 @@ import {
  import { ContextWindowMeter } from "@/components/context-window-meter";
  import { GoalPill } from "@/composer/goal-pill";
  import { BackgroundTaskPill } from "@/composer/background-task-pill";
 +import { TrajectoryPill } from "@/composer/trajectory-pill";
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
-@@ -2093,11 +2094,44 @@ function ComposerContentImpl({
+ import {
+   selectAgentSentMessages,
+@@ -2116,11 +2117,44 @@ function ComposerContentImpl({
    // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
    const backgroundTaskVoiceReplacement =
      agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
@@ -475,7 +477,7 @@ index f3b247e93..53e4ac9c6 100644
            <View style={styles.contextWindowMeterSlot}>
              <ContextWindowMeter
                serverId={serverId}
-@@ -2119,6 +2153,7 @@ function ComposerContentImpl({
+@@ -2142,6 +2176,7 @@ function ComposerContentImpl({
        agentState.totalCostUsd,
        contextWindowMeterGlyphSize,
        goalPill,
@@ -483,7 +485,7 @@ index f3b247e93..53e4ac9c6 100644
      ],
    );
  
-@@ -2505,7 +2540,7 @@ function ComposerContentImpl({
+@@ -2527,7 +2562,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
@@ -567,10 +569,10 @@ index 000000000..8753fffe2
 +  label: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 14 },
 +}));
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 388f9be16..c4f7fef52 100644
+index 8d7c2a295..e8fd2849e 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2040,6 +2040,25 @@ export const ar: TranslationResources = {
+@@ -2067,6 +2067,25 @@ export const ar: TranslationResources = {
      sessionCost: "تكلفة الجلسة{{cost}}",
      accessibility: "تم استخدام نافذة السياق{{percentage}}%",
    },
@@ -597,10 +599,10 @@ index 388f9be16..c4f7fef52 100644
      feedback: {
        send: "إرسال الملاحظات ({{count}})",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index d64c19871..f5626600f 100644
+index 1f61a83f1..fc7d8aea7 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2065,6 +2065,25 @@ export const en = {
+@@ -2092,6 +2092,25 @@ export const en = {
      sessionCost: "Session cost {{cost}}",
      accessibility: "Context window {{percentage}}% used",
    },
@@ -627,10 +629,10 @@ index d64c19871..f5626600f 100644
      feedback: {
        send: "Send feedback ({{count}})",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 27c4ab840..2f3096a67 100644
+index 7e5a1d41e..587642818 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2088,6 +2088,25 @@ export const es: TranslationResources = {
+@@ -2115,6 +2115,25 @@ export const es: TranslationResources = {
      sessionCost: "Costo de la sesión{{cost}}",
      accessibility: "Ventana de contexto{{percentage}}% utilizada",
    },
@@ -657,10 +659,10 @@ index 27c4ab840..2f3096a67 100644
      feedback: {
        send: "Enviar comentarios ({{count}})",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 29464ca9e..d261d3036 100644
+index 551f4a415..70b7e9a52 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2087,6 +2087,25 @@ export const fr: TranslationResources = {
+@@ -2114,6 +2114,25 @@ export const fr: TranslationResources = {
      sessionCost: "Coût de la session : {{cost}}",
      accessibility: "Fenêtre de contexte : {{percentage}} % utilisés",
    },
@@ -687,10 +689,10 @@ index 29464ca9e..d261d3036 100644
      feedback: {
        send: "Envoyer les commentaires ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index e3dba618e..81bd166c2 100644
+index 4b1b8b6f6..f2e6c842a 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2060,6 +2060,25 @@ export const ja: TranslationResources = {
+@@ -2087,6 +2087,25 @@ export const ja: TranslationResources = {
      sessionCost: "セッションコスト: {{cost}}",
      accessibility: "コンテキストウィンドウ{{percentage}}%使用",
    },
@@ -717,10 +719,10 @@ index e3dba618e..81bd166c2 100644
      feedback: {
        send: "フィードバックを送信 ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index 0c82504aa..3c4d38176 100644
+index b9e33b4eb..05966456f 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2050,6 +2050,25 @@ export const ko: TranslationResources = {
+@@ -2077,6 +2077,25 @@ export const ko: TranslationResources = {
      sessionCost: "세션 비용 {{cost}}",
      accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
    },
@@ -747,10 +749,10 @@ index 0c82504aa..3c4d38176 100644
      feedback: {
        send: "피드백 보내기 ({{count}})",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 842dea8f5..96cffb664 100644
+index 2fa6c30c8..173518fca 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2073,6 +2073,25 @@ export const ptBR: TranslationResources = {
+@@ -2100,6 +2100,25 @@ export const ptBR: TranslationResources = {
      sessionCost: "Custo da sessão {{cost}}",
      accessibility: "Janela de contexto {{percentage}}% usada",
    },
@@ -777,10 +779,10 @@ index 842dea8f5..96cffb664 100644
      feedback: {
        send: "Enviar comentários ({{count}})",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 7a5881c1b..cb86eb2d5 100644
+index 9a6eb5b0e..319142beb 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2073,6 +2073,25 @@ export const ru: TranslationResources = {
+@@ -2100,6 +2100,25 @@ export const ru: TranslationResources = {
      sessionCost: "Стоимость сессии: {{cost}}",
      accessibility: "Использовано {{percentage}}% контекстного окна",
    },
@@ -807,10 +809,10 @@ index 7a5881c1b..cb86eb2d5 100644
      feedback: {
        send: "Отправить отзыв ({{count}})",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index 6cd2be6e8..fa33caa86 100644
+index 553d8212b..7aa996af6 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2018,6 +2018,25 @@ export const zhCN: TranslationResources = {
+@@ -2045,6 +2045,25 @@ export const zhCN: TranslationResources = {
      sessionCost: "会话费用 {{cost}}",
      accessibility: "上下文窗口已使用 {{percentage}}%",
    },
@@ -837,10 +839,10 @@ index 6cd2be6e8..fa33caa86 100644
      feedback: {
        send: "发送反馈 ({{count}})",
 diff --git a/packages/client/src/daemon-client.ts b/packages/client/src/daemon-client.ts
-index de127c5b6..7469e5e8a 100644
+index 3aa91f84c..4511a46ff 100644
 --- a/packages/client/src/daemon-client.ts
 +++ b/packages/client/src/daemon-client.ts
-@@ -706,6 +706,10 @@ export type ProviderSubagentListPayload = Extract<
+@@ -734,6 +734,10 @@ export type ProviderSubagentListPayload = Extract<
    SessionOutboundMessage,
    { type: "agent.provider_subagents.list.response" }
  >["payload"];
@@ -851,7 +853,7 @@ index de127c5b6..7469e5e8a 100644
  export type ProviderSubagentTimelinePayload = Extract<
    SessionOutboundMessage,
    { type: "agent.provider_subagents.timeline.get.response" }
-@@ -3635,6 +3639,34 @@ export class DaemonClient {
+@@ -3767,6 +3771,34 @@ export class DaemonClient {
      return payload;
    }
  
@@ -887,10 +889,10 @@ index de127c5b6..7469e5e8a 100644
      parentAgentId: string,
      subagentId: string,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 821661af6..de4b24e0a 100644
+index adb68cda5..734bad0ab 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -1963,6 +1963,12 @@ export const ProviderSubagentListRequestMessageSchema = z.object({
+@@ -2006,6 +2006,12 @@ export const ProviderSubagentListRequestMessageSchema = z.object({
    requestId: z.string(),
  });
  
@@ -903,7 +905,7 @@ index 821661af6..de4b24e0a 100644
  export const ProviderSubagentTimelineRequestMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.request"),
    parentAgentId: z.string(),
-@@ -3371,6 +3377,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+@@ -3414,6 +3420,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
    FetchAgentTimelineRequestMessageSchema,
    AgentTimelineSearchRequestMessageSchema,
    AgentTimelineListPromptsRequestMessageSchema,
@@ -911,7 +913,7 @@ index 821661af6..de4b24e0a 100644
    ProviderSubagentListRequestMessageSchema,
    ProviderSubagentTimelineRequestMessageSchema,
    SetAgentTimelineSubscriptionRequestMessageSchema,
-@@ -4834,6 +4841,49 @@ export const ProviderSubagentListResponseMessageSchema = z.object({
+@@ -4900,6 +4907,49 @@ export const ProviderSubagentListResponseMessageSchema = z.object({
    }),
  });
  
@@ -961,7 +963,7 @@ index 821661af6..de4b24e0a 100644
  export const ProviderSubagentTimelineResponseMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.response"),
    payload: z.object({
-@@ -7050,6 +7100,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+@@ -7135,6 +7185,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
    AgentTimelineReplacementMessageSchema,
    AgentTimelineSearchResponseMessageSchema,
    AgentTimelineListPromptsResponseMessageSchema,
@@ -970,10 +972,10 @@ index 821661af6..de4b24e0a 100644
    ProviderSubagentTimelineResponseMessageSchema,
    ProviderSubagentUpdateMessageSchema,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index c2e811774..a513cec75 100644
+index eea755121..427b9b7cc 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
-@@ -96,7 +96,11 @@ import { withTimeout } from "../../utils/promise-timeout.js";
+@@ -104,7 +104,11 @@ import { withTimeout } from "../../utils/promise-timeout.js";
  import { extractAttention } from "../persistence-hooks.js";
  
  const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
@@ -986,7 +988,7 @@ index c2e811774..a513cec75 100644
  const IMPORTABLE_SESSION_LIST_TIMEOUT_MS = 90_000;
  const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
    supportsStreaming: false,
-@@ -3186,7 +3190,19 @@ export class AgentManager {
+@@ -3403,7 +3407,19 @@ export class AgentManager {
          reason: "interrupted",
          turnId: runTurnId,
        });
@@ -1028,7 +1030,7 @@ index c902a4cb8..e63eaa113 100644
      capabilities = {
        supportsStreaming: true,
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index a6ab75c21..b2e62af7f 100644
+index 2dc167d7d..9e852d479 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -1039,7 +1041,7 @@ index a6ab75c21..b2e62af7f 100644
  import {
    ACP_AGENT_PRESET_FEATURE_OPTION,
    GenericACPAgentClient,
-@@ -870,6 +871,33 @@ function addDerivedProviders(
+@@ -871,6 +872,33 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -1074,10 +1076,10 @@ index a6ab75c21..b2e62af7f 100644
              ...acpOptions,
              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 9d42b2683..e8e605ba0 100644
+index dd420c2b0..da6695f94 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -3799,6 +3799,82 @@ describe("ACPAgentSession", () => {
+@@ -3905,6 +3905,82 @@ describe("ACPAgentSession", () => {
      });
    });
  
@@ -1160,7 +1162,7 @@ index 9d42b2683..e8e605ba0 100644
    test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
      const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
        kimiReliableQueue: true,
-@@ -4768,7 +4844,7 @@ describe("ACPAgentClient probe cleanup", () => {
+@@ -4874,7 +4950,7 @@ describe("ACPAgentClient probe cleanup", () => {
      expect(terminator.terminated).toContain(child);
    });
  
@@ -1169,7 +1171,7 @@ index 9d42b2683..e8e605ba0 100644
      const terminator = new FakeTerminator();
      const child = createProbeChildStub();
      const abort = new AbortController();
-@@ -4827,7 +4903,8 @@ describe("ACPAgentClient probe cleanup", () => {
+@@ -4933,7 +5009,8 @@ describe("ACPAgentClient probe cleanup", () => {
      });
  
      await expect(catalog).rejects.toThrow("refresh cancelled");
@@ -1179,7 +1181,7 @@ index 9d42b2683..e8e605ba0 100644
      expect(terminator.terminated).toContain(child);
    });
  
-@@ -6540,3 +6617,96 @@ describe("deriveFeaturesFromACP", () => {
+@@ -6801,3 +6878,96 @@ describe("deriveFeaturesFromACP", () => {
      expect(features).toEqual([]);
    });
  });
@@ -1278,10 +1280,10 @@ index 9d42b2683..e8e605ba0 100644
 +});
 \ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index fdd5c946f..35a2e4c60 100644
+index 50b99bfba..e61812603 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -344,6 +344,41 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
+@@ -356,6 +356,41 @@ const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
@@ -1321,9 +1323,9 @@ index fdd5c946f..35a2e4c60 100644
 +  features: AgentFeature[];
 +}
  
- function summarizeMalformedACPStdoutError(error: unknown): { type: string; message: string } {
-   return {
-@@ -488,6 +523,27 @@ export interface ACPProviderHookContext {
+ /**
+  * An ACP agent publishes its slash-command inventory incrementally. Wait this
+@@ -508,6 +543,27 @@ export interface ACPProviderHookContext {
    lastStreamedContentAt?: () => number | null;
  }
  
@@ -1351,7 +1353,7 @@ index fdd5c946f..35a2e4c60 100644
  /**
   * Optional provider-side behaviour for one ACP session. Hooks are threaded from
   * the provider client down to `ACPAgentSession`, so a provider can attach
-@@ -527,6 +583,21 @@ export interface ACPProviderHooks {
+@@ -547,6 +603,21 @@ export interface ACPProviderHooks {
      signal: AbortSignal;
      sawTimeline: boolean;
    }): Promise<void> | null;
@@ -1373,7 +1375,7 @@ index fdd5c946f..35a2e4c60 100644
    /**
     * Called when a foreground turn is about to send its prompt, with the prompt
     * as it will be sent. Not called for a prompt queued through steering.
-@@ -555,6 +626,20 @@ export interface ACPProviderHooks {
+@@ -575,6 +646,20 @@ export interface ACPProviderHooks {
     * output of the turn.
     */
    shouldDropSessionUpdate?(update: SessionUpdate): boolean;
@@ -1394,7 +1396,7 @@ index fdd5c946f..35a2e4c60 100644
    /**
     * The provider queues a prompt that arrives while it is busy and runs it once
     * the current turn ends. Enables steering: a message sent during a turn is
-@@ -607,6 +692,18 @@ interface ACPAgentClientOptions {
+@@ -627,6 +712,18 @@ interface ACPAgentClientOptions {
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
    providerHooks?: ACPProviderHooks;
@@ -1413,7 +1415,7 @@ index fdd5c946f..35a2e4c60 100644
    now?: () => number;
  }
  
-@@ -646,6 +743,7 @@ interface ACPAgentSessionOptions {
+@@ -666,6 +763,7 @@ interface ACPAgentSessionOptions {
    lateTimelineGraceMs?: number;
    terminateProcess?: ProcessTerminator;
    providerHooks?: ACPProviderHooks;
@@ -1421,7 +1423,7 @@ index fdd5c946f..35a2e4c60 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -1084,6 +1182,16 @@ export class ACPAgentClient implements AgentClient {
+@@ -1105,6 +1203,16 @@ export class ACPAgentClient implements AgentClient {
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
@@ -1438,7 +1440,7 @@ index fdd5c946f..35a2e4c60 100644
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
  
-@@ -1115,6 +1223,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1136,6 +1244,10 @@ export class ACPAgentClient implements AgentClient {
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
      this.providerHooks = options.providerHooks;
@@ -1449,7 +1451,7 @@ index fdd5c946f..35a2e4c60 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1140,6 +1252,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1161,6 +1273,7 @@ export class ACPAgentClient implements AgentClient {
          configFeatureOptions: this.configFeatureOptions,
          clientCapabilities: providerOptions.clientCapabilities ?? this.clientCapabilities,
          clientCapabilityMeta: this.clientCapabilityMeta,
@@ -1457,7 +1459,7 @@ index fdd5c946f..35a2e4c60 100644
          modeIdTransformer: this.modeIdTransformer,
          toolSnapshotTransformer: this.toolSnapshotTransformer,
          providerModeWriter: this.providerModeWriter,
-@@ -1199,6 +1312,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1220,6 +1333,7 @@ export class ACPAgentClient implements AgentClient {
        configFeatureOptions: this.configFeatureOptions,
        clientCapabilities: providerOptions.clientCapabilities ?? this.clientCapabilities,
        clientCapabilityMeta: this.clientCapabilityMeta,
@@ -1465,7 +1467,7 @@ index fdd5c946f..35a2e4c60 100644
        modeIdTransformer: this.modeIdTransformer,
        toolSnapshotTransformer: this.toolSnapshotTransformer,
        providerModeWriter: this.providerModeWriter,
-@@ -1223,65 +1337,40 @@ export class ACPAgentClient implements AgentClient {
+@@ -1244,65 +1358,40 @@ export class ACPAgentClient implements AgentClient {
      return session;
    }
  
@@ -1557,7 +1559,7 @@ index fdd5c946f..35a2e4c60 100644
        const transformed = this.transformSessionResponse(response);
        const derivedModels = deriveModelDefinitionsFromACP(
          this.provider,
-@@ -1291,9 +1380,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1312,9 +1401,9 @@ export class ACPAgentClient implements AgentClient {
        const models = this.catalogModelResolver
          ? await runProviderRefreshActivity(context, "catalog.resolve", () =>
              raceProviderRefreshAbort(
@@ -1569,7 +1571,7 @@ index fdd5c946f..35a2e4c60 100644
                  sessionId: response.sessionId,
                  models: derivedModels,
                  configOptions: transformed.configOptions,
-@@ -1314,39 +1403,274 @@ export class ACPAgentClient implements AgentClient {
+@@ -1335,39 +1424,274 @@ export class ACPAgentClient implements AgentClient {
          transformed.configOptions,
        );
        return {
@@ -1867,7 +1869,7 @@ index fdd5c946f..35a2e4c60 100644
      }
    }
  
-@@ -1911,9 +2235,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1933,9 +2257,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private currentTurnUpdateCount = 0;
    private currentTurnMismatchedUpdateCount = 0;
    private currentTurnStartedAt = 0;
@@ -1882,7 +1884,7 @@ index fdd5c946f..35a2e4c60 100644
    private providerSessionCleanup: (() => void) | null = null;
    private currentTurnUsage: AgentUsage | undefined;
    private activeForegroundTurnId: string | null = null;
-@@ -1980,6 +2309,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2002,6 +2331,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.lateTimelineGraceMs = options.lateTimelineGraceMs ?? ACP_LATE_TIMELINE_GRACE_MS;
      this.extensionCommandsParser = options.extensionCommandsParser;
      this.providerHooks = options.providerHooks;
@@ -1890,7 +1892,7 @@ index fdd5c946f..35a2e4c60 100644
      if (options.providerHooks?.acceptsQueuedPrompts) {
        this.steerActiveTurn = (prompt, steerOptions) =>
          this.steerIntoProviderQueue(prompt, steerOptions);
-@@ -2369,6 +2699,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2391,6 +2721,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      await Promise.race([settledHold, waitForAbortSignal(signal)]);
    }
  
@@ -1969,7 +1971,7 @@ index fdd5c946f..35a2e4c60 100644
    /**
     * Ask the provider why a turn produced no timeline item. A throwing hook must
     * never change the failure, so a rejection keeps the generic code.
-@@ -2499,6 +2901,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2521,6 +2923,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      prompt: AgentPromptInput,
      options: AgentRunOptions | undefined,
      announceUserMessage: boolean,
@@ -1977,7 +1979,7 @@ index fdd5c946f..35a2e4c60 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2517,6 +2920,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2539,6 +2942,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
@@ -1985,7 +1987,7 @@ index fdd5c946f..35a2e4c60 100644
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
-@@ -2608,7 +3012,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2630,7 +3034,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    get features(): AgentFeature[] {
      return [
@@ -1994,7 +1996,7 @@ index fdd5c946f..35a2e4c60 100644
        ...deriveFeaturesFromACP(this.configOptions, this.configFeatureOptions),
      ];
    }
-@@ -3776,6 +4180,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3798,6 +4202,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
        return [];
      }
@@ -2007,7 +2009,7 @@ index fdd5c946f..35a2e4c60 100644
      if (update.sessionUpdate === "user_message_chunk") {
        return this.handleUserMessageChunk(update);
      }
-@@ -3792,6 +4202,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3814,6 +4224,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return events;
    }
  
@@ -2058,7 +2060,7 @@ index fdd5c946f..35a2e4c60 100644
    private translateSessionUpdateBody(
      update: SessionUpdate,
      pendingUserEvents: AgentStreamEvent[],
-@@ -4200,6 +4654,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4228,6 +4682,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -2066,7 +2068,7 @@ index fdd5c946f..35a2e4c60 100644
          break;
      }
    }
-@@ -4804,8 +5259,40 @@ function mapToolDetail(
+@@ -4832,8 +5287,40 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -2108,7 +2110,7 @@ index fdd5c946f..35a2e4c60 100644
  }
  
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-@@ -5143,10 +5630,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -5159,10 +5646,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -5187,7 +5189,7 @@ index 292901814..1edde6438 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/authorization/operation-permissions.ts b/packages/server/src/server/authorization/operation-permissions.ts
-index 80599a74a..48f441060 100644
+index f7a5b1785..937b6182e 100644
 --- a/packages/server/src/server/authorization/operation-permissions.ts
 +++ b/packages/server/src/server/authorization/operation-permissions.ts
 @@ -18,6 +18,7 @@ const INBOUND_PERMISSION = {
@@ -5198,7 +5200,7 @@ index 80599a74a..48f441060 100644
    "agent.provider_subagents.list.request": "workspace.read",
    "agent.provider_subagents.timeline.get.request": "workspace.read",
    "agent.rewind.request": "workspace.write",
-@@ -241,6 +242,7 @@ const OUTBOUND_PERMISSION = {
+@@ -244,6 +245,7 @@ const OUTBOUND_PERMISSION = {
    "agent.config.apply.response": ["workspace.write", "hub.execute"],
    "agent.detach.response": "workspace.write",
    "agent.fork_context.response": "workspace.read",
@@ -5207,10 +5209,10 @@ index 80599a74a..48f441060 100644
    "agent.provider_subagents.timeline.get.response": "workspace.read",
    "agent.provider_subagents.update": "workspace.read",
 diff --git a/packages/server/src/server/bootstrap.ts b/packages/server/src/server/bootstrap.ts
-index 22bf93b62..0df1213a3 100644
+index fa896ef89..a92ee4533 100644
 --- a/packages/server/src/server/bootstrap.ts
 +++ b/packages/server/src/server/bootstrap.ts
-@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
+@@ -17,6 +17,7 @@ import { randomUUID } from "node:crypto";
  import { getHostName } from "./host-name.js";
  import path from "node:path";
  import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -5218,7 +5220,7 @@ index 22bf93b62..0df1213a3 100644
  import type { Logger } from "pino";
  import { z } from "zod";
  import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
-@@ -17,6 +18,13 @@ export type ListenTarget =
+@@ -26,6 +27,13 @@ export type ListenTarget =
    | { type: "socket"; path: string }
    | { type: "pipe"; path: string };
  
@@ -5232,7 +5234,7 @@ index 22bf93b62..0df1213a3 100644
  function resolveBoundListenTarget(
    listenTarget: ListenTarget,
    httpServer: ReturnType<typeof createHTTPServer>,
-@@ -1496,6 +1504,19 @@ export async function createPaseoDaemon(
+@@ -1624,6 +1632,19 @@ export async function createPaseoDaemon(
        // requests. The agent control plane only lists and calls tools, neither of which
        // needs cross-request state, so sessions would only pin memory for the life of the
        // daemon (agents that exit without a clean DELETE never get reaped).
@@ -5253,10 +5255,10 @@ index 22bf93b62..0df1213a3 100644
          sessionIdGenerator: undefined,
          // NOTE: We enforce a Vite-like host allowlist at the app/websocket layer.
 diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
-index f49191e59..97d40da8a 100644
+index 00c852948..d15c7a350 100644
 --- a/packages/server/src/server/session.ts
 +++ b/packages/server/src/server/session.ts
-@@ -13,6 +13,19 @@ import type {
+@@ -14,6 +14,19 @@ import type {
  import { relative } from "node:path";
  import { isAbsolute } from "node:path";
  import { CreationService, type CreatedAgent } from "./creation/index.js";
@@ -5276,7 +5278,7 @@ index f49191e59..97d40da8a 100644
  import type { CreationSnapshot, AgentCreateRequest } from "@getpaseo/protocol/messages";
  import type { MessageReceipts } from "./message-receipts/index.js";
  import equal from "fast-deep-equal";
-@@ -2755,6 +2768,8 @@ export class Session {
+@@ -2812,6 +2825,8 @@ export class Session {
          return this.handleAgentTimelineSearchRequest(msg, source);
        case "agent.timeline.list_prompts.request":
          return this.handleAgentTimelineListPromptsRequest(msg, source);
@@ -5285,7 +5287,7 @@ index f49191e59..97d40da8a 100644
        case "agent.provider_subagents.list.request":
          return this.handleProviderSubagentListRequest(msg);
        case "agent.provider_subagents.timeline.get.request":
-@@ -7995,6 +8010,54 @@ export class Session {
+@@ -8067,6 +8082,54 @@ export class Session {
      }
    }
  

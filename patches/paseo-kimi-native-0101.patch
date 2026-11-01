@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd..da4038a 100644
+index 4bc21fd9b..da4038a72 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd..da4038a 100644
  app-example
  
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 7310464..0cd5e60 100644
+index 731046489..0cd5e6040 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -32,7 +32,7 @@ index 7310464..0cd5e60 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f..dd1da9e 100644
+index 704298f78..dd1da9eeb 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -61,10 +61,10 @@ index 704298f..dd1da9e 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index bb5679f..5ef21fd 100644
+index 4256685f9..ca8b5a416 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -287,6 +287,44 @@ describe("bare URL sentence punctuation", () => {
+@@ -311,6 +311,44 @@ describe("bare URL sentence punctuation", () => {
    );
  });
  
@@ -110,7 +110,7 @@ index bb5679f..5ef21fd 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 5c82088..15eaf98 100644
+index 3462320d7..369f45200 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -150,7 +150,7 @@ index 5c82088..15eaf98 100644
  function createFilePattern(path: string): RegExp {
    // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
    return new RegExp(
-@@ -128,6 +158,7 @@ export function prepareMarkdownSource(
+@@ -138,6 +168,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
@@ -158,7 +158,7 @@ index 5c82088..15eaf98 100644
      !(workspaceRoot && source.includes("]("))
    ) {
      return { images, ...metadata, render: () => source };
-@@ -202,7 +233,7 @@ export function prepareMarkdownSource(
+@@ -212,7 +243,7 @@ export function prepareMarkdownSource(
        if (lineEnd < end) split(lineEnd);
      }
    }
@@ -167,7 +167,7 @@ index 5c82088..15eaf98 100644
      const start = node.position?.start.offset;
      const end = node.position?.end.offset;
      if (start !== undefined && end !== undefined) {
-@@ -224,17 +255,21 @@ export function prepareMarkdownSource(
+@@ -234,17 +265,21 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -195,7 +195,7 @@ index 5c82088..15eaf98 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/components/question-form-card-core.test.ts b/packages/app/src/components/question-form-card-core.test.ts
-index 293bf24..e82b8ab 100644
+index 293bf24ba..e82b8ab20 100644
 --- a/packages/app/src/components/question-form-card-core.test.ts
 +++ b/packages/app/src/components/question-form-card-core.test.ts
 @@ -31,7 +31,7 @@ describe("question form card core", () => {
@@ -249,7 +249,7 @@ index 293bf24..e82b8ab 100644
  
    test("keeps checked options and appends the other answer for multi-select", () => {
 diff --git a/packages/app/src/components/question-form-card-core.ts b/packages/app/src/components/question-form-card-core.ts
-index 78007db..b037afc 100644
+index 78007dba2..b037afcdf 100644
 --- a/packages/app/src/components/question-form-card-core.ts
 +++ b/packages/app/src/components/question-form-card-core.ts
 @@ -64,8 +64,17 @@ export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion
@@ -273,7 +273,7 @@ index 78007db..b037afc 100644
  
  export function isQuestionAnswered(
 diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
-index 0b2a5df..68d0c85 100644
+index 0b2a5df25..68d0c851d 100644
 --- a/packages/app/src/components/question-form-card.browser.test.tsx
 +++ b/packages/app/src/components/question-form-card.browser.test.tsx
 @@ -109,6 +109,14 @@ const singleSelectQuestion = {
@@ -306,7 +306,7 @@ index 0b2a5df..68d0c85 100644
 +  });
  });
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 6929b44..e383979 100644
+index 6929b447e..e3839792b 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -408,7 +408,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -321,7 +321,7 @@ index 6929b44..e383979 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 0000000..612c2a3
+index 000000000..612c2a3e4
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -501,7 +501,7 @@ index 0000000..612c2a3
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index 4b6407c..037066e 100644
+index 4b6407c87..037066ecc 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -620,7 +620,7 @@ index 4b6407c..037066e 100644
          {overlay}
        </KeyboardTranslateView>
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 4210023..2875722 100644
+index 421002352..28757223e 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -677,7 +677,7 @@ index 4210023..2875722 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 44e79e6..633dfe3 100644
+index 44e79e6ef..633dfe3de 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
 @@ -159,3 +159,42 @@ describe("composer viewport", () => {
@@ -724,7 +724,7 @@ index 44e79e6..633dfe3 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index 9c460e1..6a1a4e1 100644
+index 9c460e172..6a1a4e12b 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -67,6 +67,13 @@ export function resolveInlineComposerCapacity(
@@ -752,7 +752,7 @@ index 9c460e1..6a1a4e1 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 0000000..a0de3d8
+index 000000000..a0de3d897
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -789,7 +789,7 @@ index 0000000..a0de3d8
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 0000000..cd3cc03
+index 000000000..cd3cc0318
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -829,7 +829,7 @@ index 0000000..cd3cc03
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index d00b6f7..88025f8 100644
+index c4ef45cb3..af3c5c9cd 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -9,6 +9,7 @@ import { Composer } from "@/composer";
@@ -878,7 +878,7 @@ index d00b6f7..88025f8 100644
                </View>
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 0000000..1f04f67
+index 000000000..1f04f6797
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -1052,7 +1052,7 @@ index 0000000..1f04f67
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 0000000..2c20c7f
+index 000000000..2c20c7f26
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -1195,7 +1195,7 @@ index 0000000..2c20c7f
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 0000000..213410e
+index 000000000..213410e7e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -1621,7 +1621,7 @@ index 0000000..213410e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index b7088dd..ccc0999 100644
+index d6b4bae63..c31c5e263 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -54,6 +54,8 @@ import {
@@ -1767,7 +1767,7 @@ index b7088dd..ccc0999 100644
      width: 28,
      height: 28,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index 16acede..22c6666 100644
+index 8cb8cd4c3..b81d93f8c 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -26,7 +26,7 @@ import {
@@ -1820,7 +1820,7 @@ index 16acede..22c6666 100644
        rightContent,
        activeActionContent,
        voiceServerId,
-@@ -2123,18 +2129,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2133,18 +2139,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            {/* Right: voice button, contextual button (realtime/send/cancel) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
@@ -1853,7 +1853,7 @@ index 16acede..22c6666 100644
              {rightContent}
              {sendButton}
            </View>
-@@ -2150,6 +2158,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2160,6 +2168,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -1861,7 +1861,7 @@ index 16acede..22c6666 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2209,6 +2218,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2219,6 +2228,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -1897,7 +1897,7 @@ index 16acede..22c6666 100644
      return (
        <View
          ref={rootRef}
-@@ -2232,7 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2242,7 +2280,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -1906,7 +1906,7 @@ index 16acede..22c6666 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2299,6 +2337,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2309,6 +2347,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -1916,7 +1916,7 @@ index 16acede..22c6666 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2314,6 +2355,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2324,6 +2365,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -1927,7 +1927,7 @@ index 16acede..22c6666 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index ad49297..5dbb394 100644
+index ad492976b..5dbb3945a 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
@@ -1950,7 +1950,7 @@ index ad49297..5dbb394 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 67c8030..223decb 100644
+index 67c803074..223decbe7 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -1970,7 +1970,7 @@ index 67c8030..223decb 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c8..69a9923 100644
+index 3ab03c877..69a992346 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1985,7 +1985,7 @@ index 3ab03c8..69a9923 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 9115737..cea84de 100644
+index 911573762..cea84def1 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -34,6 +34,8 @@ import type {
@@ -2008,7 +2008,7 @@ index 9115737..cea84de 100644
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.test.ts b/packages/app/src/utils/agent-directory-update-policy.test.ts
 new file mode 100644
-index 0000000..9622ed9
+index 000000000..9622ed9e4
 --- /dev/null
 +++ b/packages/app/src/utils/agent-directory-update-policy.test.ts
 @@ -0,0 +1,34 @@
@@ -2047,7 +2047,7 @@ index 0000000..9622ed9
 +  });
 +});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f10..88a0601 100644
+index 4d14f101b..88a0601cc 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,12 @@
@@ -2089,7 +2089,7 @@ index 4d14f10..88a0601 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
-index e1be8c5..ab22626 100644
+index e1be8c5a0..ab2262614 100644
 --- a/packages/app/src/utils/agent-snapshots.test.ts
 +++ b/packages/app/src/utils/agent-snapshots.test.ts
 @@ -31,6 +31,8 @@ function createSnapshot(
@@ -2126,7 +2126,7 @@ index e1be8c5..ab22626 100644
    });
  
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 13a7bcd..e44ea29 100644
+index 13a7bcd14..e44ea2936 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -2148,10 +2148,10 @@ index 13a7bcd..e44ea29 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 704c7ad..48f669c 100644
+index 18654bf33..adb68cda5 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -420,6 +420,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -428,6 +428,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -2160,7 +2160,7 @@ index 704c7ad..48f669c 100644
    })
    .catchall(z.boolean());
  
-@@ -850,6 +852,43 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -860,6 +862,43 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -2204,7 +2204,7 @@ index 704c7ad..48f669c 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -871,6 +910,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -881,6 +920,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    persistence: AgentPersistenceHandleSchema.nullable(),
    runtimeInfo: AgentRuntimeInfoSchema.optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -2214,7 +2214,7 @@ index 704c7ad..48f669c 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eb..606e97b 100644
+index 0dd49eba0..606e97b7f 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -2239,7 +2239,7 @@ index 0dd49eb..606e97b 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6d..e00c20d 100644
+index db0aa6db2..e00c20d62 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
@@ -2256,7 +2256,7 @@ index db0aa6d..e00c20d 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index ec56822..4ea4d11 100644
+index fac28946d..18a0aa4f1 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -2271,7 +2271,7 @@ index ec56822..4ea4d11 100644
  import { signalProcessTree } from "../src/utils/tree-kill.js";
  
  const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
-@@ -285,12 +286,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
+@@ -318,12 +319,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
      const spawnSpec = resolveWorkerSpawnSpec?.(workerEntry) ?? null;
      writeLifecycleLog("Spawning worker", { workerEntry });
      if (spawnSpec) {
@@ -2291,7 +2291,7 @@ index ec56822..4ea4d11 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 8cbdfc0..80a077b 100644
+index 94250e5cd..eea755121 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -34,6 +34,8 @@ import {
@@ -2303,7 +2303,7 @@ index 8cbdfc0..80a077b 100644
    type AgentLaunchContext,
    type AgentSlashCommand,
    type AgentMode,
-@@ -440,6 +442,8 @@ interface ManagedAgentBase {
+@@ -443,6 +445,8 @@ interface ManagedAgentBase {
    activeTurnId: string | null;
    activeTurnStartedAt: Date | null;
    lastUsage?: AgentUsage;
@@ -2312,8 +2312,8 @@ index 8cbdfc0..80a077b 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -2730,7 +2734,7 @@ export class AgentManager {
-         pendingRun.start = { status: "failed", error: error.message };
+@@ -2738,7 +2742,7 @@ export class AgentManager {
+         this.runs.settleForegroundStart(pendingRun, { status: "failed", error: error.message });
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
 -        this.runs.settleForegroundRun(agentId, pendingRun.token);
@@ -2321,16 +2321,16 @@ index 8cbdfc0..80a077b 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -2748,7 +2752,7 @@ export class AgentManager {
-         error: errorMsg,
-       });
-       this.finalizeForegroundTurn(agent);
--      this.runs.settleForegroundRun(agentId, pendingRun.token);
-+      this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "start_failed");
+@@ -2759,7 +2763,7 @@ export class AgentManager {
+         this.finalizeForegroundTurn(agent);
+       } finally {
+         // A steer waiting on this start is released only once the run is cleared.
+-        this.runs.settleForegroundRun(agentId, pendingRun.token);
++        this.settleForegroundRunWithDiagnostics(agentId, pendingRun.token, "start_failed");
+       }
        throw error;
      }
-   }
-@@ -2894,7 +2898,7 @@ export class AgentManager {
+@@ -2906,7 +2910,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -2339,7 +2339,7 @@ index 8cbdfc0..80a077b 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -2956,6 +2960,24 @@ export class AgentManager {
+@@ -2968,6 +2972,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -2364,7 +2364,7 @@ index 8cbdfc0..80a077b 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3358,7 +3380,7 @@ export class AgentManager {
+@@ -3387,7 +3409,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -2373,7 +2373,7 @@ index 8cbdfc0..80a077b 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -3496,7 +3518,7 @@ export class AgentManager {
+@@ -3529,7 +3551,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -2382,9 +2382,9 @@ index 8cbdfc0..80a077b 100644
      }
    }
  
-@@ -3959,7 +3981,13 @@ export class AgentManager {
-       workspaceId: options?.workspaceId,
+@@ -4004,7 +4026,13 @@ export class AgentManager {
        owner: options?.owner,
+       launchEnv: options?.launchEnv,
        session,
 -      capabilities: session.capabilities,
 +      capabilities: {
@@ -2397,7 +2397,7 @@ index 8cbdfc0..80a077b 100644
        config,
        runtimeInfo: undefined,
        lifecycle: "initializing",
-@@ -4094,9 +4122,28 @@ export class AgentManager {
+@@ -4139,9 +4167,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -2426,7 +2426,7 @@ index 8cbdfc0..80a077b 100644
            return;
          }
          this.logger.trace(
-@@ -4623,46 +4670,9 @@ export class AgentManager {
+@@ -4668,46 +4715,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -2475,7 +2475,7 @@ index 8cbdfc0..80a077b 100644
        case "timeline":
          return this.onStreamTimelineEvent({ agent, event, options, flags });
        case "turn_completed":
-@@ -4706,7 +4716,68 @@ export class AgentManager {
+@@ -4751,7 +4761,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2546,7 +2546,7 @@ index 8cbdfc0..80a077b 100644
      const previousSessionId = agent.persistence?.sessionId ?? null;
      this.refreshSessionPersistence(agent);
 diff --git a/packages/server/src/server/agent/agent-messages/envelope.ts b/packages/server/src/server/agent/agent-messages/envelope.ts
-index a0aa880..63a1c78 100644
+index a0aa880fc..63a1c78d9 100644
 --- a/packages/server/src/server/agent/agent-messages/envelope.ts
 +++ b/packages/server/src/server/agent/agent-messages/envelope.ts
 @@ -223,7 +223,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
@@ -2567,7 +2567,7 @@ index a0aa880..63a1c78 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index ec4186b..040a430 100644
+index ec4186b02..040a43083 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -474,6 +474,32 @@ describe("toAgentPayload", () => {
@@ -2604,10 +2604,10 @@ index ec4186b..040a430 100644
      const features = [createFeature()];
      const agent = createManagedAgent({ features });
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 7d154e9..a1406f6 100644
+index b388143d8..ff6ff271d 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
-@@ -156,6 +156,14 @@ export function toAgentPayload(
+@@ -157,6 +157,14 @@ export function toAgentPayload(
      payload.lastUsage = usage;
    }
  
@@ -2623,7 +2623,7 @@ index 7d154e9..a1406f6 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 2c150bd..f8a1a69 100644
+index 2c150bd2e..f8a1a6945 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -14,7 +14,11 @@ import { join } from "node:path";
@@ -2717,7 +2717,7 @@ index 2c150bd..f8a1a69 100644
  const EXPECTED_RUN_START_BUDGET_MS = 60_000;
  // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 507cfbc..dd62003 100644
+index 903bbe5c9..00b81ed5f 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -179,6 +179,11 @@ export interface AgentCapabilityFlags {
@@ -2732,7 +2732,7 @@ index 507cfbc..dd62003 100644
  }
  
  export interface AgentPersistenceHandle {
-@@ -223,6 +228,49 @@ export interface AgentUsage {
+@@ -227,6 +232,49 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -2782,7 +2782,7 @@ index 507cfbc..dd62003 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -410,6 +458,13 @@ export type AgentStreamEvent =
+@@ -417,6 +465,13 @@ export type AgentStreamEvent =
    | { type: "turn_started"; provider: AgentProvider; turnId?: string }
    | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
@@ -2797,7 +2797,7 @@ index 507cfbc..dd62003 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index 0f3c398..8542659 100644
+index 0f3c39868..8542659a0 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -37,7 +37,10 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -2825,13 +2825,13 @@ index 0f3c398..8542659 100644
          contract:
            providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index e902493..af82894 100644
+index 7e50b32cf..dd420c2b0 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
  import { type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
  import { EventEmitter } from "node:events";
--import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 +import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
  import { createRequire } from "node:module";
  import { tmpdir } from "node:os";
@@ -3309,7 +3309,7 @@ index e902493..af82894 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2703,30 +3090,136 @@ describe("ACPAgentSession", () => {
+@@ -2769,30 +3156,136 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -3467,7 +3467,7 @@ index e902493..af82894 100644
          },
        ],
        // Tools are not slash commands and must be ignored.
-@@ -3013,128 +3506,258 @@ describe("ACPAgentSession", () => {
+@@ -3079,128 +3572,258 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -3816,7 +3816,7 @@ index e902493..af82894 100644
      const events: AgentStreamEvent[] = [];
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
-@@ -3143,64 +3766,281 @@ describe("ACPAgentSession", () => {
+@@ -3209,64 +3832,281 @@ describe("ACPAgentSession", () => {
            resolvePrompt = resolve;
          }),
      );
@@ -4121,7 +4121,7 @@ index e902493..af82894 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3217,29 +4057,17 @@ describe("ACPAgentSession", () => {
+@@ -3283,29 +4123,17 @@ describe("ACPAgentSession", () => {
        sessionId: "session-1",
        update: {
          sessionUpdate: "user_message_chunk",
@@ -4154,7 +4154,7 @@ index e902493..af82894 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3251,27 +4079,12 @@ describe("ACPAgentSession", () => {
+@@ -3317,27 +4145,12 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -4184,7 +4184,7 @@ index e902493..af82894 100644
        } as SessionUpdate,
      });
  
-@@ -3280,10 +4093,10 @@ describe("ACPAgentSession", () => {
+@@ -3346,10 +4159,10 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -4197,7 +4197,7 @@ index e902493..af82894 100644
            messageId: "msg-client-1",
            clientMessageId: "msg-client-1",
          },
-@@ -3292,10 +4105,16 @@ describe("ACPAgentSession", () => {
+@@ -3358,10 +4171,16 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
@@ -4216,7 +4216,7 @@ index e902493..af82894 100644
  
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
      asInternals<ACPSessionInternals>(session).connection = { prompt };
-@@ -3304,22 +4123,175 @@ describe("ACPAgentSession", () => {
+@@ -3370,22 +4189,175 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -4399,7 +4399,7 @@ index e902493..af82894 100644
        } as SessionUpdate,
      });
  
-@@ -4726,3 +5698,1040 @@ describe("custom ACP provider with configured models", () => {
+@@ -4792,3 +5764,1040 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -5441,7 +5441,7 @@ index e902493..af82894 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index e26b6e4..a76e578 100644
+index 6831274d2..50b99bfba 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -73,13 +73,17 @@ import {
@@ -5487,7 +5487,7 @@ index e26b6e4..a76e578 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -317,6 +332,11 @@ export function buildACPClientCapabilities(
+@@ -329,6 +344,11 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -5499,7 +5499,7 @@ index e26b6e4..a76e578 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  // Archive and delete await close(). The ACP SDK does not reject a pending
  // request when the provider never answers, so these calls must be bounded
-@@ -456,6 +476,105 @@ export type ACPCatalogModelResolver = (
+@@ -476,6 +496,105 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -5605,7 +5605,7 @@ index e26b6e4..a76e578 100644
  interface ACPAgentClientOptions {
    provider: string;
    // Provider id usage sources match a session against; ACP sessions without one report no usage.
-@@ -487,6 +606,7 @@ interface ACPAgentClientOptions {
+@@ -507,6 +626,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -5613,7 +5613,7 @@ index e26b6e4..a76e578 100644
    now?: () => number;
  }
  
-@@ -523,7 +643,9 @@ interface ACPAgentSessionOptions {
+@@ -543,7 +663,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -5623,7 +5623,7 @@ index e26b6e4..a76e578 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -620,6 +742,13 @@ class ACPImportHistoryCollector {
+@@ -640,6 +762,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -5637,7 +5637,7 @@ index e26b6e4..a76e578 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -653,6 +782,8 @@ interface TerminalEntry {
+@@ -673,6 +802,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -5646,7 +5646,7 @@ index e26b6e4..a76e578 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -952,6 +1083,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -972,6 +1103,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -5654,7 +5654,7 @@ index e26b6e4..a76e578 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -983,6 +1115,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1003,6 +1135,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -5662,7 +5662,7 @@ index e26b6e4..a76e578 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1024,6 +1157,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1044,6 +1177,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -5670,7 +5670,7 @@ index e26b6e4..a76e578 100644
        },
      );
      await session.initializeNewSession();
-@@ -1084,6 +1218,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1104,6 +1238,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -5678,7 +5678,7 @@ index e26b6e4..a76e578 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1691,6 +1826,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1711,6 +1846,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -5698,7 +5698,7 @@ index e26b6e4..a76e578 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1757,11 +1905,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1778,11 +1926,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -5734,7 +5734,7 @@ index e26b6e4..a76e578 100644
    private historyPending = false;
    private historyRuntimeReleased = false;
    private replayingHistory = false;
-@@ -1805,7 +1977,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1826,7 +1998,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -5749,7 +5749,7 @@ index e26b6e4..a76e578 100644
    }
  
    get id(): string | null {
-@@ -1842,6 +2021,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1863,6 +2042,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -5757,7 +5757,7 @@ index e26b6e4..a76e578 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1896,6 +2076,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1917,6 +2097,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -5765,7 +5765,7 @@ index e26b6e4..a76e578 100644
  
        if (this.resumePurpose === "history") {
          await this.releaseHistoryRuntime();
-@@ -1940,6 +2121,352 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1961,6 +2142,352 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -6118,7 +6118,7 @@ index e26b6e4..a76e578 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1960,6 +2487,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1981,6 +2508,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    async startTurn(
      prompt: AgentPromptInput,
      options?: AgentRunOptions,
@@ -6138,7 +6138,7 @@ index e26b6e4..a76e578 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -1974,24 +2514,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1995,24 +2535,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -6190,7 +6190,7 @@ index e26b6e4..a76e578 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2489,7 +3052,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2491,7 +3054,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -6202,7 +6202,7 @@ index e26b6e4..a76e578 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2525,6 +3091,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2527,6 +3093,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -6219,7 +6219,7 @@ index e26b6e4..a76e578 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2551,7 +3127,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2553,7 +3129,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.cancelPendingPermissions();
  
      if (this.activeForegroundTurnId) {
@@ -6243,7 +6243,7 @@ index e26b6e4..a76e578 100644
      }
    }
  
-@@ -2569,9 +3161,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2571,9 +3163,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -6269,7 +6269,7 @@ index e26b6e4..a76e578 100644
  
      this.cancelPendingPermissions();
  
-@@ -2618,6 +3226,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2620,6 +3228,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -6277,7 +6277,7 @@ index e26b6e4..a76e578 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2680,10 +3289,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2682,10 +3291,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -6329,7 +6329,7 @@ index e26b6e4..a76e578 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2700,6 +3350,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2702,6 +3352,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -6348,7 +6348,7 @@ index e26b6e4..a76e578 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2725,6 +3387,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2727,6 +3389,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -6396,7 +6396,7 @@ index e26b6e4..a76e578 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2812,6 +3515,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2818,6 +3521,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -6404,7 +6404,7 @@ index e26b6e4..a76e578 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3085,11 +3789,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3091,11 +3795,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
@@ -6435,7 +6435,7 @@ index e26b6e4..a76e578 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3321,9 +4043,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3333,9 +4055,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -6595,7 +6595,7 @@ index e26b6e4..a76e578 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3349,6 +4220,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3361,6 +4232,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -6639,7 +6639,7 @@ index e26b6e4..a76e578 100644
    private wrapTimeline(item: AgentTimelineItem): AgentStreamEvent {
      return {
        type: "timeline",
-@@ -3422,11 +4330,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3434,11 +4342,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.cancelPendingPermissions();
      }
      this.activeForegroundTurnId = null;
@@ -6653,7 +6653,7 @@ index e26b6e4..a76e578 100644
    }
  
    private cancelPendingPermissions(): void {
-@@ -3682,7 +4592,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3694,7 +4604,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -6674,7 +6674,7 @@ index e26b6e4..a76e578 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3748,6 +4670,7 @@ function mergeToolSnapshot(
+@@ -3760,6 +4682,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -6682,7 +6682,7 @@ index e26b6e4..a76e578 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3757,6 +4680,27 @@ function mergeToolSnapshot(
+@@ -3769,6 +4692,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -6710,7 +6710,7 @@ index e26b6e4..a76e578 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3773,10 +4717,18 @@ function mapToolSnapshotToTimeline(
+@@ -3785,10 +4729,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -6730,7 +6730,7 @@ index e26b6e4..a76e578 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -4018,7 +4970,17 @@ function mapPermissionRequest(
+@@ -4030,7 +4982,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -6749,7 +6749,7 @@ index e26b6e4..a76e578 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -4027,11 +4989,11 @@ function mapPermissionRequest(
+@@ -4039,11 +5001,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -6763,7 +6763,7 @@ index e26b6e4..a76e578 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -4045,6 +5007,7 @@ function mapPermissionRequest(
+@@ -4057,6 +5019,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -6771,7 +6771,7 @@ index e26b6e4..a76e578 100644
      },
    };
  }
-@@ -4073,6 +5036,65 @@ function selectPermissionOption(
+@@ -4085,6 +5048,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -6837,7 +6837,7 @@ index e26b6e4..a76e578 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4089,19 +5111,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4101,19 +5123,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
  
  function appendTerminalOutput(entry: TerminalEntry, chunk: string): void {
    entry.output += chunk;
@@ -6869,10 +6869,10 @@ index e26b6e4..a76e578 100644
  }
  
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index 52b70c2..f4b538b 100644
+index 758fad2e8..7935f1b9b 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -3926,6 +3926,634 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -3989,6 +3989,634 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -7508,12 +7508,12 @@ index 52b70c2..f4b538b 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 6516ff8..cd9d970 100644
+index d232185cb..adb138a13 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
-@@ -35,9 +35,12 @@ import {
-   readTaskNotificationToolUseIdFromHistoryRecord,
+@@ -37,9 +37,12 @@ import {
  } from "./task-notification-tool-call.js";
+ import { isClaudeInterruptPlaceholderText } from "./interrupt-placeholder.js";
  import {
 +  findClaudeModel,
    getClaudeContextWindowMaxTokens,
@@ -7524,7 +7524,7 @@ index 6516ff8..cd9d970 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -115,6 +118,7 @@ import {
+@@ -121,6 +124,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -7532,7 +7532,7 @@ index 6516ff8..cd9d970 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2278,6 +2282,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2312,6 +2316,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -7564,7 +7564,7 @@ index 6516ff8..cd9d970 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2378,7 +2407,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2412,7 +2441,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -7573,7 +7573,7 @@ index 6516ff8..cd9d970 100644
      );
      const handle = options.handle;
  
-@@ -2718,7 +2747,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2752,7 +2781,7 @@ class ClaudeAgentSession implements AgentSession {
        await this.applyFastModeFeature(false, activeQuery);
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -7582,7 +7582,7 @@ index 6516ff8..cd9d970 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3592,6 +3621,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3638,6 +3667,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -7607,7 +7607,7 @@ index 6516ff8..cd9d970 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4540,6 +4587,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4595,6 +4642,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -7620,7 +7620,7 @@ index 6516ff8..cd9d970 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4557,6 +4610,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4612,6 +4665,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -7628,7 +7628,7 @@ index 6516ff8..cd9d970 100644
          break;
        }
        case "stream_event":
-@@ -4583,6 +4637,200 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4638,6 +4692,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7829,7 +7829,7 @@ index 6516ff8..cd9d970 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -4910,6 +5158,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4965,6 +5213,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7837,7 +7837,7 @@ index 6516ff8..cd9d970 100644
      const usage = this.convertUsage(message);
      if (message.subtype === "success") {
        events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -6299,6 +6548,146 @@ async function readClaudeReplayParentFacts(
+@@ -6380,6 +6629,146 @@ function readClaudeReplayTaskDeclaration(
    };
  }
  
@@ -7985,7 +7985,7 @@ index 6516ff8..cd9d970 100644
    return /agentId:\s*([\w-]+)/.exec(JSON.stringify(content))?.[1];
  }
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 0daa5e5..b1054b4 100644
+index 0daa5e533..b1054b4cd 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -20,6 +20,8 @@ import {
@@ -8076,7 +8076,7 @@ index 0daa5e5..b1054b4 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 2a9b801..a04739b 100644
+index 2a9b801fd..a04739be1 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -8161,7 +8161,7 @@ index 2a9b801..a04739b 100644
    logger: Logger,
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 37db4d0..2929018 100644
+index 37db4d02d..292901814 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -8230,7 +8230,7 @@ index 37db4d0..2929018 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb..89de568 100644
+index b388fdb01..89de568b4 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -1,9 +1,18 @@
@@ -8498,7 +8498,7 @@ index b388fdb..89de568 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f..03c94e3 100644
+index 7ae144f65..03c94e383 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,25 @@
@@ -8787,7 +8787,7 @@ index 7ae144f..03c94e3 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 new file mode 100644
-index 0000000..ee6c43c
+index 000000000..ee6c43c90
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 @@ -0,0 +1,410 @@
@@ -9203,7 +9203,7 @@ index 0000000..ee6c43c
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 new file mode 100644
-index 0000000..9e57643
+index 000000000..9e5764353
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 @@ -0,0 +1,521 @@
@@ -9730,7 +9730,7 @@ index 0000000..9e57643
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 0000000..df59917
+index 000000000..df5991772
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -0,0 +1,255 @@
@@ -9991,7 +9991,7 @@ index 0000000..df59917
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 0000000..1c30449
+index 000000000..1c304496a
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 @@ -0,0 +1,2035 @@
@@ -12032,7 +12032,7 @@ index 0000000..1c30449
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 0000000..8bc6adf
+index 000000000..8bc6adf65
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
 @@ -0,0 +1,2058 @@
@@ -14096,7 +14096,7 @@ index 0000000..8bc6adf
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 0000000..38364a3
+index 000000000..38364a3a5
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,449 @@
@@ -14551,7 +14551,7 @@ index 0000000..38364a3
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 0000000..936b1b4
+index 000000000..936b1b445
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,340 @@
@@ -14897,7 +14897,7 @@ index 0000000..936b1b4
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
 new file mode 100644
-index 0000000..bb16a2b
+index 000000000..bb16a2b83
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
 @@ -0,0 +1,62 @@
@@ -14965,7 +14965,7 @@ index 0000000..bb16a2b
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
 new file mode 100644
-index 0000000..99488f6
+index 000000000..99488f6d8
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
 @@ -0,0 +1,45 @@
@@ -15015,18 +15015,18 @@ index 0000000..99488f6
 +  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 182575b..f8eb19c 100644
+index 31f313cb7..25fb24baa 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
-@@ -12,7 +12,7 @@ import type {
-   AgentToolResult,
- } from "@getpaseo/plugin/server";
+@@ -10,7 +10,7 @@ import {
+ } from "@getpaseo/plugin/server/provider";
+ import type { PluginHookEvents, PluginHookAgent, AgentToolResult } from "@getpaseo/plugin/server";
  import { validateBeforeRequest, validateBeforeResult } from "./lifecycle/index.js";
 -import { fork } from "node:child_process";
 +import { forkProcess } from "../../utils/spawn.js";
  import path from "node:path";
  import { fileURLToPath } from "node:url";
- import { randomUUID } from "node:crypto";
+ import { createHash, randomUUID } from "node:crypto";
 @@ -234,7 +234,7 @@ function resolveWorkerExecArgv(): string[] {
  }
  
@@ -15037,7 +15037,7 @@ index 182575b..f8eb19c 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96..7136338 100644
+index 1f0fa96b9..7136338b7 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -15055,29 +15055,8 @@ index 1f0fa96..7136338 100644
      env,
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
-diff --git a/packages/server/src/terminal/worker-terminal-manager.ts b/packages/server/src/terminal/worker-terminal-manager.ts
-index 0a1adb2..6620166 100644
---- a/packages/server/src/terminal/worker-terminal-manager.ts
-+++ b/packages/server/src/terminal/worker-terminal-manager.ts
-@@ -1,6 +1,6 @@
- import { fileURLToPath } from "node:url";
--import { fork } from "node:child_process";
- import { randomBytes, randomUUID } from "node:crypto";
-+import { forkProcess } from "../utils/spawn.js";
- import { assertAbsolutePath, isSameOrDescendantPath } from "../server/path-utils.js";
- import type { TerminalState } from "@getpaseo/protocol/messages";
- import type { TerminalActivity, TerminalActivityState } from "@getpaseo/protocol/terminal-activity";
-@@ -139,7 +139,7 @@ function cloneTerminalInfo(info: RequiredWorkerTerminalInfo): RequiredWorkerTerm
- }
- 
- function forkTerminalWorker(): TerminalWorkerProcess {
--  return fork(fileURLToPath(resolveWorkerUrl()), [], {
-+  return forkProcess(fileURLToPath(resolveWorkerUrl()), [], {
-     execArgv: resolveWorkerExecArgv(),
-     serialization: "advanced",
-     stdio: ["ignore", "ignore", "inherit", "ipc"],
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index b26104c..5efa1df 100644
+index b26104c63..5efa1df0b 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,4 @@
