@@ -2623,7 +2623,7 @@ index b388143d8..ff6ff271d 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 2c150bd2e..f8a1a6945 100644
+index 2c150bd2e..6fc3a859c 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -14,7 +14,11 @@ import { join } from "node:path";
@@ -2639,7 +2639,7 @@ index 2c150bd2e..f8a1a6945 100644
  import type {
    AgentClient,
    AgentRunResult,
-@@ -27,6 +31,76 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
+@@ -27,6 +31,77 @@ test("isSystemInjectedEnvelope matches the envelope formatSystemNotificationProm
    expect(isSystemInjectedEnvelope("hello world")).toBe(false);
  });
  
@@ -2662,6 +2662,7 @@ index 2c150bd2e..f8a1a6945 100644
 +      return (async function* empty() {})();
 +    },
 +    reloadAgentSession: async () => undefined,
++    reloadStalePluginSession: async () => undefined,
 +  };
 +  return { controller, calls };
 +}
@@ -6869,7 +6870,7 @@ index 6831274d2..50b99bfba 100644
  }
  
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index 758fad2e8..7935f1b9b 100644
+index 758fad2e8..4a4338188 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
 @@ -3989,6 +3989,634 @@ describe("ClaudeAgentSession context window usage", () => {
@@ -6888,7 +6889,7 @@ index 758fad2e8..7935f1b9b 100644
 +    const typed = session as unknown as TestClaudeSession;
 +    // The session's first frame also announces the thread, which would land in
 +    // front of everything a frame under test produces. Absorb it up front.
-+    typed.translateMessageToEvents({
++    await typed.translateMessageToEvents({
 +      type: "active_goal",
 +      value: null,
 +      uuid: "warmup",
@@ -6904,7 +6905,7 @@ index 758fad2e8..7935f1b9b 100644
 +  test("an active_goal frame becomes a goal the client can display", async () => {
 +    const session = await createSessionForTest();
 +
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      activeGoalFrame(
 +        {
 +          condition: "the test suite passes",
@@ -6941,8 +6942,8 @@ index 758fad2e8..7935f1b9b 100644
 +      "goal-1",
 +    );
 +
-+    const [first] = session.translateMessageToEvents(frame);
-+    const [second] = session.translateMessageToEvents(frame);
++    const [first] = await session.translateMessageToEvents(frame);
++    const [second] = await session.translateMessageToEvents(frame);
 +
 +    const goalIdOf = (event: AgentStreamEvent): unknown =>
 +      event.type === "goal_updated" ? event.goal?.goalId : undefined;
@@ -6953,7 +6954,7 @@ index 758fad2e8..7935f1b9b 100644
 +  test("a null active_goal frame drops the goal rather than reporting it met", async () => {
 +    const session = await createSessionForTest();
 +
-+    const events = session.translateMessageToEvents(activeGoalFrame(null, "goal-2"));
++    const events = await session.translateMessageToEvents(activeGoalFrame(null, "goal-2"));
 +
 +    expect(events).toEqual([{ type: "goal_updated", provider: "claude", goal: null }]);
 +  });
@@ -6961,7 +6962,7 @@ index 758fad2e8..7935f1b9b 100644
 +  test("a frame that is not an active goal still produces its own events", async () => {
 +    const session = await createSessionForTest();
 +
-+    const events = session.translateMessageToEvents({
++    const events = await session.translateMessageToEvents({
 +      type: "result",
 +      subtype: "success",
 +      result: "",
@@ -7055,7 +7056,7 @@ index 758fad2e8..7935f1b9b 100644
 +        cwd,
 +      })) as unknown as TestClaudeSession;
 +      // Announce the thread so the session knows the transcript it writes to.
-+      session.translateMessageToEvents(activeGoalFrame(null, "warmup"));
++      await session.translateMessageToEvents(activeGoalFrame(null, "warmup"));
 +
 +      const transcriptPath = path.join(claudeProjectDirSync(cwd, { configDir }), "session-1.jsonl");
 +      return {
@@ -7083,7 +7084,7 @@ index 758fad2e8..7935f1b9b 100644
 +
 +    // Only the command's own render arrives here. No evaluation has run, so no `active_goal`
 +    // frame has been seen and the goal must still reach the client.
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
@@ -7112,12 +7113,12 @@ index 758fad2e8..7935f1b9b 100644
 +    });
 +    await writeTranscript([entry]);
 +
-+    const first = session.translateMessageToEvents(
++    const first = await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +    // The transcript grows between the two renders, so the second look is a real re-read.
 +    await writeTranscript([entry, { type: "user", uuid: "later", sessionId: "session-1" }]);
-+    const second = session.translateMessageToEvents(
++    const second = await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-2"),
 +    );
 +
@@ -7133,7 +7134,7 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
@@ -7147,7 +7148,7 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:09:00.000Z",
 +      }),
 +    ]);
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the README is rewritten", "command-output-2"),
 +    );
 +
@@ -7176,7 +7177,7 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
@@ -7190,7 +7191,7 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:05:00.000Z",
 +      }),
 +    ]);
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal cleared: the test suite passes", "command-output-2"),
 +    );
 +
@@ -7205,7 +7206,7 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
@@ -7229,7 +7230,7 @@ index 758fad2e8..7935f1b9b 100644
 +        sessionId: "session-1",
 +      },
 +    ]);
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal active: the test suite passes", "command-output-2"),
 +    );
 +
@@ -7244,11 +7245,11 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      activeGoalFrame(
 +        { condition: "the test suite passes", iterations: 2, set_at: 1_700_000_000_000 },
 +        "goal-1",
@@ -7326,17 +7327,17 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
 +    // The CLI reports the usage of every API response it makes, and a goal that
 +    // runs for an hour makes many of them. The panel cannot sit at zero for all
 +    // of it just because no Stop-hook evaluation has run yet.
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "assistant-1"),
 +    );
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 2_000, cached: 900, output: 120 }, "assistant-2"),
 +    );
 +
@@ -7367,20 +7368,20 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
 +    // The CLI emits one frame per content block and repeats the response's usage on each, so
 +    // the same read arrives three times under one id. The goal read the context once.
 +    const responseId = "msg-shared-response";
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "block-1", responseId),
 +    );
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "block-2", responseId),
 +    );
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 1_000, cached: 400, output: 50 }, "block-3", responseId),
 +    );
 +
@@ -7396,7 +7397,7 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
@@ -7404,10 +7405,10 @@ index 758fad2e8..7935f1b9b 100644
 +    // wrote nothing and states an input count of its own, and the real frame beside it. Only the
 +    // frame that wrote output describes the response.
 +    const responseId = "msg-echoed-response";
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 13_771, cached: 0, output: 0 }, "thinking-frame", responseId),
 +    );
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 481, cached: 17_664, output: 260 }, "real-frame", responseId),
 +    );
 +
@@ -7438,12 +7439,12 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
 +
-+    session.translateMessageToEvents(turnResultFrame("turn-1"));
-+    const events = session.translateMessageToEvents(turnResultFrame("turn-2"));
++    await session.translateMessageToEvents(turnResultFrame("turn-1"));
++    const events = await session.translateMessageToEvents(turnResultFrame("turn-2"));
 +
 +    expect(goalEvents(events)).toEqual([
 +      {
@@ -7470,15 +7471,15 @@ index 758fad2e8..7935f1b9b 100644
 +        timestamp: "2026-09-30T12:04:35.837Z",
 +      }),
 +    ]);
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(
 +      syntheticCommandOutputFrame("Goal set: the test suite passes", "command-output-1"),
 +    );
-+    session.translateMessageToEvents(turnResultFrame("turn-1"));
-+    session.translateMessageToEvents(
++    await session.translateMessageToEvents(turnResultFrame("turn-1"));
++    await session.translateMessageToEvents(
 +      assistantUsageFrame({ input: 10, cached: 0, output: 5 }, "assistant-1"),
 +    );
 +
-+    const events = session.translateMessageToEvents(
++    const events = await session.translateMessageToEvents(
 +      activeGoalFrame(
 +        { condition: "the test suite passes", iterations: 4, set_at: 1_700_000_000_000 },
 +        "goal-1",
