@@ -501,7 +501,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index 4b6407c87..037066ecc 100644
+index e3720ccbe..e87ad749d 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -589,7 +589,7 @@ index 4b6407c87..037066ecc 100644
 +              </ComposerChromeContext.Provider>
              </ComposerViewportContent>
            </ComposerViewportContent>
-           {overlay}
+         </KeyboardTranslateView>
 @@ -203,16 +228,19 @@ export function ComposerDock({
          <ComposerViewportContent
            style={fullscreen ? dockStyles.fullscreenSlot : dockStyles.composer}
@@ -617,8 +617,8 @@ index 4b6407c87..037066ecc 100644
 +            </View>
 +          </ComposerChromeContext.Provider>
          </ComposerViewportContent>
-         {overlay}
        </KeyboardTranslateView>
+       {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
 index 421002352..28757223e 100644
 --- a/packages/app/src/composer/dock/index.tsx
