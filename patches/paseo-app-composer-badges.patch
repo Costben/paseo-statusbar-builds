@@ -1,5 +1,5 @@
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 7310464..0cd5e60 100644
+index 731046489..0cd5e6040 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -20,7 +20,7 @@ index 7310464..0cd5e60 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f..dd1da9e 100644
+index 704298f78..dd1da9eeb 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -49,10 +49,10 @@ index 704298f..dd1da9e 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index bb5679f..5ef21fd 100644
+index 4256685f9..ca8b5a416 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -287,6 +287,44 @@ describe("bare URL sentence punctuation", () => {
+@@ -311,6 +311,44 @@ describe("bare URL sentence punctuation", () => {
    );
  });
  
@@ -98,7 +98,7 @@ index bb5679f..5ef21fd 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 5c82088..15eaf98 100644
+index 3462320d7..369f45200 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -138,7 +138,7 @@ index 5c82088..15eaf98 100644
  function createFilePattern(path: string): RegExp {
    // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
    return new RegExp(
-@@ -128,6 +158,7 @@ export function prepareMarkdownSource(
+@@ -138,6 +168,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
@@ -146,7 +146,7 @@ index 5c82088..15eaf98 100644
      !(workspaceRoot && source.includes("]("))
    ) {
      return { images, ...metadata, render: () => source };
-@@ -202,7 +233,7 @@ export function prepareMarkdownSource(
+@@ -212,7 +243,7 @@ export function prepareMarkdownSource(
        if (lineEnd < end) split(lineEnd);
      }
    }
@@ -155,7 +155,7 @@ index 5c82088..15eaf98 100644
      const start = node.position?.start.offset;
      const end = node.position?.end.offset;
      if (start !== undefined && end !== undefined) {
-@@ -224,17 +255,21 @@ export function prepareMarkdownSource(
+@@ -234,17 +265,21 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -183,7 +183,7 @@ index 5c82088..15eaf98 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 6929b44..e383979 100644
+index 6929b447e..e3839792b 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -408,7 +408,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -198,7 +198,7 @@ index 6929b44..e383979 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 0000000..612c2a3
+index 000000000..612c2a3e4
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -378,7 +378,7 @@ index 0000000..612c2a3
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index 4b6407c..037066e 100644
+index e3720ccbe..e87ad749d 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -466,7 +466,7 @@ index 4b6407c..037066e 100644
 +              </ComposerChromeContext.Provider>
              </ComposerViewportContent>
            </ComposerViewportContent>
-           {overlay}
+         </KeyboardTranslateView>
 @@ -203,16 +228,19 @@ export function ComposerDock({
          <ComposerViewportContent
            style={fullscreen ? dockStyles.fullscreenSlot : dockStyles.composer}
@@ -494,10 +494,10 @@ index 4b6407c..037066e 100644
 +            </View>
 +          </ComposerChromeContext.Provider>
          </ComposerViewportContent>
-         {overlay}
        </KeyboardTranslateView>
+       {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 4210023..2875722 100644
+index 421002352..28757223e 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -554,7 +554,7 @@ index 4210023..2875722 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 44e79e6..633dfe3 100644
+index 44e79e6ef..633dfe3de 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
 @@ -159,3 +159,42 @@ describe("composer viewport", () => {
@@ -601,7 +601,7 @@ index 44e79e6..633dfe3 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index 9c460e1..6a1a4e1 100644
+index 9c460e172..6a1a4e12b 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -67,6 +67,13 @@ export function resolveInlineComposerCapacity(
@@ -629,7 +629,7 @@ index 9c460e1..6a1a4e1 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 0000000..a0de3d8
+index 000000000..a0de3d897
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -666,7 +666,7 @@ index 0000000..a0de3d8
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 0000000..cd3cc03
+index 000000000..cd3cc0318
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -706,7 +706,7 @@ index 0000000..cd3cc03
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index d00b6f7..88025f8 100644
+index c4ef45cb3..af3c5c9cd 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -9,6 +9,7 @@ import { Composer } from "@/composer";
@@ -754,7 +754,7 @@ index d00b6f7..88025f8 100644
                  <ComposerImportPill onPress={importPillPress} />
                </View>
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index b7088dd..de14341 100644
+index d6b4bae63..9237a4345 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -140,6 +140,7 @@ import type {
@@ -822,7 +822,7 @@ index b7088dd..de14341 100644
                    activeActionContent={activeActionContent}
                    voiceServerId={serverId}
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index 16acede..22c6666 100644
+index 8cb8cd4c3..b81d93f8c 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -26,7 +26,7 @@ import {
@@ -875,7 +875,7 @@ index 16acede..22c6666 100644
        rightContent,
        activeActionContent,
        voiceServerId,
-@@ -2123,18 +2129,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2133,18 +2139,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            {/* Right: voice button, contextual button (realtime/send/cancel) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
@@ -908,7 +908,7 @@ index 16acede..22c6666 100644
              {rightContent}
              {sendButton}
            </View>
-@@ -2150,6 +2158,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2160,6 +2168,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -916,7 +916,7 @@ index 16acede..22c6666 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2209,6 +2218,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2219,6 +2228,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -952,7 +952,7 @@ index 16acede..22c6666 100644
      return (
        <View
          ref={rootRef}
-@@ -2232,7 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2242,7 +2280,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -961,7 +961,7 @@ index 16acede..22c6666 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2299,6 +2337,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2309,6 +2347,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -971,7 +971,7 @@ index 16acede..22c6666 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2314,6 +2355,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2324,6 +2365,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -982,7 +982,7 @@ index 16acede..22c6666 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index ad49297..5dbb394 100644
+index ad492976b..5dbb3945a 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
@@ -1005,7 +1005,7 @@ index ad49297..5dbb394 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 67c8030..223decb 100644
+index 67c803074..223decbe7 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -1025,7 +1025,7 @@ index 67c8030..223decb 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c8..69a9923 100644
+index 3ab03c877..69a992346 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1040,7 +1040,7 @@ index 3ab03c8..69a9923 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 9115737..067531d 100644
+index 911573762..067531d12 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -39,6 +39,7 @@ import type {
@@ -1060,7 +1060,7 @@ index 9115737..067531d 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f10..9a4887f 100644
+index 4d14f101b..9a4887f30 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,11 @@
@@ -1098,7 +1098,7 @@ index 4d14f10..9a4887f 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 13a7bcd..584290e 100644
+index 13a7bcd14..584290e6a 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -1118,10 +1118,10 @@ index 13a7bcd..584290e 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 704c7ad..0c38df3 100644
+index 18654bf33..ff3e83207 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -420,6 +420,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -428,6 +428,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -1130,7 +1130,7 @@ index 704c7ad..0c38df3 100644
    })
    .catchall(z.boolean());
  
-@@ -850,6 +852,24 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -860,6 +862,24 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -1155,7 +1155,7 @@ index 704c7ad..0c38df3 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -871,6 +891,7 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -881,6 +901,7 @@ export const AgentSnapshotPayloadSchema = z.object({
    persistence: AgentPersistenceHandleSchema.nullable(),
    runtimeInfo: AgentRuntimeInfoSchema.optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -1164,7 +1164,7 @@ index 704c7ad..0c38df3 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6d..e00c20d 100644
+index db0aa6db2..e00c20d62 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
