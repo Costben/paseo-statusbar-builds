@@ -13,8 +13,8 @@ workflow_dispatch     ─┴─► resolve the highest upstream release tag
                             └─ missing assets ─► create the Release
                                                  │
                                                  ├─ dispatch statusbar-build.yml        (APK)
-                                                 ├─ dispatch desktop-macos-build.yml    (.dmg/.zip + manifests)
-                                                 └─ dispatch desktop-windows-build.yml  (.exe + manifests)
+                                                 └─ dispatch desktop-macos-build.yml    (.dmg/.zip + manifests)
+                                                       └─ workflow_run ──► desktop-windows-build.yml (.exe + manifests)
 ```
 
 Each dispatched stage runs its own resolve → checkout upstream@tag → apply patch → build → upload to the same Release. Stages that are already complete are skipped, so a late-arriving APK does not force a desktop rebuild.
@@ -41,8 +41,8 @@ Both desktop platforms install their own updates. macOS downloads the `.zip` (`M
 ```
 upstream-release-watch.yml   schedule */30m
    ├─ dispatch ──▶ statusbar-build.yml            (+ 6h safety net)
-   ├─ dispatch ──▶ desktop-macos-build.yml        (+ daily 04:43 safety net)
-   └─ dispatch ──▶ desktop-windows-build.yml      (+ daily 06:23 safety net)
+   └─ dispatch ──▶ desktop-macos-build.yml        (+ daily 04:43 safety net)
+                       └─ workflow_run ──▶ desktop-windows-build.yml (+ daily 06:23 safety net)
 
 fallback, still wired: statusbar-build.yml ──workflow_run──▶ desktop-macos-build.yml
                                                           └──workflow_run──▶ desktop-windows-build.yml
@@ -52,7 +52,8 @@ fallback, still wired: statusbar-build.yml ──workflow_run──▶ desktop-m
 
 ## Why four workflows and not one
 
-- **One entry point, three stages.** `upstream-release-watch.yml` resolves the tag once and dispatches every stage that is missing artifacts, all with the same explicit `tag`, so the three start together instead of one waiting out the other's build. The desktop pair still share `concurrency: paseo-desktop-builds-v1` and run in sequence; Android has its own group and runs alongside them.
+- **One entry point, three stages.** `upstream-release-watch.yml` resolves the tag once and dispatches every stage that is missing artifacts, all with the same explicit `tag`. Android has its own group and starts alongside the desktop build.
+- **macOS is dispatched alone; Windows follows it.** The desktop pair share `concurrency: paseo-desktop-builds-v1`, and that group holds a single *pending* run: a second dispatch in the same second cancels the first while it is still waiting for a runner. Dispatching both together is how v0.15.2 and v0.15.3 lost their macOS build, so the watcher dispatches macOS and lets its completion trigger Windows through the `workflow_run` chain. Windows is dispatched directly only when macOS already has every asset.
 - **The watcher creates the Release.** Three builds dispatched at once would otherwise race on `gh release create`, failing two of the jobs.
 - **The `workflow_run` chain stays as the fallback.** If the watcher is disabled or its dispatch fails, the APK's own schedule still triggers macOS, which triggers Windows; each stage self-checks and only fills in what is missing.
 - **Same repo, not two more repos.** A Release is a single bucket: splitting desktop builds into separate repos would scatter downloads across three release pages. Rebuilds overwrite by filename, and no two stages publish the same name.

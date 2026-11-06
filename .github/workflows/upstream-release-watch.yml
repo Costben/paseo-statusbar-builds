@@ -6,10 +6,15 @@ name: Watch upstream releases
 # that used to gate the whole chain.
 #
 # One run resolves the tag once and dispatches every stage that is missing
-# artifacts, all with the same explicit `tag`, so the three queue together
-# instead of one waiting for another. The desktop pair still share
-# `concurrency: paseo-desktop-builds-v1` and run in sequence; Android has its own
-# group and runs alongside them.
+# artifacts, all with the same explicit `tag`. Android has its own concurrency
+# group and starts alongside the desktop build.
+#
+# The desktop pair share `concurrency: paseo-desktop-builds-v1`, and that group
+# holds a single *pending* run: a second dispatch in the same second cancels the
+# first while it is still waiting for a runner. Dispatching macOS and Windows
+# together is how v0.15.2 and v0.15.3 lost their macOS build. macOS is therefore
+# dispatched alone and starts Windows through the `workflow_run` chain; Windows
+# is dispatched here only when macOS needs no build of its own.
 #
 # The Release is created here, before dispatching. Three builds starting at once
 # would otherwise race on `gh release create` and the losers would fail on
@@ -215,4 +220,13 @@ jobs:
           }
           dispatch statusbar-build.yml "$ANDROID"
           dispatch desktop-macos-build.yml "$MACOS"
-          dispatch desktop-windows-build.yml "$WINDOWS"
+          # Both desktop workflows share `paseo-desktop-builds-v1`, which holds a
+          # single pending run: a second dispatch in the same second cancels the
+          # first before a runner picks it up. macOS therefore starts Windows
+          # through the `workflow_run` chain, and Windows is dispatched here only
+          # when macOS was not.
+          if [ "$MACOS" = "true" ]; then
+            echo "Windows follows the macOS run through workflow_run."
+          else
+            dispatch desktop-windows-build.yml "$WINDOWS"
+          fi
