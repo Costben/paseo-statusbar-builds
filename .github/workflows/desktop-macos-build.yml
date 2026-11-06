@@ -248,7 +248,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             electron_arch: arm64
             node_heap_mb: 4096
     runs-on: ${{ matrix.runner }}
@@ -638,7 +638,7 @@ jobs:
     name: verify published assets
     needs: [resolve]
     if: ${{ github.event.inputs.verify_only == 'true' }}
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     steps:
       - name: Checkout build repo (the verification script lives here)

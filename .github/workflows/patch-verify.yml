@@ -61,7 +61,7 @@ jobs:
   verify:
     name: apply, typecheck and test
     needs: resolve
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout build repo (patch scripts live here)
