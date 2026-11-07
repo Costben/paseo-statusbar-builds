@@ -120,9 +120,13 @@ const HELPER = `
 
 `;
 
+// onStart/onStop rather than onResume/onPause: the display-metrics plugin owns
+// onResume and refuses a MainActivity whose onResume it does not recognise. A
+// plugin array is also executed in reverse, so neither plugin can count on
+// running before the other. These two names belong to nobody else.
 const LIFECYCLE = [
-  { name: "onResume", call: "startRotationDelayListener()" },
-  { name: "onPause", call: "stopRotationDelayListener()" },
+  { name: "onStart", call: "startRotationDelayListener()" },
+  { name: "onStop", call: "stopRotationDelayListener()" },
 ];
 
 function matchingBrace(text, openIndex) {
