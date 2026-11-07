@@ -95,7 +95,10 @@ const HELPER = `
     if (rotationDelayListener != null) return
     val listener =
       object :
-        android.view.OrientationEventListener(this, android.hardware.SensorManager.SENSOR_DELAY_UI) {
+        android.view.OrientationEventListener(
+          this@MainActivity,
+          android.hardware.SensorManager.SENSOR_DELAY_UI,
+        ) {
         override fun onOrientationChanged(orientation: Int) {
           rotationDelayOnOrientation(orientation)
         }
