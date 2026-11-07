@@ -1,0 +1,291 @@
+diff --git a/packages/app/src/android/rotation-delay.ts b/packages/app/src/android/rotation-delay.ts
+new file mode 100644
+index 000000000..ed1765b7c
+--- /dev/null
++++ b/packages/app/src/android/rotation-delay.ts
+@@ -0,0 +1,32 @@
++import * as FileSystem from "expo-file-system/legacy";
++import { Platform } from "react-native";
++
++/**
++ * Where the Android build reads the auto-rotate switch.
++ *
++ * The rotation controller lives in MainActivity (injected by the build repo's
++ * `with-android-rotation-delay` plugin) because only native code can hold an
++ * orientation. `documentDirectory` is the app's `filesDir`, so the controller
++ * reads the same path the app writes here. No file means enabled, which is what
++ * a fresh install gets.
++ */
++export const ROTATION_DELAY_FILE = "paseo-rotation.json";
++
++/** Last value written, so the many components reading settings write the file once. */
++let lastWritten: boolean | undefined;
++
++export async function syncRotationDelay(autoRotate: boolean): Promise<void> {
++  if (Platform.OS !== "android") return;
++  if (lastWritten === autoRotate) return;
++  const directory = FileSystem.documentDirectory;
++  if (!directory) return;
++  try {
++    await FileSystem.writeAsStringAsync(
++      `${directory}${ROTATION_DELAY_FILE}`,
++      JSON.stringify({ autoRotate }),
++    );
++    lastWritten = autoRotate;
++  } catch (error) {
++    console.warn("[rotation-delay] could not persist the auto-rotate switch", error);
++  }
++}
+diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
+index 382ab350f..a0ed05443 100644
+--- a/packages/app/src/hooks/use-settings/index.ts
++++ b/packages/app/src/hooks/use-settings/index.ts
+@@ -1,6 +1,7 @@
+-import { useCallback, useMemo } from "react";
++import { useCallback, useEffect, useMemo } from "react";
+ import AsyncStorage from "@react-native-async-storage/async-storage";
+ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
++import { syncRotationDelay } from "@/android/rotation-delay";
+ import { queryClient as appQueryClient } from "@/data/query-client";
+ import type { AppLanguage } from "@/i18n/locales";
+ import {
+@@ -179,6 +180,13 @@ export function useAppSettings(): UseAppSettingsReturn {
+   }, [queryClient]);
+   const settings = useMemo(() => normalizeAppSettings(data), [data]);
+ 
++  // Android reads the auto-rotate switch from a file, so mirror it here: every
++  // reader of settings keeps the file in step, including a restored backup that
++  // never touched the switch.
++  useEffect(() => {
++    void syncRotationDelay(settings.autoRotate);
++  }, [settings.autoRotate]);
++
+   return {
+     settings,
+     isLoading: isPending,
+diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
+index 424536ac6..47ebdea76 100644
+--- a/packages/app/src/hooks/use-settings/storage.ts
++++ b/packages/app/src/hooks/use-settings/storage.ts
+@@ -103,6 +103,8 @@ export interface AppSettings {
+   /** How usage reads and which windows the sidebar summary shows. */
+   usage: UsagePreferences;
+   autoExpandReasoning: boolean;
++  /** Android only: rotate the window, with a hold before the flip. */
++  autoRotate: boolean;
+   chatDisplay: ChatDisplay;
+   chatOutlineEnabled: boolean;
+   vimKeybindings: boolean;
+@@ -160,6 +162,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
+   sidebarFooterItems: [],
+   usage: DEFAULT_USAGE_PREFERENCES,
+   autoExpandReasoning: false,
++  autoRotate: true,
+   chatDisplay: "collapseTurns",
+   chatOutlineEnabled: true,
+   vimKeybindings: false,
+@@ -257,6 +260,7 @@ const StoredAppSettingsSchema = z
+     sidebarFooterItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
+     usage: UsagePreferencesSchema,
+     autoExpandReasoning: z.boolean().catch(false),
++    autoRotate: z.boolean().catch(true),
+     chatDisplay: z.enum(["full", "collapseToolCalls", "collapseTurns"]).optional().catch("full"),
+     // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
+     toolCallDetailLevel: z
+diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
+index 098a49ae5..63b4d18ee 100644
+--- a/packages/app/src/i18n/resources/ar.ts
++++ b/packages/app/src/i18n/resources/ar.ts
+@@ -2415,6 +2415,10 @@ export const ar: TranslationResources = {
+     },
+     general: {
+       title: "عام",
++      autoRotate: {
++        label: "التدوير التلقائي",
++        description: "ينتظر 500 مللي ثانية بعد إمالة الجهاز قبل التدوير حتى لا تؤدي إمالة قصيرة إلى قلب الشاشة",
++      },
+       sending: "الإرسال",
+       setup: {
+         label: "الإعداد الأولي",
+diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
+index ae9e9347e..9dc3a7f0b 100644
+--- a/packages/app/src/i18n/resources/en.ts
++++ b/packages/app/src/i18n/resources/en.ts
+@@ -2505,6 +2505,10 @@ export const en = {
+     },
+     general: {
+       title: "General",
++      autoRotate: {
++        label: "Auto-rotate",
++        description: "Wait 500 ms after the device is tilted before rotating, so a brief tilt does not flip the screen",
++      },
+       sending: "Sending",
+       setup: {
+         label: "First-run setup",
+diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
+index 3d28cda81..73759e4d6 100644
+--- a/packages/app/src/i18n/resources/es.ts
++++ b/packages/app/src/i18n/resources/es.ts
+@@ -2428,6 +2428,10 @@ export const es: TranslationResources = {
+     },
+     general: {
+       title: "General",
++      autoRotate: {
++        label: "Rotación automática",
++        description: "Espera 500 ms tras inclinar el dispositivo antes de girar, para que una inclinación breve no voltee la pantalla",
++      },
+       sending: "Envío",
+       setup: {
+         label: "Configuración inicial",
+diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
+index da19c643a..8701568dc 100644
+--- a/packages/app/src/i18n/resources/fr.ts
++++ b/packages/app/src/i18n/resources/fr.ts
+@@ -2429,6 +2429,10 @@ export const fr: TranslationResources = {
+     },
+     general: {
+       title: "Général",
++      autoRotate: {
++        label: "Rotation automatique",
++        description: "Attend 500 ms après l'inclinaison de l'appareil avant de pivoter, pour qu'une inclinaison brève ne retourne pas l'écran",
++      },
+       sending: "Envoi",
+       setup: {
+         label: "Configuration initiale",
+diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
+index 73e14a0b6..20553d68e 100644
+--- a/packages/app/src/i18n/resources/ja.ts
++++ b/packages/app/src/i18n/resources/ja.ts
+@@ -2402,6 +2402,10 @@ export const ja: TranslationResources = {
+     },
+     general: {
+       title: "一般",
++      autoRotate: {
++        label: "自動回転",
++        description: "端末を傾けてから 500 ミリ秒後に回転するため、少し傾けただけで画面が反転しません",
++      },
+       sending: "送信",
+       setup: {
+         label: "初回セットアップ",
+diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
+index 117d5d68b..fd9ede6ba 100644
+--- a/packages/app/src/i18n/resources/ko.ts
++++ b/packages/app/src/i18n/resources/ko.ts
+@@ -2390,6 +2390,10 @@ export const ko: TranslationResources = {
+     },
+     general: {
+       title: "일반",
++      autoRotate: {
++        label: "자동 회전",
++        description: "기기를 기울인 뒤 500ms 후에 회전하므로 잠깐 기울여도 화면이 뒤집히지 않습니다",
++      },
+       sending: "전송",
+       setup: {
+         label: "초기 설정",
+diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
+index 4460039b7..534389a21 100644
+--- a/packages/app/src/i18n/resources/pt-BR.ts
++++ b/packages/app/src/i18n/resources/pt-BR.ts
+@@ -2413,6 +2413,10 @@ export const ptBR: TranslationResources = {
+     },
+     general: {
+       title: "Geral",
++      autoRotate: {
++        label: "Girar automaticamente",
++        description: "Espera 500 ms após inclinar o dispositivo antes de girar, para que uma inclinação breve não vire a tela",
++      },
+       sending: "Envio",
+       setup: {
+         label: "Configuração inicial",
+diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
+index 012e6eb47..8fa745abb 100644
+--- a/packages/app/src/i18n/resources/ru.ts
++++ b/packages/app/src/i18n/resources/ru.ts
+@@ -2416,6 +2416,10 @@ export const ru: TranslationResources = {
+     },
+     general: {
+       title: "Основные",
++      autoRotate: {
++        label: "Автоповорот",
++        description: "Поворот выполняется через 500 мс после наклона устройства, чтобы короткий наклон не переворачивал экран",
++      },
+       sending: "Отправка",
+       setup: {
+         label: "Первоначальная настройка",
+diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
+index 1c6106553..a15895fc1 100644
+--- a/packages/app/src/i18n/resources/zh-CN.ts
++++ b/packages/app/src/i18n/resources/zh-CN.ts
+@@ -2355,6 +2355,10 @@ export const zhCN: TranslationResources = {
+     },
+     general: {
+       title: "通用",
++      autoRotate: {
++        label: "自动旋转",
++        description: "设备倾斜后保持 500 毫秒才旋转，轻微倾斜不会翻转屏幕",
++      },
+       sending: "发送",
+       setup: {
+         label: "首次设置",
+diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
+index fa87c28cf..d71fc3c5e 100644
+--- a/packages/app/src/screens/settings-screen.tsx
++++ b/packages/app/src/screens/settings-screen.tsx
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import type { ComponentType, ReactNode } from "react";
+ import {
+   Alert,
++  Platform,
+   Pressable,
+   ScrollView,
+   Text,
+@@ -44,7 +45,9 @@ import {
+   MessageSquare,
+   ChevronRight,
+ } from "lucide-react-native";
++import { syncRotationDelay } from "@/android/rotation-delay";
+ import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
++import { Switch } from "@/components/ui/switch";
+ import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
+ import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+ import { HostPicker as SharedHostPicker } from "@/components/hosts/host-picker";
+@@ -390,12 +393,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
+             </DropdownMenuContent>
+           </DropdownMenu>
+         </View>
++        {Platform.OS === "android" ? <AutoRotateRow /> : null}
+         {isNative ? null : <ShowSetupAgainRow />}
+       </View>
+     </SettingsSection>
+   );
+ }
+ 
++function AutoRotateRow() {
++  const { t } = useTranslation();
++  const { settings, updateSettings } = useSettings();
++  const handleValueChange = useCallback(
++    (autoRotate: boolean) => {
++      void updateSettings({ autoRotate });
++      void syncRotationDelay(autoRotate);
++    },
++    [updateSettings],
++  );
++  return (
++    <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
++      <View style={settingsStyles.rowContent}>
++        <Text style={settingsStyles.rowTitle}>{t("settings.general.autoRotate.label")}</Text>
++        <Text style={settingsStyles.rowHint}>{t("settings.general.autoRotate.description")}</Text>
++      </View>
++      <Switch
++        value={settings.autoRotate}
++        onValueChange={handleValueChange}
++        accessibilityLabel={t("settings.general.autoRotate.label")}
++        testID="settings-auto-rotate"
++      />
++    </View>
++  );
++}
++
+ function ShowSetupAgainRow() {
+   const { t } = useTranslation();
+   const openOnboarding = useOpenOnboarding();

@@ -18,8 +18,10 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const patchDir = resolve(here, "..", "patches");
 const badgePatch = join(patchDir, "paseo-app-composer-badges.patch");
+const autoRotatePatch = join(patchDir, "paseo-app-auto-rotate.patch");
 const processGuardSrc = join(here, "android-process-guard");
 const displayMetricsSrc = join(here, "android-display-metrics");
+const rotationDelaySrc = join(here, "android-rotation-delay");
 
 const sourceDir = process.argv[2] ?? ".";
 
@@ -259,6 +261,90 @@ function patchDisplayMetrics(dir) {
   );
 }
 
+function patchRotationDelay(dir) {
+  const pluginDir = join(dir, "packages", "app", "plugins");
+  if (!existsSync(pluginDir)) fail(`missing plugins dir: ${pluginDir}`);
+
+  const pluginName = "with-android-rotation-delay";
+  const source = join(rotationDelaySrc, `${pluginName}.js`);
+  if (!existsSync(source)) fail(`missing rotation delay plugin: ${source}`);
+  copyFileSync(source, join(pluginDir, `${pluginName}.js`));
+
+  const path = join(dir, "packages", "app", "app.config.js");
+  let content = read(path);
+  const original = content;
+  const nl = detectNewline(content);
+
+  if (!content.includes(`./plugins/${pluginName}`)) {
+    const needle = 'const withPasteInput = require("./plugins/with-paste-input");';
+    if (!content.includes(needle)) {
+      fail('app.config.js: cannot find anchor `const withPasteInput = require("./plugins/with-paste-input");`');
+    }
+    content = content.replace(
+      needle,
+      () => `${needle}${nl}const withAndroidRotationDelay = require("./plugins/${pluginName}");`,
+    );
+  }
+
+  // Must sit after withAndroidDisplayMetrics: that plugin adds the onResume this
+  // one hooks into, and it refuses a tree whose onResume exists without its
+  // metrics call.
+  if (!/withAndroidRotationDelay,/.test(content)) {
+    const needle = /^([ \t]*)withAndroidDisplayMetrics,[ \t]*\r?$/m;
+    const match = needle.exec(content);
+    if (!match) {
+      fail("app.config.js: cannot find anchor `withAndroidDisplayMetrics,` inside the plugins array");
+    }
+    content = content.replace(
+      needle,
+      (m) => `${m.replace(/\r$/, "")}${nl}${match[1]}withAndroidRotationDelay,`,
+    );
+  }
+
+  writeIfChanged(path, content, original, "packages/app/app.config.js (rotation delay)");
+
+  assertContains(path, `./plugins/${pluginName}`, "app.config.js");
+  assertContains(path, "withAndroidRotationDelay,", "app.config.js");
+  assertContains(
+    join(pluginDir, `${pluginName}.js`),
+    "PaseoRotationDelay",
+    `plugins/${pluginName}.js`,
+  );
+
+  // The app-side patch adds the switch, the settings key and the file the plugin
+  // reads the switch from.
+  if (!existsSync(autoRotatePatch)) fail(`missing auto-rotate patch: ${autoRotatePatch}`);
+  try {
+    execFileSync("git", ["apply", "--check", "--reverse", autoRotatePatch], {
+      cwd: dir,
+      stdio: "ignore",
+    });
+    console.log("[statusbar-patch] auto-rotate patch already applied");
+  } catch {
+    try {
+      execFileSync("git", ["apply", autoRotatePatch], {
+        cwd: dir,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      console.log("[statusbar-patch] applied auto-rotate patch");
+    } catch (error) {
+      const stderr = error.stderr?.toString?.() ?? String(error);
+      fail(`failed to apply ${autoRotatePatch}:\n${stderr.trim()}`);
+    }
+  }
+
+  assertContains(
+    join(dir, "packages", "app", "src", "android", "rotation-delay.ts"),
+    "syncRotationDelay",
+    "packages/app/src/android/rotation-delay.ts",
+  );
+  assertContains(
+    join(dir, "packages", "app", "src", "screens", "settings-screen.tsx"),
+    "settings.general.autoRotate.label",
+    "packages/app/src/screens/settings-screen.tsx",
+  );
+}
+
 function patchComposerBadges(dir) {
   if (!existsSync(badgePatch)) return;
   try {
@@ -287,6 +373,7 @@ patchAppConfig(sourceDir);
 patchRootLayout(sourceDir);
 patchProcessGuard(sourceDir);
 patchDisplayMetrics(sourceDir);
+patchRotationDelay(sourceDir);
 patchComposerBadges(sourceDir);
 
 // The badges patch also carries the tool-call display fix: a catch-all ACP tool
