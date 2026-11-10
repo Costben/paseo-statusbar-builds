@@ -1280,7 +1280,7 @@ index 090e55afa..d62ece96d 100644
 +});
 \ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index e1d928397..c98952906 100644
+index e1d9283..b734652 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -362,6 +362,41 @@ const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
@@ -1432,7 +1432,7 @@ index e1d928397..c98952906 100644
 +  private readonly probeIdleTtlMs: number;
 +  private readonly featureCacheTtlMs: number;
 +  private readonly featureCache = new Map<string, ACPFeatureCacheEntry>();
-+  private readonly featureLoadsInFlight = new Map<string, Promise<AgentFeature[]>>();
++  private readonly featureLoadsInFlight = new Map<string, Promise<AgentDraftControls>>();
 +  private readonly pooledProbes = new Map<string, ACPPooledProbe>();
 +  // In-flight spawns, so two probes that arrive together share one boot instead
 +  // of racing each other into two processes (one of which nothing would own).
@@ -1571,7 +1571,7 @@ index e1d928397..c98952906 100644
                  sessionId: response.sessionId,
                  models: derivedModels,
                  configOptions: transformed.configOptions,
-@@ -1349,47 +1438,281 @@ export class ACPAgentClient implements AgentClient {
+@@ -1349,47 +1438,280 @@ export class ACPAgentClient implements AgentClient {
          transformed.configOptions,
        );
        return {
@@ -1606,7 +1606,6 @@ index e1d928397..c98952906 100644
 +      config.model ?? null,
 +      config.modeId ?? null,
 +      config.thinkingOptionId ?? null,
-+      config.featureValues ?? null,
 +      config.providerOptions ?? null,
 +    ]);
 +    const cached = this.featureCache.get(cacheKey);
@@ -1883,7 +1882,7 @@ index e1d928397..c98952906 100644
      }
    }
  
-@@ -1960,9 +2283,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1960,9 +2282,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private currentTurnUpdateCount = 0;
    private currentTurnMismatchedUpdateCount = 0;
    private currentTurnStartedAt = 0;
@@ -1898,7 +1897,7 @@ index e1d928397..c98952906 100644
    private providerSessionCleanup: (() => void) | null = null;
    private currentTurnUsage: AgentUsage | undefined;
    private activeForegroundTurnId: string | null = null;
-@@ -2029,6 +2357,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2029,6 +2356,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.lateTimelineGraceMs = options.lateTimelineGraceMs ?? ACP_LATE_TIMELINE_GRACE_MS;
      this.extensionCommandsParser = options.extensionCommandsParser;
      this.providerHooks = options.providerHooks;
@@ -1906,7 +1905,7 @@ index e1d928397..c98952906 100644
      if (options.providerHooks?.acceptsQueuedPrompts) {
        this.steerActiveTurn = (prompt, steerOptions) =>
          this.steerIntoProviderQueue(prompt, steerOptions);
-@@ -2418,6 +2747,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2418,6 +2746,78 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      await Promise.race([settledHold, waitForAbortSignal(signal)]);
    }
  
@@ -1985,7 +1984,7 @@ index e1d928397..c98952906 100644
    /**
     * Ask the provider why a turn produced no timeline item. A throwing hook must
     * never change the failure, so a rejection keeps the generic code.
-@@ -2548,6 +2949,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2548,6 +2948,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      prompt: AgentPromptInput,
      options: AgentRunOptions | undefined,
      announceUserMessage: boolean,
@@ -1993,7 +1992,7 @@ index e1d928397..c98952906 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2569,6 +2971,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2569,6 +2970,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
@@ -2001,7 +2000,7 @@ index e1d928397..c98952906 100644
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
-@@ -2688,7 +3091,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2688,7 +3090,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    get controls(): AgentOptionControl[] {
      return [
@@ -2010,7 +2009,7 @@ index e1d928397..c98952906 100644
        ...deriveControlsFromACP(this.configOptions, this.configFeatureOptions),
      ];
    }
-@@ -3937,6 +4340,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3937,6 +4339,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
        return [];
      }
@@ -2023,7 +2022,7 @@ index e1d928397..c98952906 100644
      if (update.sessionUpdate === "user_message_chunk") {
        return this.handleUserMessageChunk(update);
      }
-@@ -3953,6 +4362,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3953,6 +4361,50 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return events;
    }
  
@@ -2074,7 +2073,7 @@ index e1d928397..c98952906 100644
    private translateSessionUpdateBody(
      update: SessionUpdate,
      pendingUserEvents: AgentStreamEvent[],
-@@ -4400,6 +4853,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4400,6 +4852,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -2082,7 +2081,7 @@ index e1d928397..c98952906 100644
          break;
      }
    }
-@@ -5014,10 +5468,42 @@ function mapToolDetail(
+@@ -5014,10 +5467,42 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -2126,7 +2125,7 @@ index e1d928397..c98952906 100644
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
    const { snapshot, firstLocation, textContent, rawInput, rawOutput } = context;
    return {
-@@ -5341,10 +5827,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -5341,10 +5826,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
