@@ -5426,7 +5426,7 @@ index 33664f7ad..e1d928397 100644
 +    if (this.heldQueuedPrompts.length === 0) {
 +      return;
 +    }
-+    setImmediate(() => {
++    globalThis.setImmediate(() => {
 +      const next = this.heldQueuedPrompts.shift();
 +      if (!next) {
 +        return;
