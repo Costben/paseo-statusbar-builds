@@ -684,10 +684,10 @@ index 0456cd628..c1b645b47 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 973c7f240..df7280c34 100644
+index 973c7f2..4685458 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
-@@ -223,3 +223,42 @@ describe("composer viewport", () => {
+@@ -223,3 +223,43 @@ describe("composer viewport", () => {
      ).toBe(95);
    });
  });
@@ -699,6 +699,7 @@ index 973c7f240..df7280c34 100644
 +    safeAreaBottom: 0,
 +    centered: false,
 +    keyboardShift: 308,
++    keyboardGap: 0,
 +  });
 +
 +  it("adds the tray and the import pill on top of the editing budget", () => {
@@ -1774,9 +1775,18 @@ index 4b31c4e0c..f79abede7 100644
      ...toolbarSlot(),
      flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index a3ae8652a..2a4888b78 100644
+index a3ae865..1d4b7a1 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
+@@ -28,7 +28,7 @@ import {
+ } from "react";
+ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+ import { useTranslation } from "react-i18next";
+-import type { Theme } from "@/styles/theme";
++import { SPACING, type Theme } from "@/styles/theme";
+ import {
+   controlSizingForLayout,
+   TOOLBAR_CONTROL_GAP,
 @@ -66,6 +66,7 @@ import {
  } from "@/utils/image-attachments-from-files";
  import type { ComposerAttachment } from "@/attachments/types";
