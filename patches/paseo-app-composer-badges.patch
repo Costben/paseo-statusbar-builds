@@ -759,6 +759,576 @@ index 0815603e5..193c7ca32 100644
            <View style={styles.importPillContent}>
              <ComposerImportPill onPress={importPillPress} />
            </View>
+diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
+new file mode 100644
+index 000000000..2c20c7f26
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.test.ts
+@@ -0,0 +1,137 @@
++import { describe, expect, it } from "vitest";
++import {
++  formatCompactTokens,
++  formatFullTokens,
++  formatGoalElapsed,
++  formatGoalInputUsage,
++  formatGoalUsageSuffix,
++  resolveGoalStatusLabel,
++  resolveGoalUsageHints,
++} from "./goal-pill";
++
++describe("resolveGoalUsageHints", () => {
++  it("says Kimi does not report a goal's turn count", () => {
++    expect(resolveGoalUsageHints("kimi").turns).toContain("Kimi 不提供这个数");
++  });
++
++  it("does not describe a Claude goal with Kimi's wording", () => {
++    const hints = resolveGoalUsageHints("claude");
++
++    expect(hints.turns).not.toContain("Kimi");
++    expect(hints.tokens).not.toContain("Kimi");
++    expect(hints.turns).toContain("Claude 只在评估目标时报自己的计数");
++  });
++
++  it("has wording for a provider it does not know", () => {
++    const hints = resolveGoalUsageHints("codex");
++
++    expect(hints.turns.length).toBeGreaterThan(0);
++    expect(hints.tokens.length).toBeGreaterThan(0);
++    expect(hints.turns).not.toContain("Kimi");
++  });
++
++  it("has wording for a goal with no provider at all", () => {
++    expect(resolveGoalUsageHints(undefined).turns).not.toContain("Kimi");
++  });
++});
++
++describe("resolveGoalStatusLabel", () => {
++  it.each([
++    ["active", "目标进行中"],
++    ["paused", "目标已暂停"],
++    ["blocked", "目标受阻"],
++    ["complete", "目标已完成"],
++    ["cleared", "目标已清除"],
++  ] as const)("labels %s", (status, label) => {
++    expect(resolveGoalStatusLabel(status)).toBe(label);
++  });
++});
++
++describe("formatCompactTokens", () => {
++  it.each([
++    [0, "0"],
++    [-1, "0"],
++    [999, "999"],
++    [12_300, "12.3K"],
++    [100_000, "100K"],
++    [1_234_567, "1.2M"],
++  ] as const)("formats %i as %s", (tokens, expected) => {
++    expect(formatCompactTokens(tokens)).toBe(expected);
++  });
++});
++
++describe("formatFullTokens", () => {
++  it.each([
++    [0, "0"],
++    [-1, "0"],
++    [999, "999"],
++    [12_300, "12,300"],
++    [1_234_567, "1,234,567"],
++  ] as const)("formats %i as %s", (tokens, expected) => {
++    expect(formatFullTokens(tokens)).toBe(expected);
++  });
++});
++
++describe("formatGoalUsageSuffix", () => {
++  it("joins turns and tokens", () => {
++    expect(formatGoalUsageSuffix(3, 12_300)).toBe("· 3 回合 · 12.3K");
++  });
++
++  it("drops the side that is zero", () => {
++    expect(formatGoalUsageSuffix(2, 0)).toBe("· 2 回合");
++    expect(formatGoalUsageSuffix(0, 500)).toBe("· 500");
++  });
++
++  it("appends the input side when the log carried one", () => {
++    expect(formatGoalUsageSuffix(3, 12_300, 1_200_000)).toBe("· 3 回合 · 12.3K · IN 1.2M");
++  });
++
++  it("leaves the suffix alone when there is no input count", () => {
++    expect(formatGoalUsageSuffix(3, 12_300, 0)).toBe("· 3 回合 · 12.3K");
++  });
++
++  it("returns null when the goal has no usage yet", () => {
++    expect(formatGoalUsageSuffix(0, 0)).toBeNull();
++  });
++});
++
++describe("formatGoalInputUsage", () => {
++  it("shows the summed input with the exact count", () => {
++    const usage = formatGoalInputUsage(1_203_194, undefined);
++    expect(usage?.value).toBe("1.2M tokens");
++    expect(usage?.hint).toContain("1,203,194");
++    expect(usage?.hint).toContain("每次请求都计入");
++  });
++
++  it("names the cache-read part when there was one", () => {
++    const usage = formatGoalInputUsage(1_203_194, 1_108_328);
++    expect(usage?.hint).toContain("其中缓存 1,108,328");
++  });
++
++  it("omits the cache note when nothing was cached", () => {
++    const usage = formatGoalInputUsage(1_203_194, 0);
++    expect(usage?.hint).not.toContain("缓存");
++  });
++
++  it("has nothing to show without an input count", () => {
++    expect(formatGoalInputUsage(undefined, undefined)).toBeNull();
++    expect(formatGoalInputUsage(0, 0)).toBeNull();
++  });
++});
++
++describe("formatGoalElapsed", () => {
++  const NOW = 1_790_500_000_000;
++
++  it("measures up to the end mark once the goal has ended", () => {
++    expect(formatGoalElapsed(NOW - 90_000, NOW - 30_000, NOW)).toBe("1m");
++  });
++
++  it("measures up to now while the goal is still running", () => {
++    expect(formatGoalElapsed(NOW - 45_000, null, NOW)).toBe("45s");
++    expect(formatGoalElapsed(NOW - 45_000, undefined, NOW)).toBe("45s");
++  });
++
++  it("has nothing to show without a start mark", () => {
++    expect(formatGoalElapsed(undefined, null, NOW)).toBeNull();
++  });
++});
+diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
+new file mode 100644
+index 000000000..213410e7e
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.tsx
+@@ -0,0 +1,421 @@
++import { useCallback, type ReactElement } from "react";
++import { Text, View } from "react-native";
++import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import type { AgentProvider } from "@getpaseo/protocol/agent-types";
++import {
++  MenuRoot,
++  MenuSurface,
++  MenuTrigger,
++  menuRowContentInset,
++  type MenuTriggerState,
++} from "@/components/ui/menu";
++import { formatDuration, formatMessageTimestamp } from "@/utils/time";
++import type { Theme } from "@/styles/theme";
++import { assertUnreachable } from "@/utils/exhaustive";
++
++export type AgentGoalStatus = AgentGoalPayload["status"];
++
++const GOAL_STATUS_LABELS: Record<AgentGoalStatus, string> = {
++  active: "目标进行中",
++  paused: "目标已暂停",
++  blocked: "目标受阻",
++  complete: "目标已完成",
++  cleared: "目标已清除",
++};
++
++const ThemedActiveGlyph = withUnistyles(CircleDot);
++const ThemedPausedGlyph = withUnistyles(CircleSlash);
++const ThemedBlockedGlyph = withUnistyles(CircleAlert);
++const ThemedCompleteGlyph = withUnistyles(CircleCheck);
++
++const GOAL_STATUS_GLYPHS = {
++  active: ThemedActiveGlyph,
++  paused: ThemedPausedGlyph,
++  blocked: ThemedBlockedGlyph,
++  complete: ThemedCompleteGlyph,
++  cleared: ThemedPausedGlyph,
++} as const;
++
++const accentMapping = (theme: Theme) => ({ color: theme.colors.accent });
++const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
++const warningMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
++const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
++
++/** Built once: a mapping rebuilt inline would hand `withUnistyles` a new function every render. */
++const GOAL_STATUS_COLOR_MAPPINGS: Record<AgentGoalStatus, (theme: Theme) => { color: string }> = {
++  active: accentMapping,
++  paused: mutedMapping,
++  blocked: warningMapping,
++  complete: successMapping,
++  cleared: mutedMapping,
++};
++
++const goalPillStyles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.borderAccent,
++    backgroundColor: theme.colors.surface1,
++    minWidth: 0,
++    flexShrink: 1,
++  },
++  pillActive: {
++    backgroundColor: theme.colors.surface2,
++  },
++  label: {
++    fontSize: 12,
++    lineHeight: 14,
++    fontWeight: theme.fontWeight.medium,
++  },
++  labelActive: {
++    color: theme.colors.accent,
++  },
++  labelPaused: {
++    color: theme.colors.foregroundMuted,
++  },
++  labelBlocked: {
++    color: theme.colors.statusWarning,
++  },
++  labelComplete: {
++    color: theme.colors.statusSuccess,
++  },
++  usage: {
++    color: theme.colors.foregroundExtraMuted,
++    fontWeight: theme.fontWeight.normal,
++  },
++  // Detail rows sit on the same rail as a menu row's label, so the panel reads as one surface
++  // family whether its rows are pressable or plain.
++  field: {
++    flexDirection: "row",
++    alignItems: "flex-start",
++    gap: theme.spacing[2],
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[1],
++  },
++  fieldLabel: {
++    width: 56,
++    paddingTop: theme.spacing[1],
++    fontSize: theme.fontSize.sm,
++    color: theme.colors.foregroundMuted,
++  },
++  fieldBody: {
++    flex: 1,
++    gap: theme.spacing[1],
++  },
++  fieldValue: {
++    fontSize: theme.fontSize.sm,
++    lineHeight: theme.fontSize.sm * 1.5,
++    color: theme.colors.foreground,
++  },
++  fieldHint: {
++    fontSize: theme.fontSize.sm,
++    color: theme.colors.foregroundExtraMuted,
++  },
++}));
++
++const COMPACT_TOKEN_UNITS = [
++  { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: "B" },
++  { threshold: 1_000_000, divisor: 1_000_000, suffix: "M" },
++  { threshold: 1_000, divisor: 1_000, suffix: "K" },
++] as const;
++
++const DETAIL_PANEL_TEST_ID = "composer-goal-pill-panel";
++const DETAIL_SHEET_TITLE = "目标";
++const PANEL_MIN_WIDTH = 280;
++const PANEL_MAX_WIDTH = 520;
++const PANEL_MAX_HEIGHT = 440;
++/** Gap between the pill and its panel. Matches the track pills parked over the composer. */
++const PANEL_OFFSET = 12;
++
++/**
++ * What the panel says about a count the provider did not state itself. A bare count next to a
++ * token count reads as provider-reported, so the reader is told which is which — and that differs
++ * per provider: Kimi never reports how many turns a goal took, while Claude reports its own count
++ * only when the Stop hook evaluates the goal, which can be long after it was set.
++ */
++interface GoalUsageHints {
++  turns: string;
++  tokens: string;
++}
++
++const KIMI_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 按会话日志统计，Kimi 不提供这个数",
++  tokens: "Kimi 报的累计输出 token",
++};
++
++const CLAUDE_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 按回合统计，Claude 只在评估目标时报自己的计数",
++  tokens: "Paseo 按响应累计的输出 token",
++};
++
++const DEFAULT_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 统计的回合数",
++  tokens: "Paseo 累计的输出 token",
++};
++
++export function resolveGoalUsageHints(provider: AgentProvider | null | undefined): GoalUsageHints {
++  if (provider === "kimi") {
++    return KIMI_GOAL_USAGE_HINTS;
++  }
++  if (provider === "claude") {
++    return CLAUDE_GOAL_USAGE_HINTS;
++  }
++  return DEFAULT_GOAL_USAGE_HINTS;
++}
++
++const INPUT_TOKENS_HINT = "Paseo 按响应累计的输入 token，同一段上下文每次请求都计入";
++
++export function resolveGoalStatusLabel(status: AgentGoalStatus): string {
++  return GOAL_STATUS_LABELS[status];
++}
++
++/** One decimal below 100 of the unit, whole numbers above it. */
++export function formatCompactTokens(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
++  for (const { threshold, divisor, suffix } of COMPACT_TOKEN_UNITS) {
++    if (tokens < threshold) continue;
++    const rounded = Math.round((tokens / divisor) * 10) / 10;
++    return `${rounded < 100 ? rounded.toFixed(1) : Math.round(rounded)}${suffix}`;
++  }
++  return String(Math.round(tokens));
++}
++
++/** Grouped digits, so the panel can show the exact count the compact form rounds off. */
++export function formatFullTokens(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
++  return String(Math.round(tokens)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
++}
++
++function goalUsageParts(turnsUsed: number, tokensUsed: number, inputTokens = 0): string[] {
++  const parts: string[] = [];
++  if (turnsUsed > 0) parts.push(`${Math.round(turnsUsed)} 回合`);
++  if (tokensUsed > 0) parts.push(formatCompactTokens(tokensUsed));
++  if (inputTokens > 0) parts.push(`IN ${formatCompactTokens(inputTokens)}`);
++  return parts;
++}
++
++export function formatGoalUsageSuffix(
++  turnsUsed: number,
++  tokensUsed: number,
++  inputTokens = 0,
++): string | null {
++  const parts = goalUsageParts(turnsUsed, tokensUsed, inputTokens);
++  return parts.length > 0 ? `· ${parts.join(" · ")}` : null;
++}
++
++/**
++ * The input side of a goal's usage, as a line for the panel: the summed input, and the cache-read
++ * part of it when the provider reported any. Null when the log carried no input at all, because a
++ * row reading zero would claim the goal read nothing.
++ */
++export function formatGoalInputUsage(
++  inputTokens: number | undefined,
++  cachedInputTokens: number | undefined,
++): { value: string; hint: string } | null {
++  if (inputTokens === undefined || inputTokens <= 0) return null;
++  const cached = cachedInputTokens !== undefined && cachedInputTokens > 0 ? cachedInputTokens : 0;
++  const hint =
++    cached > 0
++      ? `${formatFullTokens(inputTokens)} · 其中缓存 ${formatFullTokens(cached)} · ${INPUT_TOKENS_HINT}`
++      : `${formatFullTokens(inputTokens)} · ${INPUT_TOKENS_HINT}`;
++  return { value: `${formatCompactTokens(inputTokens)} tokens`, hint };
++}
++
++/**
++ * How long the goal has been running: up to `endedAt` once it ended, up to `now` while it is
++ * still going. Null without a start mark, because a goal whose start the log never recorded has
++ * no elapsed time to show — inventing one from epoch zero would read as 56 years.
++ */
++export function formatGoalElapsed(
++  startedAt: number | undefined,
++  endedAt: number | null | undefined,
++  now: number,
++): string | null {
++  if (startedAt === undefined) return null;
++  const end = endedAt === undefined || endedAt === null ? now : endedAt;
++  return formatDuration(end - startedAt);
++}
++
++function goalLabelStyle(status: AgentGoalStatus) {
++  switch (status) {
++    case "active":
++      return goalPillStyles.labelActive;
++    case "paused":
++    case "cleared":
++      return goalPillStyles.labelPaused;
++    case "blocked":
++      return goalPillStyles.labelBlocked;
++    case "complete":
++      return goalPillStyles.labelComplete;
++    default:
++      return assertUnreachable(status);
++  }
++}
++
++interface GoalPillProps {
++  goal: AgentGoalPayload | null | undefined;
++  /** Whose goal this is; decides what the panel says about the counters. */
++  provider?: AgentProvider | null;
++}
++
++export function GoalPill({ goal, provider }: GoalPillProps): ReactElement | null {
++  if (!goal) return null;
++  return (
++    <MenuRoot compactMode="sheet">
++      <GoalPillTrigger goal={goal} />
++      <MenuSurface
++        side="top"
++        align="start"
++        offset={PANEL_OFFSET}
++        sheetTitle={DETAIL_SHEET_TITLE}
++        minWidth={PANEL_MIN_WIDTH}
++        maxWidth={PANEL_MAX_WIDTH}
++        maxHeight={PANEL_MAX_HEIGHT}
++        scrollable
++        testID={DETAIL_PANEL_TEST_ID}
++      >
++        <GoalDetail goal={goal} provider={provider} />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
++
++function GoalPillTrigger({ goal }: { goal: AgentGoalPayload }): ReactElement {
++  const pillStyle = useCallback(
++    ({ hovered, pressed, open }: MenuTriggerState) => [
++      goalPillStyles.pill,
++      (hovered || pressed || open) && goalPillStyles.pillActive,
++    ],
++    [],
++  );
++  const label = resolveGoalStatusLabel(goal.status);
++  const Glyph = GOAL_STATUS_GLYPHS[goal.status];
++  const usageSuffix = formatGoalUsageSuffix(goal.turnsUsed, goal.tokensUsed, goal.inputTokens);
++  const accessibilityLabel = [
++    label,
++    ...goalUsageParts(goal.turnsUsed, goal.tokensUsed, goal.inputTokens),
++  ].join("，");
++
++  return (
++    <MenuTrigger
++      testID="composer-goal-pill"
++      accessibilityRole="button"
++      accessibilityLabel={`${accessibilityLabel}，查看目标详情`}
++      style={pillStyle}
++    >
++      <Glyph size={13} uniProps={GOAL_STATUS_COLOR_MAPPINGS[goal.status]} />
++      <Text style={[goalPillStyles.label, goalLabelStyle(goal.status)]} numberOfLines={1}>
++        {label}
++      </Text>
++      {usageSuffix ? (
++        <Text style={[goalPillStyles.label, goalPillStyles.usage]} numberOfLines={1}>
++          {usageSuffix}
++        </Text>
++      ) : null}
++    </MenuTrigger>
++  );
++}
++
++/**
++ * What the pill abbreviates. The goal text and the completion criterion are the two things the
++ * pill has no room for and the reader most often needs, so they lead.
++ */
++function GoalDetail({
++  goal,
++  provider,
++}: {
++  goal: AgentGoalPayload;
++  provider?: AgentProvider | null;
++}): ReactElement {
++  const elapsed = formatGoalElapsed(goal.startedAt, goal.endedAt, Date.now());
++  const endedAt = goal.endedAt;
++  const inputUsage = formatGoalInputUsage(goal.inputTokens, goal.cachedInputTokens);
++  const hints = resolveGoalUsageHints(provider);
++  return (
++    <>
++      <GoalDetailField
++        label="目标"
++        value={goal.objective}
++        testID={`${DETAIL_PANEL_TEST_ID}-objective`}
++      />
++      {goal.completionCriterion ? (
++        <GoalDetailField
++          label="完成判据"
++          value={goal.completionCriterion}
++          testID={`${DETAIL_PANEL_TEST_ID}-criterion`}
++        />
++      ) : null}
++      <GoalDetailField
++        label="回合"
++        value={`${Math.round(goal.turnsUsed)} 回合`}
++        hint={hints.turns}
++        testID={`${DETAIL_PANEL_TEST_ID}-turns`}
++      />
++      <GoalDetailField
++        label="输出"
++        value={`${formatCompactTokens(goal.tokensUsed)} tokens`}
++        hint={`${formatFullTokens(goal.tokensUsed)} · ${hints.tokens}`}
++        testID={`${DETAIL_PANEL_TEST_ID}-tokens`}
++      />
++      {inputUsage === null ? null : (
++        <GoalDetailField
++          label="输入"
++          value={inputUsage.value}
++          hint={inputUsage.hint}
++          testID={`${DETAIL_PANEL_TEST_ID}-input-tokens`}
++        />
++      )}
++      {goal.startedAt !== undefined ? (
++        <GoalDetailField
++          label="开始"
++          value={formatMessageTimestamp(new Date(goal.startedAt))}
++          testID={`${DETAIL_PANEL_TEST_ID}-started`}
++        />
++      ) : null}
++      {elapsed !== null ? (
++        <GoalDetailField label="已跑" value={elapsed} testID={`${DETAIL_PANEL_TEST_ID}-elapsed`} />
++      ) : null}
++      {endedAt !== undefined && endedAt !== null ? (
++        <GoalDetailField
++          label="结束"
++          value={formatMessageTimestamp(new Date(endedAt))}
++          testID={`${DETAIL_PANEL_TEST_ID}-ended`}
++        />
++      ) : null}
++      {goal.terminalReason ? (
++        <GoalDetailField
++          label="原因"
++          value={goal.terminalReason}
++          testID={`${DETAIL_PANEL_TEST_ID}-reason`}
++        />
++      ) : null}
++    </>
++  );
++}
++
++interface GoalDetailFieldProps {
++  label: string;
++  value: string;
++  hint?: string;
++  testID: string;
++}
++
++function GoalDetailField({ label, value, hint, testID }: GoalDetailFieldProps): ReactElement {
++  return (
++    <View style={goalPillStyles.field} testID={testID}>
++      <Text style={goalPillStyles.fieldLabel}>{label}</Text>
++      <View style={goalPillStyles.fieldBody}>
++        <Text style={goalPillStyles.fieldValue}>{value}</Text>
++        {hint === undefined ? null : <Text style={goalPillStyles.fieldHint}>{hint}</Text>}
++      </View>
++    </View>
++  );
++}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
 index 4b31c4e0c..f79abede7 100644
 --- a/packages/app/src/composer/index.tsx

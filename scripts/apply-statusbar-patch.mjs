@@ -386,4 +386,14 @@ assertContains(
   "packages/protocol/src/tool-call-display.ts",
 );
 
+const goalPillPath = join(sourceDir, "packages", "app", "src", "composer", "goal-pill.tsx");
+if (!existsSync(goalPillPath)) {
+  fail(`post-check failed: missing ${goalPillPath}`);
+}
+assertContains(
+  goalPillPath,
+  "export function GoalPill(",
+  "packages/app/src/composer/goal-pill.tsx",
+);
+
 console.log("[statusbar-patch] done");
