@@ -61,10 +61,10 @@ index 704298f78..dd1da9eeb 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index 4256685f9..ca8b5a416 100644
+index 6ce7e59ca..00451757d 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -311,6 +311,44 @@ describe("bare URL sentence punctuation", () => {
+@@ -564,6 +564,44 @@ describe("bare URL sentence punctuation", () => {
    );
  });
  
@@ -110,7 +110,7 @@ index 4256685f9..ca8b5a416 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 3462320d7..369f45200 100644
+index 8b15b8ff9..46601d6e8 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -147,27 +147,27 @@ index 3462320d7..369f45200 100644
 +  });
 +}
 +
- function createFilePattern(path: string): RegExp {
-   // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
-   return new RegExp(
-@@ -138,6 +168,7 @@ export function prepareMarkdownSource(
+ function createTextPattern(path: string, forgeReferencePattern?: string): RegExp {
+   // Forge references come before paths so `group/project#12` is not read as a path.
+   const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
+@@ -158,6 +188,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
 +    !HAS_PORT_URL.test(source) &&
-     !(workspaceRoot && source.includes("]("))
-   ) {
-     return { images, ...metadata, render: () => source };
-@@ -212,7 +243,7 @@ export function prepareMarkdownSource(
+     // Match content, header, and delimiter lines; quote-only lines count as blank.
+     !/^[\t >]*[^\t >\r\n][^\r\n]*(?:\r\n|\r|\n)[^\r\n]+(?:\r\n|\r|\n)(?=[\t >:|-]*\|)[\t >|]*:?-[-\t :|]*$/m.test(
+       source,
+@@ -236,7 +267,7 @@ export function prepareMarkdownSource(
        if (lineEnd < end) split(lineEnd);
      }
    }
--  function visit(node: Nodes) {
-+  function visit(node: Nodes, insideLink = false) {
-     const start = node.position?.start.offset;
-     const end = node.position?.end.offset;
-     if (start !== undefined && end !== undefined) {
-@@ -234,17 +265,21 @@ export function prepareMarkdownSource(
+-  function visit(node: Nodes, previous?: Nodes) {
++  function visit(node: Nodes, previous?: Nodes, insideLink = false) {
+     const position = node.position;
+     if (position?.start.offset !== undefined && position.end.offset !== undefined) {
+       const start = position.start.offset;
+@@ -272,18 +303,23 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -185,11 +185,14 @@ index 3462320d7..369f45200 100644
 +        if (text !== original) edits.push({ start, end, text });
        }
      }
--    if ("children" in node) node.children.forEach(visit);
+-    if ("children" in node)
+-      node.children.forEach((child, index) => visit(child, node.children[index - 1]));
 +    if ("children" in node) {
 +      const childInsideLink =
 +        insideLink || node.type === "link" || node.type === "linkReference";
-+      node.children.forEach((child) => visit(child, childInsideLink));
++      node.children.forEach((child, index) =>
++        visit(child, node.children[index - 1], childInsideLink),
++      );
 +    }
    }
    visit(getTree());
@@ -273,10 +276,10 @@ index 78007dba2..b037afcdf 100644
  
  export function isQuestionAnswered(
 diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
-index 0b2a5df25..68d0c851d 100644
+index a91ba4121..302128254 100644
 --- a/packages/app/src/components/question-form-card.browser.test.tsx
 +++ b/packages/app/src/components/question-form-card.browser.test.tsx
-@@ -109,6 +109,14 @@ const singleSelectQuestion = {
+@@ -116,6 +116,14 @@ const singleSelectQuestion = {
    allowOther: true,
  };
  
@@ -291,7 +294,7 @@ index 0b2a5df25..68d0c851d 100644
  describe("QuestionFormCard other answers", () => {
    it("keeps checked options when the other answer is typed afterwards (multi-select)", () => {
      const card = mountCard(multiSelectQuestion);
-@@ -153,4 +161,13 @@ describe("QuestionFormCard other answers", () => {
+@@ -160,6 +168,15 @@ describe("QuestionFormCard other answers", () => {
      card.submit();
      expect(card.submittedAnswers()).toEqual({ Provider: "Codex" });
    });
@@ -305,12 +308,14 @@ index 0b2a5df25..68d0c851d 100644
 +    expect(card.submittedAnswers()).toEqual({ Scope: "everything except OpenCode" });
 +  });
  });
+ 
+ describe("QuestionFormCard explicit navigation", () => {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 6929b447e..e3839792b 100644
+index c9da7d778..e4ccb63c5 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -408,7 +408,8 @@ const styles = StyleSheet.create((theme) => ({
-     gap: theme.spacing[1],
+@@ -590,7 +590,8 @@ const styles = StyleSheet.create((theme) => ({
+     flexShrink: 0,
    },
    triggerThinking: {
 -    flexShrink: 0,
@@ -501,7 +506,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index e3720ccbe..e87ad749d 100644
+index ab26fe561..1990684c2 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -513,15 +518,15 @@ index e3720ccbe..e87ad749d 100644
  import { View, type LayoutChangeEvent, type ViewProps, StyleSheet } from "react-native";
  import { StyleSheet as ThemedStyleSheet } from "react-native-unistyles";
  import Animated, {
-@@ -23,6 +23,7 @@ import {
+@@ -24,6 +24,7 @@ import {
    updateComposerCapacity,
    type ComposerCapacity,
  } from "./internal/capacity";
 +import { ComposerChromeContext, updateChromeHeight } from "./internal/chrome";
+ import { SPACING } from "@/styles/theme";
  
  const ViewportSizing = createContext<SharedValue<ComposerCapacity | undefined> | null>(null);
- 
-@@ -71,20 +72,28 @@ function ComposerViewport({
+@@ -76,20 +77,28 @@ function ComposerViewport({
    );
  }
  
@@ -557,7 +562,7 @@ index e3720ccbe..e87ad749d 100644
  
    return (
      <Animated.View testID="composer-viewport-content" {...props} style={[style, constraint]} />
-@@ -129,6 +138,17 @@ export function ComposerDock({
+@@ -134,6 +143,17 @@ export function ComposerDock({
    const insets = useSafeAreaInsets();
    const contentMaxWidth = resolveContentMaxWidth(useAppSettings().settings);
    const centeredClearance = useCenteredClearance(insets.bottom);
@@ -572,25 +577,27 @@ index e3720ccbe..e87ad749d 100644
 +    },
 +    [chrome],
 +  );
-   // Preserve the existing centered form's visual balance on tablets.
-   const bottomInset = centered && !fullscreen ? HEADER_INNER_HEIGHT + 24 : 0;
-   const fullscreenSurface = [
-@@ -175,8 +195,13 @@ export function ComposerDock({
+   const placement = resolveComposerBottomPlacement({
+     safeAreaBottom: insets.bottom,
+     contentSpacing: SPACING[4],
+@@ -184,10 +204,13 @@ export function ComposerDock({
              <ComposerViewportContent
                style={fullscreen ? dockStyles.surface : dockStyles.centeredComposer}
                fullscreen={fullscreen}
 +              chrome={chrome}
              >
--              <View style={fullscreen ? fullscreenSurface : dockStyles.composer}>{composer}</View>
+-              <View style={fullscreen ? fullscreenSurface : dockStyles.centeredComposerSurface}>
+-                {composer}
+-              </View>
 +              <ComposerChromeContext.Provider value={reportChrome}>
-+                <View style={fullscreen ? fullscreenSurface : dockStyles.composer}>
++                <View style={fullscreen ? fullscreenSurface : dockStyles.centeredComposerSurface}>
 +                  {composer}
 +                </View>
 +              </ComposerChromeContext.Provider>
              </ComposerViewportContent>
            </ComposerViewportContent>
          </KeyboardTranslateView>
-@@ -203,16 +228,19 @@ export function ComposerDock({
+@@ -218,16 +241,19 @@ export function ComposerDock({
          <ComposerViewportContent
            style={fullscreen ? dockStyles.fullscreenSlot : dockStyles.composer}
            fullscreen={fullscreen}
@@ -600,7 +607,7 @@ index e3720ccbe..e87ad749d 100644
 -            style={
 -              fullscreen
 -                ? fullscreenSurface
--                : [dockStyles.composer, { paddingBottom: insets.bottom }]
+-                : [dockStyles.composer, { paddingBottom: placement.restingPadding }]
 -            }
 -          >
 -            {composer}
@@ -610,7 +617,7 @@ index e3720ccbe..e87ad749d 100644
 +              style={
 +                fullscreen
 +                  ? fullscreenSurface
-+                  : [dockStyles.composer, { paddingBottom: insets.bottom }]
++                  : [dockStyles.composer, { paddingBottom: placement.restingPadding }]
 +              }
 +            >
 +              {composer}
@@ -620,7 +627,7 @@ index e3720ccbe..e87ad749d 100644
        </KeyboardTranslateView>
        {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 421002352..28757223e 100644
+index 0456cd628..c1b645b47 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -677,10 +684,10 @@ index 421002352..28757223e 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 44e79e6ef..633dfe3de 100644
+index 973c7f240..df7280c34 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
-@@ -159,3 +159,42 @@ describe("composer viewport", () => {
+@@ -223,3 +223,42 @@ describe("composer viewport", () => {
      ).toBe(95);
    });
  });
@@ -724,10 +731,10 @@ index 44e79e6ef..633dfe3de 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index 9c460e172..6a1a4e12b 100644
+index d9be8b925..6ddd43cbd 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
-@@ -67,6 +67,13 @@ export function resolveInlineComposerCapacity(
+@@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
  export interface ComposerSlotLayout {
    compact: boolean;
    fullscreen: boolean;
@@ -741,7 +748,7 @@ index 9c460e172..6a1a4e12b 100644
  }
  
  /** The bound on the composer slot: inline capacity, or the whole viewport in fullscreen. */
-@@ -77,5 +84,7 @@ export function resolveComposerSlotCapacity(
+@@ -105,5 +112,7 @@ export function resolveComposerSlotCapacity(
    "worklet";
    if (sizing === undefined) return undefined;
    if (layout.fullscreen) return sizing.viewportHeight;
@@ -829,18 +836,18 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index c4ef45cb3..af3c5c9cd 100644
+index 0815603e5..193c7ca32 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
-@@ -9,6 +9,7 @@ import { Composer } from "@/composer";
- import { useComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
- import { FileDropZone } from "@/components/file-drop/file-drop-zone";
+@@ -9,6 +9,7 @@ import invariant from "tiny-invariant";
+ import { Composer } from "@/composer";
+ import { type ComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
  import { ComposerImportPill } from "@/composer/draft/import-pill";
 +import { useComposerChromeSink } from "@/composer/dock/internal/chrome";
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
- import { AgentStreamView } from "@/agent-stream/view";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
-@@ -592,6 +593,26 @@ export function WorkspaceDraftAgentTab({
+ import { useAgentInputDraft } from "@/composer/draft/input-draft";
+@@ -563,6 +564,26 @@ export function WorkspaceDraftComposer({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -867,15 +874,15 @@ index c4ef45cb3..af3c5c9cd 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -635,7 +656,7 @@ export function WorkspaceDraftAgentTab({
-         {dockContent}
-         <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
-           {importPillPress && !isComposerFullscreen ? (
--            <View style={styles.importPillRow}>
-+            <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
-               <View style={styles.importPillContent}>
-                 <ComposerImportPill onPress={importPillPress} />
-               </View>
+@@ -581,7 +602,7 @@ export function WorkspaceDraftComposer({
+         </View>
+       ) : null}
+       {importPillPress && !isComposerFullscreen ? (
+-        <View style={styles.importPillRow}>
++        <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
+           <View style={styles.importPillContent}>
+             <ComposerImportPill onPress={importPillPress} />
+           </View>
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
 index 000000000..1f04f6797
@@ -1621,10 +1628,10 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index d6b4bae63..c31c5e263 100644
+index 4b31c4e0c..f79abede7 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -54,6 +54,8 @@ import {
+@@ -65,6 +65,8 @@ import {
    type DraftAgentControlsProps,
  } from "@/composer/agent-controls";
  import { ContextWindowMeter } from "@/components/context-window-meter";
@@ -1633,7 +1640,7 @@ index d6b4bae63..c31c5e263 100644
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
  import {
    selectAgentSentMessages,
-@@ -276,15 +278,35 @@ function buildRealtimeVoiceButtonStyle(
+@@ -293,15 +295,35 @@ function buildRealtimeVoiceButtonStyle(pressed: boolean, voiceButtonDisabled: bo
    );
  }
  
@@ -1674,7 +1681,7 @@ index d6b4bae63..c31c5e263 100644
      };
    };
  }
-@@ -1550,10 +1572,10 @@ function ComposerContentImpl({
+@@ -1666,10 +1688,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -1687,7 +1694,7 @@ index d6b4bae63..c31c5e263 100644
    );
  
    useEffect(() => {
-@@ -1617,6 +1639,7 @@ function ComposerContentImpl({
+@@ -1733,6 +1755,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -1695,10 +1702,10 @@ index d6b4bae63..c31c5e263 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2082,18 +2105,32 @@ function ComposerContentImpl({
+@@ -2196,18 +2219,32 @@ function ComposerContentImpl({
+     ],
    );
  
-   const contextWindowMeterGlyphSize = isCompactLayout ? ICON_SIZE.md : buttonIconSize;
 +  const goalPill = useMemo(
 +    () => <GoalPill goal={agentState.goal} provider={agentState.provider} />,
 +    [agentState.goal, agentState.provider],
@@ -1720,7 +1727,7 @@ index d6b4bae63..c31c5e263 100644
 -            maxTokens={agentState.contextWindowMaxTokens}
 -            usedTokens={agentState.contextWindowUsedTokens}
 -            totalCostUsd={agentState.totalCostUsd}
--            glyphSize={contextWindowMeterGlyphSize}
+-            toolbarRing={TOOLBAR_RINGS[controlSizing]}
 -          />
 +        <View style={styles.composerToolbarSlot}>
 +          {goalPill}
@@ -1731,31 +1738,31 @@ index d6b4bae63..c31c5e263 100644
 +              maxTokens={agentState.contextWindowMaxTokens}
 +              usedTokens={agentState.contextWindowUsedTokens}
 +              totalCostUsd={agentState.totalCostUsd}
-+              glyphSize={contextWindowMeterGlyphSize}
++              toolbarRing={TOOLBAR_RINGS[controlSizing]}
 +            />
 +          </View>
          </View>
        ) : null,
      [
-@@ -2104,6 +2141,7 @@ function ComposerContentImpl({
+@@ -2218,6 +2255,7 @@ function ComposerContentImpl({
        agentState.contextWindowUsedTokens,
        agentState.totalCostUsd,
-       contextWindowMeterGlyphSize,
+       controlSizing,
 +      goalPill,
      ],
    );
  
-@@ -2489,6 +2527,7 @@ function ComposerContentImpl({
+@@ -2612,6 +2650,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
 +                  voiceButtonReplacement={backgroundTaskVoiceReplacement}
-                   rightContent={rightContent}
+                   voiceModeContent={voiceModeContent}
                    activeActionContent={activeActionContent}
                    voiceServerId={serverId}
-@@ -2611,6 +2650,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2736,6 +2775,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
-     gap: theme.spacing[1],
+     gap: TOOLBAR_CONTROL_GAP,
    },
 +  composerToolbarSlot: {
 +    flexDirection: "row",
@@ -1764,22 +1771,13 @@ index d6b4bae63..c31c5e263 100644
 +    flexShrink: 0,
 +  },
    contextWindowMeterSlot: {
-     width: 28,
-     height: 28,
+     ...toolbarSlot(),
+     flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index 8cb8cd4c3..b81d93f8c 100644
+index a3ae8652a..2a4888b78 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
-@@ -26,7 +26,7 @@ import {
- } from "react";
- import { StyleSheet, withUnistyles } from "react-native-unistyles";
- import { useTranslation } from "react-i18next";
--import { ICON_SIZE, type Theme } from "@/styles/theme";
-+import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
- import { ArrowUp, Mic, MicOff, CornerDownLeft, Plus, Square } from "lucide-react-native";
- import * as Haptics from "expo-haptics";
- import { useDictation } from "@/hooks/use-dictation";
-@@ -44,6 +44,7 @@ import {
+@@ -66,6 +66,7 @@ import {
  } from "@/utils/image-attachments-from-files";
  import type { ComposerAttachment } from "@/attachments/types";
  import type { ImageAttachment, MessagePayload, TextReplacement } from "@/composer/types";
@@ -1787,41 +1785,41 @@ index 8cb8cd4c3..b81d93f8c 100644
  import { focusWithRetries } from "@/utils/web-focus";
  import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
  import { Shortcut } from "@/components/ui/shortcut";
-@@ -162,6 +163,8 @@ export interface MessageInputProps {
+@@ -185,6 +186,8 @@ export interface MessageInputProps {
    leftContent?: React.ReactNode;
    /** Content to render on the right side before the voice button (e.g., context window meter) */
    beforeVoiceContent?: React.ReactNode;
 +  /** Replaces the dictation/voice button in the composer toolbar when provided. */
 +  voiceButtonReplacement?: React.ReactNode;
-   /** Auxiliary content to render on the right side after the voice button. */
-   rightContent?: React.ReactNode;
+   /** The realtime voice mode button, which takes the trailing disc while there is nothing to send. */
+   voiceModeContent?: React.ReactNode;
    /** Primary action to render when the agent is active and the composer has no sendable content. */
-@@ -1126,6 +1129,7 @@ interface ResolvedMessageInputProps {
+@@ -1187,6 +1190,7 @@ interface ResolvedMessageInputProps {
    disabled: boolean;
    leftContent: React.ReactNode;
    beforeVoiceContent: React.ReactNode;
 +  voiceButtonReplacement: React.ReactNode;
-   rightContent: React.ReactNode;
+   voiceModeContent: React.ReactNode;
    activeActionContent: React.ReactNode;
    voiceServerId: string | undefined;
-@@ -1174,6 +1178,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+@@ -1235,6 +1239,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
      disabled: props.disabled ?? false,
      leftContent: props.leftContent,
      beforeVoiceContent: props.beforeVoiceContent,
 +    voiceButtonReplacement: props.voiceButtonReplacement,
-     rightContent: props.rightContent,
+     voiceModeContent: props.voiceModeContent,
      activeActionContent: props.activeActionContent,
      voiceServerId: props.voiceServerId,
-@@ -1252,6 +1257,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -1317,6 +1322,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
        disabled,
        leftContent,
        beforeVoiceContent,
 +      voiceButtonReplacement,
-       rightContent,
+       voiceModeContent,
        activeActionContent,
        voiceServerId,
-@@ -2133,18 +2139,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
-           {/* Right: voice button, contextual button (realtime/send/cancel) */}
+@@ -2235,18 +2241,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+           {/* Right: dictation, then the trailing action (voice mode, send or stop) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
 -            <VoiceButtonTooltip
@@ -1850,10 +1848,10 @@ index 8cb8cd4c3..b81d93f8c 100644
 +                dictationToggleKeys={dictationToggleKeys}
 +              />
 +            )}
-             {rightContent}
-             {sendButton}
+             <View style={styles.trailingDisc}>{sendButton}</View>
            </View>
-@@ -2160,6 +2168,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         </View>
+@@ -2262,6 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -1861,7 +1859,7 @@ index 8cb8cd4c3..b81d93f8c 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2219,6 +2228,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2320,6 +2329,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -1897,7 +1895,7 @@ index 8cb8cd4c3..b81d93f8c 100644
      return (
        <View
          ref={rootRef}
-@@ -2242,7 +2280,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2348,7 +2386,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -1906,7 +1904,7 @@ index 8cb8cd4c3..b81d93f8c 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2309,6 +2347,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2406,6 +2444,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -1916,7 +1914,7 @@ index 8cb8cd4c3..b81d93f8c 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2324,6 +2365,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2421,6 +2462,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -1985,10 +1983,10 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 911573762..cea84def1 100644
+index 625c3d8c2..1edcb4ce7 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
-@@ -34,6 +34,8 @@ import type {
+@@ -36,6 +36,8 @@ import type {
    AgentPersistenceHandle,
  } from "@getpaseo/protocol/agent-types";
  import type {
@@ -1997,9 +1995,9 @@ index 911573762..cea84def1 100644
    ServerInfoStatusPayload,
    ProjectPlacementPayload,
    ServerCapabilities,
-@@ -86,6 +88,8 @@ export interface Agent {
-   persistence: AgentPersistenceHandle | null;
+@@ -92,6 +94,8 @@ export interface Agent {
    runtimeInfo?: AgentRuntimeInfo;
+   usageScopeKey?: string;
    lastUsage?: AgentUsage;
 +  goal?: AgentGoalPayload | null;
 +  backgroundTasks?: AgentBackgroundTasksPayload | null;
@@ -2089,19 +2087,19 @@ index 4d14f101b..88a0601cc 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
-index e1be8c5a0..ab2262614 100644
+index 49c4bcb98..65ccfb03b 100644
 --- a/packages/app/src/utils/agent-snapshots.test.ts
 +++ b/packages/app/src/utils/agent-snapshots.test.ts
-@@ -31,6 +31,8 @@ function createSnapshot(
+@@ -32,6 +32,8 @@ function createSnapshot(
      pendingPermissions: input.pendingPermissions ?? [],
      persistence: input.persistence ?? null,
      title: input.title ?? null,
 +    goal: input.goal,
 +    backgroundTasks: input.backgroundTasks,
      labels: (input.labels ?? {}) as AgentSnapshotPayload["labels"],
-   };
- }
-@@ -40,11 +42,23 @@ describe("normalizeAgentSnapshot", () => {
+     ...(input.controls ? { controls: input.controls } : {}),
+     ...(input.options ? { options: input.options } : {}),
+@@ -70,11 +72,23 @@ describe("normalizeAgentSnapshot", () => {
      const snapshot = createSnapshot({
        status: "running",
        activeTurn: { turnId: "turn-1", startedAt: "2026-07-31T12:00:00.000Z" },
@@ -2126,21 +2124,21 @@ index e1be8c5a0..ab2262614 100644
    });
  
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 13a7bcd14..e44ea2936 100644
+index 86da628bd..88747abf0 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
-@@ -78,6 +78,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
-     persistence: agent.persistence,
+@@ -81,6 +81,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
      ...(agent.runtimeInfo ? { runtimeInfo: agent.runtimeInfo } : {}),
+     ...(agent.usageScopeKey ? { usageScopeKey: agent.usageScopeKey } : {}),
      ...(agent.lastUsage ? { lastUsage: agent.lastUsage } : {}),
 +    ...(agent.goal ? { goal: agent.goal } : {}),
 +    ...(agent.backgroundTasks ? { backgroundTasks: agent.backgroundTasks } : {}),
      ...(agent.lastError ? { lastError: agent.lastError } : {}),
      title: agent.title,
      labels: agent.labels,
-@@ -122,6 +124,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
-     persistence: snapshot.persistence ?? null,
+@@ -129,6 +131,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
      runtimeInfo: snapshot.runtimeInfo,
+     usageScopeKey: snapshot.usageScopeKey,
      lastUsage: snapshot.lastUsage,
 +    goal: snapshot.goal ?? null,
 +    backgroundTasks: snapshot.backgroundTasks ?? null,
@@ -2148,10 +2146,10 @@ index 13a7bcd14..e44ea2936 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 18654bf33..adb68cda5 100644
+index 271d3bab9..bd8579ce7 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -428,6 +428,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -465,6 +465,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -2160,7 +2158,7 @@ index 18654bf33..adb68cda5 100644
    })
    .catchall(z.boolean());
  
-@@ -860,6 +862,43 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -898,6 +900,43 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -2204,9 +2202,9 @@ index 18654bf33..adb68cda5 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -881,6 +920,8 @@ export const AgentSnapshotPayloadSchema = z.object({
-   persistence: AgentPersistenceHandleSchema.nullable(),
-   runtimeInfo: AgentRuntimeInfoSchema.optional(),
+@@ -926,6 +965,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+   /** Opaque. Changes whenever the accounts this agent reports usage for can change. */
+   usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
 +  goal: AgentGoalPayloadSchema.nullable().optional(),
 +  backgroundTasks: AgentBackgroundTasksPayloadSchema.nullable().optional(),
@@ -2291,19 +2289,19 @@ index fac28946d..18a0aa4f1 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 94250e5cd..eea755121 100644
+index 5cdbc7c19..0f864eb93 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
-@@ -34,6 +34,8 @@ import {
-   type AgentResumePurpose,
+@@ -37,6 +37,8 @@ import {
    type AgentResumeSessionOptions,
-   type AgentFeature,
+   type AgentDraftControls,
+   type AgentOptionControl,
 +  type AgentGoal,
 +  type AgentBackgroundTasks,
    type AgentLaunchContext,
    type AgentSlashCommand,
    type AgentMode,
-@@ -443,6 +445,8 @@ interface ManagedAgentBase {
+@@ -495,6 +497,8 @@ interface ManagedAgentBase {
    activeTurnId: string | null;
    activeTurnStartedAt: Date | null;
    lastUsage?: AgentUsage;
@@ -2312,7 +2310,7 @@ index 94250e5cd..eea755121 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -2738,7 +2742,7 @@ export class AgentManager {
+@@ -3128,7 +3132,7 @@ export class AgentManager {
          this.runs.settleForegroundStart(pendingRun, { status: "failed", error: error.message });
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -2321,7 +2319,7 @@ index 94250e5cd..eea755121 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -2759,7 +2763,7 @@ export class AgentManager {
+@@ -3149,7 +3153,7 @@ export class AgentManager {
          this.finalizeForegroundTurn(agent);
        } finally {
          // A steer waiting on this start is released only once the run is cleared.
@@ -2330,7 +2328,7 @@ index 94250e5cd..eea755121 100644
        }
        throw error;
      }
-@@ -2906,7 +2910,7 @@ export class AgentManager {
+@@ -3330,7 +3334,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -2339,7 +2337,7 @@ index 94250e5cd..eea755121 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -2968,6 +2972,24 @@ export class AgentManager {
+@@ -3392,6 +3396,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -2364,7 +2362,7 @@ index 94250e5cd..eea755121 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3387,7 +3409,7 @@ export class AgentManager {
+@@ -3811,7 +3833,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -2373,7 +2371,7 @@ index 94250e5cd..eea755121 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -3529,7 +3551,7 @@ export class AgentManager {
+@@ -3958,7 +3980,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -2382,7 +2380,7 @@ index 94250e5cd..eea755121 100644
      }
    }
  
-@@ -4004,7 +4026,13 @@ export class AgentManager {
+@@ -4458,7 +4480,13 @@ export class AgentManager {
        owner: options?.owner,
        launchEnv: options?.launchEnv,
        session,
@@ -2395,9 +2393,9 @@ index 94250e5cd..eea755121 100644
 +        supportsSteering: session.steerActiveTurn !== undefined,
 +      },
        config,
-       runtimeInfo: undefined,
-       lifecycle: "initializing",
-@@ -4139,9 +4167,28 @@ export class AgentManager {
+       // What the session opened with. Provider defaults edited later reach it when it next opens.
+       effectiveOptions,
+@@ -4597,9 +4625,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -2426,7 +2424,7 @@ index 94250e5cd..eea755121 100644
            return;
          }
          this.logger.trace(
-@@ -4668,46 +4715,9 @@ export class AgentManager {
+@@ -5146,46 +5193,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -2472,10 +2470,10 @@ index 94250e5cd..eea755121 100644
 -        flags.shouldDispatchEvent = false;
 -        this.emitState(agent);
 -        return undefined;
-       case "timeline":
-         return this.onStreamTimelineEvent({ agent, event, options, flags });
-       case "turn_completed":
-@@ -4751,7 +4761,68 @@ export class AgentManager {
+       case "options_changed":
+         this.onStreamOptionsChanged({ agent, patch: event.patch, flags });
+         return undefined;
+@@ -5232,7 +5242,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2567,11 +2565,11 @@ index a0aa880fc..63a1c78d9 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index ec4186b02..040a43083 100644
+index 5e4fa77ea..cda5bc8ad 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
-@@ -474,6 +474,32 @@ describe("toAgentPayload", () => {
-     });
+@@ -497,6 +497,32 @@ describe("toAgentPayload", () => {
+     expect(payload).not.toHaveProperty("lastUsage");
    });
  
 +  it("carries the provider-reported goal into the snapshot payload", () => {
@@ -2600,14 +2598,14 @@ index ec4186b02..040a43083 100644
 +    expect(toAgentPayload(agent)).not.toHaveProperty("goal");
 +  });
 +
-   it("includes features in the snapshot payload", () => {
-     const features = [createFeature()];
-     const agent = createManagedAgent({ features });
+   it("preserves context window usage fields when they are valid numbers", () => {
+     const agent = createManagedAgent({
+       lastUsage: {
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index b388143d8..ff6ff271d 100644
+index 09d946185..d05f098eb 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
-@@ -157,6 +157,14 @@ export function toAgentPayload(
+@@ -178,6 +178,14 @@ export function toAgentPayload(
      payload.lastUsage = usage;
    }
  
@@ -2718,7 +2716,7 @@ index 2c150bd2e..6fc3a859c 100644
  const EXPECTED_RUN_START_BUDGET_MS = 60_000;
  // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 903bbe5c9..00b81ed5f 100644
+index 0267876d0..32570ec1b 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -179,6 +179,11 @@ export interface AgentCapabilityFlags {
@@ -2798,7 +2796,7 @@ index 903bbe5c9..00b81ed5f 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index 0f3c39868..8542659a0 100644
+index 2449b9a90..146be9517 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -37,7 +37,10 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -2813,7 +2811,7 @@ index 0f3c39868..8542659a0 100644
  import { KimiACPAgentClient } from "./providers/kimi-acp-agent.js";
  import { KiroACPAgentClient } from "./providers/kiro-acp-agent.js";
  import { OpenCodeRuntimeClient } from "./providers/opencode/runtime-client.js";
-@@ -855,7 +858,10 @@ function addDerivedProviders(
+@@ -868,7 +871,10 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -2826,12 +2824,12 @@ index 0f3c39868..8542659a0 100644
          contract:
            providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 7e50b32cf..dd420c2b0 100644
+index b94a6de94..090e55afa 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
  import { type ChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
- import { EventEmitter } from "node:events";
+ import { EventEmitter, once } from "node:events";
 -import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 +import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
  import { createRequire } from "node:module";
@@ -2867,19 +2865,17 @@ index 7e50b32cf..dd420c2b0 100644
    AgentSession,
    ProviderRefreshContext,
  } from "../agent-sdk-types.js";
-@@ -99,7 +103,10 @@ describe("buildACPClientCapabilities", () => {
- 
- interface ACPSessionInternals {
+@@ -101,7 +105,8 @@ interface ACPSessionInternals {
    sessionId: string | null;
--  connection: { prompt: (...args: unknown[]) => Promise<PromptResponse> };
-+  connection: {
-+    prompt: (...args: unknown[]) => Promise<PromptResponse>;
+   connection: {
+     prompt: (...args: unknown[]) => Promise<PromptResponse>;
+-    signal: AbortSignal;
++    signal?: AbortSignal;
 +    cancel?: (input: { sessionId: string }) => Promise<void>;
-+  };
+   };
    activeForegroundTurnId: string | null;
    configOptions: SessionConfigOption[];
-   translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[];
-@@ -193,14 +200,23 @@ class FakeTerminator {
+@@ -215,14 +220,24 @@ class FakeTerminator {
    }
  }
  
@@ -2894,7 +2890,8 @@ index 7e50b32cf..dd420c2b0 100644
      provider?: string;
      modeId?: string | null;
      model?: string | null;
-     featureValues?: Record<string, unknown>;
+     providerOptions?: Record<string, unknown>;
++    featureValues?: Record<string, unknown>;
 +    lateTimelineGraceMs?: number;
    } = {},
    logger: ReturnType<typeof createTestLogger> = createTestLogger(),
@@ -2903,7 +2900,7 @@ index 7e50b32cf..dd420c2b0 100644
  ): ACPAgentSession {
    return new ACPAgentSession(
      {
-@@ -215,6 +231,9 @@ function createSessionWithConfig(
+@@ -237,6 +252,9 @@ function createSessionWithConfig(
        logger,
        defaultCommand: ["claude", "--acp"],
        defaultModes: [],
@@ -2913,7 +2910,7 @@ index 7e50b32cf..dd420c2b0 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -222,7 +241,9 @@ function createSessionWithConfig(
+@@ -244,7 +262,9 @@ function createSessionWithConfig(
          supportsMcpServers: true,
          supportsReasoningStream: true,
          supportsToolInvocations: true,
@@ -2923,7 +2920,7 @@ index 7e50b32cf..dd420c2b0 100644
      },
    );
  }
-@@ -851,6 +872,117 @@ describe("ACPAgentSession terminal tools", () => {
+@@ -892,6 +912,117 @@ describe("ACPAgentSession terminal tools", () => {
        exitStatus: { exitCode: 0, signal: null },
      });
    });
@@ -3041,7 +3038,7 @@ index 7e50b32cf..dd420c2b0 100644
  });
  
  describe("mapACPUsage", () => {
-@@ -1442,6 +1574,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1483,6 +1614,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3106,7 +3103,7 @@ index 7e50b32cf..dd420c2b0 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -1495,6 +1685,203 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1536,6 +1725,203 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3310,7 +3307,7 @@ index 7e50b32cf..dd420c2b0 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2769,30 +3156,136 @@ describe("ACPAgentSession", () => {
+@@ -2930,14 +3316,120 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -3318,34 +3315,17 @@ index 7e50b32cf..dd420c2b0 100644
 -    const session = createKiroSession({
 -      waitForInitialCommands: true,
 -      initialCommandsWaitTimeoutMs: 1500,
--    });
 +  test("maps the compaction extension notification into a timeline marker", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    session.subscribe((event) => events.push(event));
- 
--    const listCommandsPromise = session.listCommands();
--
--    await session.extNotification("_kiro.dev/commands/available", {
++
 +    await session.extNotification("_paseo.dev/session/compaction", {
-       sessionId: "session-1",
--      commands: [
--        {
--          name: "/agent",
--          description: "Select or list available agents",
--          meta: { inputType: "selection", hint: "swap <name>" },
--        },
--      ],
--      prompts: [
--        {
--          name: "agent-sync-doctor",
--          description: "Hand off Claude or Codex state across Macs",
--          arguments: [],
--          serverName: "skill:config",
++      sessionId: "session-1",
 +      status: "in_progress",
 +      trigger: "auto",
-+    });
+     });
 +    await session.extNotification("_paseo.dev/session/compaction", {
 +      sessionId: "session-1",
 +      status: "completed",
@@ -3372,9 +3352,10 @@ index 7e50b32cf..dd420c2b0 100644
 +  test("ignores a compaction notification for another session or without a status", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    const listCommandsPromise = session.listCommands();
 +    await session.extNotification("_paseo.dev/session/compaction", {
 +      sessionId: "session-2",
 +      status: "completed",
@@ -3449,26 +3430,10 @@ index 7e50b32cf..dd420c2b0 100644
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +
 +    const listCommandsPromise = session.listCommands();
-+
-+    await session.extNotification("_kiro.dev/commands/available", {
-+      sessionId: "session-1",
-+      commands: [
-+        {
-+          name: "/agent",
-+          description: "Select or list available agents",
-+          meta: { inputType: "selection", hint: "swap <name>" },
-+        },
-+      ],
-+      prompts: [
-+        {
-+          name: "agent-sync-doctor",
-+          description: "Hand off Claude or Codex state across Macs",
-+          arguments: [],
-+          serverName: "skill:config",
-         },
-       ],
-       // Tools are not slash commands and must be ignored.
-@@ -3079,128 +3572,258 @@ describe("ACPAgentSession", () => {
+ 
+     await session.extNotification("_kiro.dev/commands/available", {
+       sessionId: "session-1",
+@@ -3240,128 +3732,258 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -3490,7 +3455,7 @@ index 7e50b32cf..dd420c2b0 100644
 -
 +    const events: AgentStreamEvent[] = [];
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
--    asInternals<ACPSessionInternals>(session).connection = { prompt };
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: async () => ({ stopReason: "end_turn" }),
 +    };
@@ -3679,7 +3644,7 @@ index 7e50b32cf..dd420c2b0 100644
 +    );
 +    const events: AgentStreamEvent[] = [];
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
--    asInternals<ACPSessionInternals>(session).connection = { prompt };
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
 -
 -    session.subscribe((event) => {
 -      events.push(event);
@@ -3740,7 +3705,8 @@ index 7e50b32cf..dd420c2b0 100644
 +        }),
 +    );
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-     asInternals<ACPSessionInternals>(session).connection = { prompt };
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
 +    session.subscribe((event) => events.push(event));
  
 -    session.subscribe((event) => {
@@ -3817,13 +3783,14 @@ index 7e50b32cf..dd420c2b0 100644
      const events: AgentStreamEvent[] = [];
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
-@@ -3209,64 +3832,281 @@ describe("ACPAgentSession", () => {
+@@ -3370,64 +3992,308 @@ describe("ACPAgentSession", () => {
            resolvePrompt = resolve;
          }),
      );
 -
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-     asInternals<ACPSessionInternals>(session).connection = { prompt };
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++    asInternals<ACPSessionInternals>(session).connection = { prompt };
 +    session.subscribe((event) => events.push(event));
  
 -    session.subscribe((event) => {
@@ -3870,9 +3837,11 @@ index 7e50b32cf..dd420c2b0 100644
 +
 +    // Kimi opens the call with the tool's own name and only afterwards replaces
 +    // the title with a sentence describing what the tool is doing.
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+-        sessionUpdate: "user_message_chunk",
+-        content: { type: "text", text: "second" },
 +        sessionUpdate: "tool_call",
 +        toolCallId: "tool-1",
 +        title: "AskUserQuestion",
@@ -3889,9 +3858,12 @@ index 7e50b32cf..dd420c2b0 100644
 +        kind: "other",
 +        status: "in_progress",
 +        content: [{ type: "content", content: { type: "text", text: "{}" } }],
-+      } as SessionUpdate,
-+    });
-+
+       } as SessionUpdate,
+     });
+ 
+-    expect(
+-      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+-    ).toEqual([
 +    const toolCalls = events.flatMap((event) =>
 +      event.type === "timeline" && event.item.type === "tool_call" ? [event.item] : [],
 +    );
@@ -4014,11 +3986,10 @@ index 7e50b32cf..dd420c2b0 100644
 +    const { turnId } = await session.startTurn("hello");
 +    internals.submittedUserMessageTurnId = null;
 +
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
-         sessionUpdate: "user_message_chunk",
--        content: { type: "text", text: "second" },
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
 +        messageId: "user-1",
 +        content: { type: "text", text: "hello" },
 +      } as SessionUpdate,
@@ -4028,9 +3999,9 @@ index 7e50b32cf..dd420c2b0 100644
 +      update: {
 +        sessionUpdate: "available_commands_update",
 +        availableCommands: [],
-       } as SessionUpdate,
-     });
- 
++      } as SessionUpdate,
++    });
++
 +    resolvePrompt({ stopReason: "end_turn" });
 +    await flushMicrotasks();
 +
@@ -4061,7 +4032,7 @@ index 7e50b32cf..dd420c2b0 100644
 +    );
 +
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
 +
 +    session.subscribe((event) => {
 +      events.push(event);
@@ -4085,9 +4056,9 @@ index 7e50b32cf..dd420c2b0 100644
 +        )
 +        .map((event) => event.type),
 +    ).toEqual(["turn_started", "timeline"]);
-     expect(
-       events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-     ).toEqual([
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toEqual([
        {
          type: "timeline",
          provider: "claude-acp",
@@ -4119,90 +4090,49 @@ index 7e50b32cf..dd420c2b0 100644
  
 -  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
 +  test("startTurn dedupes ACP user echo chunks for the submitted message", async () => {
-     const session = createSession();
-     const events: AgentStreamEvent[] = [];
-     const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3283,29 +4123,17 @@ describe("ACPAgentSession", () => {
-       sessionId: "session-1",
-       update: {
-         sessionUpdate: "user_message_chunk",
--        messageId: "msg-provider-1",
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
 +        messageId: "msg-client-1",
-         content: { type: "text", text: "hello" },
-       } as SessionUpdate,
-     });
- 
-     expect(
-       events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
--    ).toEqual([
--      {
--        type: "timeline",
--        provider: "claude-acp",
--        item: {
--          type: "user_message",
--          text: "hello",
--          messageId: "msg-client-1",
--          clientMessageId: "msg-client-1",
--        },
--        turnId: expect.any(String),
--      },
--    ]);
++        content: { type: "text", text: "hello" },
++      } as SessionUpdate,
++    });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
 +    ).toHaveLength(1);
-   });
- 
--  test("startTurn dedupes a provider-owned user echo streamed as text and image chunks", async () => {
++  });
++
 +  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3317,27 +4145,12 @@ describe("ACPAgentSession", () => {
-       events.push(event);
-     });
- 
--    await session.startTurn(
--      [
--        { type: "text", text: "hey" },
--        { type: "image", data: "AA==", mimeType: "image/png" },
--      ],
--      { clientMessageId: "msg-client-1" },
--    );
--    await session.sessionUpdate({
--      sessionId: "session-1",
--      update: {
--        sessionUpdate: "user_message_chunk",
--        messageId: "msg-provider-1",
--        content: { type: "text", text: "hey" },
--      } as SessionUpdate,
--    });
-+    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
-     await session.sessionUpdate({
+@@ -3444,7 +4310,6 @@ describe("ACPAgentSession", () => {
        sessionId: "session-1",
        update: {
          sessionUpdate: "user_message_chunk",
 -        messageId: "msg-provider-1",
--        content: { type: "image", data: "AA==", mimeType: "image/png" },
-+        content: { type: "text", text: "hello" },
+         content: { type: "text", text: "hello" },
        } as SessionUpdate,
      });
- 
-@@ -3346,10 +4159,10 @@ describe("ACPAgentSession", () => {
-     ).toEqual([
-       {
-         type: "timeline",
--        provider: session.provider,
-+        provider: "claude-acp",
-         item: {
-           type: "user_message",
--          text: "hey",
-+          text: "hello",
-           messageId: "msg-client-1",
-           clientMessageId: "msg-client-1",
-         },
-@@ -3358,10 +4171,16 @@ describe("ACPAgentSession", () => {
+@@ -3466,10 +4331,16 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
--  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
+-  test("startTurn dedupes a provider-owned user echo streamed as text and image chunks", async () => {
 +  test("startTurn dedupes ACP user echo chunks without message ids across turns", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
@@ -4216,20 +4146,25 @@ index 7e50b32cf..dd420c2b0 100644
 +    );
  
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-     asInternals<ACPSessionInternals>(session).connection = { prompt };
-@@ -3370,22 +4189,175 @@ describe("ACPAgentSession", () => {
+     asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
+@@ -3478,27 +4349,24 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
--    await session.startTurn([{ type: "image", data: "AA==", mimeType: "image/png" }], {
--      clientMessageId: "msg-client-1",
--    });
+-    await session.startTurn(
+-      [
+-        { type: "text", text: "hey" },
+-        { type: "image", data: "AA==", mimeType: "image/png" },
+-      ],
+-      { clientMessageId: "msg-client-1" },
+-    );
 +    await session.startTurn("first", { clientMessageId: "msg-client-1" });
      await session.sessionUpdate({
        sessionId: "session-1",
        update: {
          sessionUpdate: "user_message_chunk",
--        content: { type: "image", data: "AA==", mimeType: "image/png" },
+-        messageId: "msg-provider-1",
+-        content: { type: "text", text: "hey" },
 +        content: { type: "text", text: "first" },
        } as SessionUpdate,
      });
@@ -4241,9 +4176,145 @@ index 7e50b32cf..dd420c2b0 100644
      await session.sessionUpdate({
        sessionId: "session-1",
        update: {
+         sessionUpdate: "user_message_chunk",
+-        messageId: "msg-provider-1",
+-        content: { type: "image", data: "AA==", mimeType: "image/png" },
++        content: { type: "text", text: "second" },
+       } as SessionUpdate,
+     });
+ 
+@@ -3507,19 +4375,30 @@ describe("ACPAgentSession", () => {
+     ).toEqual([
+       {
+         type: "timeline",
+-        provider: session.provider,
++        provider: "claude-acp",
+         item: {
+           type: "user_message",
+-          text: "hey",
++          text: "first",
+           messageId: "msg-client-1",
+           clientMessageId: "msg-client-1",
+         },
+         turnId: expect.any(String),
+       },
++      {
++        type: "timeline",
++        provider: "claude-acp",
++        item: {
++          type: "user_message",
++          text: "second",
++          messageId: "msg-client-2",
++          clientMessageId: "msg-client-2",
++        },
++        turnId: expect.any(String),
++      },
+     ]);
+   });
+ 
+-  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
++  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
+     const session = createSession();
+     const events: AgentStreamEvent[] = [];
+     const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
+@@ -3531,28 +4410,246 @@ describe("ACPAgentSession", () => {
+       events.push(event);
+     });
+ 
+-    await session.startTurn([{ type: "image", data: "AA==", mimeType: "image/png" }], {
+-      clientMessageId: "msg-client-1",
+-    });
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+         sessionUpdate: "user_message_chunk",
+-        content: { type: "image", data: "AA==", mimeType: "image/png" },
+-      } as SessionUpdate,
+-    });
+-    await session.sessionUpdate({
+-      sessionId: "session-1",
+-      update: {
 -        sessionUpdate: "agent_message_chunk",
 -        messageId: "assistant-1",
 -        content: { type: "text", text: "I see it" },
++        messageId: "msg-client-1",
++        content: { type: "text", text: "hello" },
+       } as SessionUpdate,
+     });
+ 
+     expect(
+       events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+-    ).toEqual([
++    ).toHaveLength(1);
++  });
++
++  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        content: { type: "text", text: "hello" },
++      } as SessionUpdate,
++    });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toEqual([
++      {
++        type: "timeline",
++        provider: "claude-acp",
++        item: {
++          type: "user_message",
++          text: "hello",
++          messageId: "msg-client-1",
++          clientMessageId: "msg-client-1",
++        },
++        turnId: expect.any(String),
++      },
++    ]);
++  });
++
++  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn("first", { clientMessageId: "msg-client-1" });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        content: { type: "text", text: "first" },
++      } as SessionUpdate,
++    });
++    resolvePrompt({ stopReason: "end_turn" });
++    await Promise.resolve();
++    await Promise.resolve();
++
++    await session.startTurn("second", { clientMessageId: "msg-client-2" });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
 +        sessionUpdate: "user_message_chunk",
 +        content: { type: "text", text: "second" },
 +      } as SessionUpdate,
@@ -4397,10 +4468,16 @@ index 7e50b32cf..dd420c2b0 100644
 +        sessionUpdate: "agent_message_chunk",
 +        messageId: "assistant-1",
 +        content: { type: "text", text: "I see it" },
-       } as SessionUpdate,
-     });
- 
-@@ -4792,3 +5764,1040 @@ describe("custom ACP provider with configured models", () => {
++      } as SessionUpdate,
++    });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toEqual([
+       {
+         type: "timeline",
+         provider: session.provider,
+@@ -5198,3 +6295,1040 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -5442,10 +5519,10 @@ index 7e50b32cf..dd420c2b0 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 6831274d2..50b99bfba 100644
+index 33664f7ad..e1d928397 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -73,13 +73,17 @@ import {
+@@ -79,13 +79,17 @@ import {
    type AgentPermissionRequest,
    type AgentPermissionRequestKind,
    type AgentPermissionResponse,
@@ -5463,7 +5540,7 @@ index 6831274d2..50b99bfba 100644
    type AgentRunResult,
    type AgentRuntimeInfo,
    type AgentSession,
-@@ -89,6 +93,7 @@ import {
+@@ -95,6 +99,7 @@ import {
    type AgentTimelineItem,
    type AgentUsage,
    type AgentUsageSession,
@@ -5471,7 +5548,7 @@ index 6831274d2..50b99bfba 100644
    type FetchCatalogOptions,
    type ProviderRefreshContext,
    type ImportableProviderSession,
-@@ -134,6 +139,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+@@ -141,6 +146,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
  
  const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
  
@@ -5488,7 +5565,7 @@ index 6831274d2..50b99bfba 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -329,6 +344,11 @@ export function buildACPClientCapabilities(
+@@ -334,6 +349,11 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -5500,7 +5577,7 @@ index 6831274d2..50b99bfba 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  // Archive and delete await close(). The ACP SDK does not reject a pending
  // request when the provider never answers, so these calls must be bounded
-@@ -476,6 +496,105 @@ export type ACPCatalogModelResolver = (
+@@ -482,6 +502,105 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -5606,7 +5683,7 @@ index 6831274d2..50b99bfba 100644
  interface ACPAgentClientOptions {
    provider: string;
    // Provider id usage sources match a session against; ACP sessions without one report no usage.
-@@ -507,6 +626,7 @@ interface ACPAgentClientOptions {
+@@ -513,6 +632,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -5614,7 +5691,7 @@ index 6831274d2..50b99bfba 100644
    now?: () => number;
  }
  
-@@ -543,7 +663,9 @@ interface ACPAgentSessionOptions {
+@@ -549,7 +669,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -5624,7 +5701,7 @@ index 6831274d2..50b99bfba 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -640,6 +762,13 @@ class ACPImportHistoryCollector {
+@@ -646,6 +768,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -5638,7 +5715,7 @@ index 6831274d2..50b99bfba 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -673,6 +802,8 @@ interface TerminalEntry {
+@@ -680,6 +809,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -5647,7 +5724,7 @@ index 6831274d2..50b99bfba 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -972,6 +1103,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -986,6 +1117,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -5655,7 +5732,7 @@ index 6831274d2..50b99bfba 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -1003,6 +1135,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1017,6 +1149,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -5663,7 +5740,7 @@ index 6831274d2..50b99bfba 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1044,6 +1177,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1058,6 +1191,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -5671,7 +5748,7 @@ index 6831274d2..50b99bfba 100644
        },
      );
      await session.initializeNewSession();
-@@ -1104,6 +1238,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1118,6 +1252,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -5679,7 +5756,7 @@ index 6831274d2..50b99bfba 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1711,6 +1846,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1733,6 +1868,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -5699,7 +5776,7 @@ index 6831274d2..50b99bfba 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1778,11 +1926,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1805,11 +1953,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -5735,7 +5812,7 @@ index 6831274d2..50b99bfba 100644
    private historyPending = false;
    private historyRuntimeReleased = false;
    private replayingHistory = false;
-@@ -1826,7 +1998,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1853,7 +2025,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -5750,7 +5827,7 @@ index 6831274d2..50b99bfba 100644
    }
  
    get id(): string | null {
-@@ -1863,6 +2042,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1890,6 +2069,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -5758,7 +5835,7 @@ index 6831274d2..50b99bfba 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1917,6 +2097,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1944,6 +2124,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -5766,7 +5843,7 @@ index 6831274d2..50b99bfba 100644
  
        if (this.resumePurpose === "history") {
          await this.releaseHistoryRuntime();
-@@ -1961,6 +2142,352 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1988,6 +2169,352 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -6119,7 +6196,7 @@ index 6831274d2..50b99bfba 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -1981,6 +2508,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2008,6 +2535,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    async startTurn(
      prompt: AgentPromptInput,
      options?: AgentRunOptions,
@@ -6139,7 +6216,7 @@ index 6831274d2..50b99bfba 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -1995,24 +2535,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2025,28 +2565,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -6160,7 +6237,12 @@ index 6831274d2..50b99bfba 100644
 +    }
 +    this.notifyForegroundTurnStarting(outgoing);
  
-     void this.connection
+     const connection = this.connection;
+     const child = this.child;
+     const failOnDisconnect = () => void this.failDisconnectedTurn(turnId, child);
+-    connection.signal.addEventListener("abort", failOnDisconnect, { once: true });
++    connection.signal?.addEventListener("abort", failOnDisconnect, { once: true });
+     void connection
        .prompt({
          sessionId: this.sessionId,
          messageId,
@@ -6191,7 +6273,16 @@ index 6831274d2..50b99bfba 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2491,7 +3054,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2057,7 +2620,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+           turnId,
+         });
+       })
+-      .finally(() => connection.signal.removeEventListener("abort", failOnDisconnect));
++      .finally(() => connection.signal?.removeEventListener("abort", failOnDisconnect));
+ 
+     return { turnId };
+   }
+@@ -2628,7 +3191,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -6203,7 +6294,7 @@ index 6831274d2..50b99bfba 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2527,6 +3093,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2664,6 +3230,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -6220,7 +6311,7 @@ index 6831274d2..50b99bfba 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2553,7 +3129,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2690,7 +3266,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.cancelPendingPermissions();
  
      if (this.activeForegroundTurnId) {
@@ -6244,7 +6335,7 @@ index 6831274d2..50b99bfba 100644
      }
    }
  
-@@ -2571,9 +3163,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2708,9 +3300,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -6270,7 +6361,7 @@ index 6831274d2..50b99bfba 100644
  
      this.cancelPendingPermissions();
  
-@@ -2620,6 +3228,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2757,6 +3365,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -6278,7 +6369,7 @@ index 6831274d2..50b99bfba 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2682,10 +3291,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2820,10 +3429,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -6330,7 +6421,7 @@ index 6831274d2..50b99bfba 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2702,6 +3352,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2840,6 +3490,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -6349,7 +6440,7 @@ index 6831274d2..50b99bfba 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2727,6 +3389,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2865,6 +3527,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -6397,7 +6488,7 @@ index 6831274d2..50b99bfba 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2818,6 +3521,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2956,6 +3659,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -6405,7 +6496,7 @@ index 6831274d2..50b99bfba 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3091,11 +3795,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3230,11 +3934,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
@@ -6436,7 +6527,7 @@ index 6831274d2..50b99bfba 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3333,9 +4055,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3505,9 +4227,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -6596,7 +6687,7 @@ index 6831274d2..50b99bfba 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3361,6 +4232,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3533,6 +4404,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -6640,9 +6731,9 @@ index 6831274d2..50b99bfba 100644
    private wrapTimeline(item: AgentTimelineItem): AgentStreamEvent {
      return {
        type: "timeline",
-@@ -3434,11 +4342,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
-       this.cancelPendingPermissions();
-     }
+@@ -3606,11 +4514,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       (pending) => event.type !== "turn_completed" || pending.turnId === event.turnId,
+     );
      this.activeForegroundTurnId = null;
 +    this.turnAbort = null;
      this.fallbackAssistantMessageId = null;
@@ -6653,8 +6744,8 @@ index 6831274d2..50b99bfba 100644
 +    this.releaseHeldQueuedPrompt();
    }
  
-   private cancelPendingPermissions(): void {
-@@ -3694,7 +4604,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+   private cancelPendingPermissions(
+@@ -3876,7 +4786,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -6675,7 +6766,7 @@ index 6831274d2..50b99bfba 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3760,6 +4682,7 @@ function mergeToolSnapshot(
+@@ -3942,6 +4864,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -6683,7 +6774,7 @@ index 6831274d2..50b99bfba 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3769,6 +4692,27 @@ function mergeToolSnapshot(
+@@ -3951,6 +4874,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -6711,7 +6802,7 @@ index 6831274d2..50b99bfba 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3785,10 +4729,18 @@ function mapToolSnapshotToTimeline(
+@@ -3967,10 +4911,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -6731,7 +6822,7 @@ index 6831274d2..50b99bfba 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -4030,7 +4982,17 @@ function mapPermissionRequest(
+@@ -4212,7 +5164,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -6750,7 +6841,7 @@ index 6831274d2..50b99bfba 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -4039,11 +5001,11 @@ function mapPermissionRequest(
+@@ -4221,11 +5183,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -6764,7 +6855,7 @@ index 6831274d2..50b99bfba 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -4057,6 +5019,7 @@ function mapPermissionRequest(
+@@ -4239,6 +5201,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -6772,7 +6863,7 @@ index 6831274d2..50b99bfba 100644
      },
    };
  }
-@@ -4085,6 +5048,65 @@ function selectPermissionOption(
+@@ -4267,6 +5230,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -6838,7 +6929,7 @@ index 6831274d2..50b99bfba 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4101,19 +5123,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4283,19 +5305,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
  
  function appendTerminalOutput(entry: TerminalEntry, chunk: string): void {
    entry.output += chunk;
@@ -6870,10 +6961,10 @@ index 6831274d2..50b99bfba 100644
  }
  
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index 758fad2e8..4a4338188 100644
+index 3aa96635f..ecd891eca 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -3989,6 +3989,634 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -4487,6 +4487,634 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -7509,10 +7600,10 @@ index 758fad2e8..4a4338188 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index d232185cb..adb138a13 100644
+index bee13ed78..391619550 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
-@@ -37,9 +37,12 @@ import {
+@@ -39,9 +39,12 @@ import {
  } from "./task-notification-tool-call.js";
  import { isClaudeInterruptPlaceholderText } from "./interrupt-placeholder.js";
  import {
@@ -7525,7 +7616,7 @@ index d232185cb..adb138a13 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -121,6 +124,7 @@ import {
+@@ -124,6 +127,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -7533,7 +7624,7 @@ index d232185cb..adb138a13 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2312,6 +2316,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2321,6 +2325,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -7565,7 +7656,7 @@ index d232185cb..adb138a13 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2412,7 +2441,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2431,7 +2460,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -7574,8 +7665,8 @@ index d232185cb..adb138a13 100644
      );
      const handle = options.handle;
  
-@@ -2752,7 +2781,7 @@ class ClaudeAgentSession implements AgentSession {
-       await this.applyFastModeFeature(false, activeQuery);
+@@ -2816,7 +2845,7 @@ class ClaudeAgentSession implements AgentSession {
+       this.cachedRuntimeInfo = null;
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
 -      getClaudeContextWindowMaxTokens(this.config.model),
@@ -7583,7 +7674,7 @@ index d232185cb..adb138a13 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3638,6 +3667,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3724,6 +3753,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -7608,7 +7699,7 @@ index d232185cb..adb138a13 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4595,6 +4642,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4706,6 +4753,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -7621,7 +7712,7 @@ index d232185cb..adb138a13 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4612,6 +4665,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4723,6 +4776,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -7629,7 +7720,7 @@ index d232185cb..adb138a13 100644
          break;
        }
        case "stream_event":
-@@ -4638,6 +4692,200 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4749,6 +4803,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7830,15 +7921,15 @@ index d232185cb..adb138a13 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -4965,6 +5213,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5083,6 +5331,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
 +    this.countGoalTurn(events);
      const usage = this.convertUsage(message);
-     if (message.subtype === "success") {
-       events.push(...this.sidechainTracker.finishAll("completed"));
-@@ -6380,6 +6629,146 @@ function readClaudeReplayTaskDeclaration(
+     // Claude Code reports a turn that stopped on an API error (a usage limit, an overloaded or
+     // rejected request) as `success` with `is_error`, carrying the error text in `result`.
+@@ -6529,6 +6778,146 @@ function readClaudeReplayTaskDeclaration(
    };
  }
  
@@ -7986,7 +8077,7 @@ index d232185cb..adb138a13 100644
    return /agentId:\s*([\w-]+)/.exec(JSON.stringify(content))?.[1];
  }
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 0daa5e533..b1054b4cd 100644
+index 1287fd633..91da06681 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -20,6 +20,8 @@ import {
@@ -7998,7 +8089,7 @@ index 0daa5e533..b1054b4cd 100644
  } from "./models.js";
  
  describe("getClaudeContextWindowMaxTokens", () => {
-@@ -1017,3 +1019,77 @@ describe("Claude model discovery process", () => {
+@@ -1174,3 +1176,77 @@ describe("Claude model discovery process", () => {
      expect(closed).toBe(true);
    });
  });
@@ -8077,7 +8168,7 @@ index 0daa5e533..b1054b4cd 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 2a9b801fd..a04739be1 100644
+index 80f5a38e6..3f0ebee71 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -15016,7 +15107,7 @@ index 000000000..99488f6d8
 +  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 31f313cb7..25fb24baa 100644
+index 98cbf8fcf..1a5d9fe72 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -10,7 +10,7 @@ import {
@@ -15028,7 +15119,7 @@ index 31f313cb7..25fb24baa 100644
  import path from "node:path";
  import { fileURLToPath } from "node:url";
  import { createHash, randomUUID } from "node:crypto";
-@@ -234,7 +234,7 @@ function resolveWorkerExecArgv(): string[] {
+@@ -240,7 +240,7 @@ function resolveWorkerExecArgv(): string[] {
  }
  
  function spawnPluginChild(): PluginChild {

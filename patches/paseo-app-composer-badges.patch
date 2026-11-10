@@ -49,10 +49,10 @@ index 704298f78..dd1da9eeb 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index 4256685f9..ca8b5a416 100644
+index 6ce7e59ca..00451757d 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -311,6 +311,44 @@ describe("bare URL sentence punctuation", () => {
+@@ -564,6 +564,44 @@ describe("bare URL sentence punctuation", () => {
    );
  });
  
@@ -98,7 +98,7 @@ index 4256685f9..ca8b5a416 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 3462320d7..369f45200 100644
+index 8b15b8ff9..46601d6e8 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -135,27 +135,27 @@ index 3462320d7..369f45200 100644
 +  });
 +}
 +
- function createFilePattern(path: string): RegExp {
-   // The native adapter mistakes a literal + in lookbehind for a quantifier; use its hex escape.
-   return new RegExp(
-@@ -138,6 +168,7 @@ export function prepareMarkdownSource(
+ function createTextPattern(path: string, forgeReferencePattern?: string): RegExp {
+   // Forge references come before paths so `group/project#12` is not read as a path.
+   const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
+@@ -158,6 +188,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
 +    !HAS_PORT_URL.test(source) &&
-     !(workspaceRoot && source.includes("]("))
-   ) {
-     return { images, ...metadata, render: () => source };
-@@ -212,7 +243,7 @@ export function prepareMarkdownSource(
+     // Match content, header, and delimiter lines; quote-only lines count as blank.
+     !/^[\t >]*[^\t >\r\n][^\r\n]*(?:\r\n|\r|\n)[^\r\n]+(?:\r\n|\r|\n)(?=[\t >:|-]*\|)[\t >|]*:?-[-\t :|]*$/m.test(
+       source,
+@@ -236,7 +267,7 @@ export function prepareMarkdownSource(
        if (lineEnd < end) split(lineEnd);
      }
    }
--  function visit(node: Nodes) {
-+  function visit(node: Nodes, insideLink = false) {
-     const start = node.position?.start.offset;
-     const end = node.position?.end.offset;
-     if (start !== undefined && end !== undefined) {
-@@ -234,17 +265,21 @@ export function prepareMarkdownSource(
+-  function visit(node: Nodes, previous?: Nodes) {
++  function visit(node: Nodes, previous?: Nodes, insideLink = false) {
+     const position = node.position;
+     if (position?.start.offset !== undefined && position.end.offset !== undefined) {
+       const start = position.start.offset;
+@@ -272,18 +303,23 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -173,21 +173,24 @@ index 3462320d7..369f45200 100644
 +        if (text !== original) edits.push({ start, end, text });
        }
      }
--    if ("children" in node) node.children.forEach(visit);
+-    if ("children" in node)
+-      node.children.forEach((child, index) => visit(child, node.children[index - 1]));
 +    if ("children" in node) {
 +      const childInsideLink =
 +        insideLink || node.type === "link" || node.type === "linkReference";
-+      node.children.forEach((child) => visit(child, childInsideLink));
++      node.children.forEach((child, index) =>
++        visit(child, node.children[index - 1], childInsideLink),
++      );
 +    }
    }
    visit(getTree());
    return {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index 6929b447e..e3839792b 100644
+index c9da7d778..e4ccb63c5 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -408,7 +408,8 @@ const styles = StyleSheet.create((theme) => ({
-     gap: theme.spacing[1],
+@@ -590,7 +590,8 @@ const styles = StyleSheet.create((theme) => ({
+     flexShrink: 0,
    },
    triggerThinking: {
 -    flexShrink: 0,
@@ -378,7 +381,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index e3720ccbe..e87ad749d 100644
+index ab26fe561..1990684c2 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -390,15 +393,15 @@ index e3720ccbe..e87ad749d 100644
  import { View, type LayoutChangeEvent, type ViewProps, StyleSheet } from "react-native";
  import { StyleSheet as ThemedStyleSheet } from "react-native-unistyles";
  import Animated, {
-@@ -23,6 +23,7 @@ import {
+@@ -24,6 +24,7 @@ import {
    updateComposerCapacity,
    type ComposerCapacity,
  } from "./internal/capacity";
 +import { ComposerChromeContext, updateChromeHeight } from "./internal/chrome";
+ import { SPACING } from "@/styles/theme";
  
  const ViewportSizing = createContext<SharedValue<ComposerCapacity | undefined> | null>(null);
- 
-@@ -71,20 +72,28 @@ function ComposerViewport({
+@@ -76,20 +77,28 @@ function ComposerViewport({
    );
  }
  
@@ -434,7 +437,7 @@ index e3720ccbe..e87ad749d 100644
  
    return (
      <Animated.View testID="composer-viewport-content" {...props} style={[style, constraint]} />
-@@ -129,6 +138,17 @@ export function ComposerDock({
+@@ -134,6 +143,17 @@ export function ComposerDock({
    const insets = useSafeAreaInsets();
    const contentMaxWidth = resolveContentMaxWidth(useAppSettings().settings);
    const centeredClearance = useCenteredClearance(insets.bottom);
@@ -449,25 +452,27 @@ index e3720ccbe..e87ad749d 100644
 +    },
 +    [chrome],
 +  );
-   // Preserve the existing centered form's visual balance on tablets.
-   const bottomInset = centered && !fullscreen ? HEADER_INNER_HEIGHT + 24 : 0;
-   const fullscreenSurface = [
-@@ -175,8 +195,13 @@ export function ComposerDock({
+   const placement = resolveComposerBottomPlacement({
+     safeAreaBottom: insets.bottom,
+     contentSpacing: SPACING[4],
+@@ -184,10 +204,13 @@ export function ComposerDock({
              <ComposerViewportContent
                style={fullscreen ? dockStyles.surface : dockStyles.centeredComposer}
                fullscreen={fullscreen}
 +              chrome={chrome}
              >
--              <View style={fullscreen ? fullscreenSurface : dockStyles.composer}>{composer}</View>
+-              <View style={fullscreen ? fullscreenSurface : dockStyles.centeredComposerSurface}>
+-                {composer}
+-              </View>
 +              <ComposerChromeContext.Provider value={reportChrome}>
-+                <View style={fullscreen ? fullscreenSurface : dockStyles.composer}>
++                <View style={fullscreen ? fullscreenSurface : dockStyles.centeredComposerSurface}>
 +                  {composer}
 +                </View>
 +              </ComposerChromeContext.Provider>
              </ComposerViewportContent>
            </ComposerViewportContent>
          </KeyboardTranslateView>
-@@ -203,16 +228,19 @@ export function ComposerDock({
+@@ -218,16 +241,19 @@ export function ComposerDock({
          <ComposerViewportContent
            style={fullscreen ? dockStyles.fullscreenSlot : dockStyles.composer}
            fullscreen={fullscreen}
@@ -477,7 +482,7 @@ index e3720ccbe..e87ad749d 100644
 -            style={
 -              fullscreen
 -                ? fullscreenSurface
--                : [dockStyles.composer, { paddingBottom: insets.bottom }]
+-                : [dockStyles.composer, { paddingBottom: placement.restingPadding }]
 -            }
 -          >
 -            {composer}
@@ -487,7 +492,7 @@ index e3720ccbe..e87ad749d 100644
 +              style={
 +                fullscreen
 +                  ? fullscreenSurface
-+                  : [dockStyles.composer, { paddingBottom: insets.bottom }]
++                  : [dockStyles.composer, { paddingBottom: placement.restingPadding }]
 +              }
 +            >
 +              {composer}
@@ -497,7 +502,7 @@ index e3720ccbe..e87ad749d 100644
        </KeyboardTranslateView>
        {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 421002352..28757223e 100644
+index 0456cd628..c1b645b47 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -554,10 +559,10 @@ index 421002352..28757223e 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 44e79e6ef..633dfe3de 100644
+index 973c7f240..df7280c34 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
-@@ -159,3 +159,42 @@ describe("composer viewport", () => {
+@@ -223,3 +223,42 @@ describe("composer viewport", () => {
      ).toBe(95);
    });
  });
@@ -601,10 +606,10 @@ index 44e79e6ef..633dfe3de 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index 9c460e172..6a1a4e12b 100644
+index d9be8b925..6ddd43cbd 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
-@@ -67,6 +67,13 @@ export function resolveInlineComposerCapacity(
+@@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
  export interface ComposerSlotLayout {
    compact: boolean;
    fullscreen: boolean;
@@ -618,7 +623,7 @@ index 9c460e172..6a1a4e12b 100644
  }
  
  /** The bound on the composer slot: inline capacity, or the whole viewport in fullscreen. */
-@@ -77,5 +84,7 @@ export function resolveComposerSlotCapacity(
+@@ -105,5 +112,7 @@ export function resolveComposerSlotCapacity(
    "worklet";
    if (sizing === undefined) return undefined;
    if (layout.fullscreen) return sizing.viewportHeight;
@@ -706,18 +711,18 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index c4ef45cb3..af3c5c9cd 100644
+index 0815603e5..193c7ca32 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
-@@ -9,6 +9,7 @@ import { Composer } from "@/composer";
- import { useComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
- import { FileDropZone } from "@/components/file-drop/file-drop-zone";
+@@ -9,6 +9,7 @@ import invariant from "tiny-invariant";
+ import { Composer } from "@/composer";
+ import { type ComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
  import { ComposerImportPill } from "@/composer/draft/import-pill";
 +import { useComposerChromeSink } from "@/composer/dock/internal/chrome";
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
- import { AgentStreamView } from "@/agent-stream/view";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
-@@ -592,6 +593,26 @@ export function WorkspaceDraftAgentTab({
+ import { useAgentInputDraft } from "@/composer/draft/input-draft";
+@@ -563,6 +564,26 @@ export function WorkspaceDraftComposer({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -744,46 +749,75 @@ index c4ef45cb3..af3c5c9cd 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -635,7 +656,7 @@ export function WorkspaceDraftAgentTab({
-         {dockContent}
-         <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
-           {importPillPress && !isComposerFullscreen ? (
--            <View style={styles.importPillRow}>
-+            <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
-               <View style={styles.importPillContent}>
-                 <ComposerImportPill onPress={importPillPress} />
-               </View>
+@@ -581,7 +602,7 @@ export function WorkspaceDraftComposer({
+         </View>
+       ) : null}
+       {importPillPress && !isComposerFullscreen ? (
+-        <View style={styles.importPillRow}>
++        <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
+           <View style={styles.importPillContent}>
+             <ComposerImportPill onPress={importPillPress} />
+           </View>
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index d6b4bae63..9237a4345 100644
+index 4b31c4e0c..f79abede7 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -140,6 +140,7 @@ import type {
- import type { SelectedFile } from "@/attachments/selected-file";
- import { resolveComposerAttachmentSubmitFormat } from "@/composer/attachments/submit";
- import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
+@@ -65,6 +65,8 @@ import {
+   type DraftAgentControlsProps,
+ } from "@/composer/agent-controls";
+ import { ContextWindowMeter } from "@/components/context-window-meter";
++import { GoalPill } from "@/composer/goal-pill";
 +import { BackgroundTaskPill } from "@/composer/background-task-pill";
- import { useWorkspaceAttachmentsForScopes } from "@/attachments/workspace-attachments-store";
- import { droppedItemsToSelectedFiles } from "@/composer/attachments/drop";
- import { getFileTypeLabel } from "@/attachments/file-types";
-@@ -285,6 +286,10 @@ function buildAgentStateSelector(serverId: string, agentId: string) {
-       contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
-       totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
-       model: agent?.model ?? null,
-+      backgroundTasks: agent?.backgroundTasks ?? null,
+ import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+ import {
+   selectAgentSentMessages,
+@@ -293,15 +295,35 @@ function buildRealtimeVoiceButtonStyle(pressed: boolean, voiceButtonDisabled: bo
+   );
+ }
+ 
++/** What the composer sees while the session store holds no agent for the id yet. */
++const ABSENT_AGENT_STATE = {
++  status: null,
++  contextWindowMaxTokens: null,
++  contextWindowUsedTokens: null,
++  totalCostUsd: null,
++  model: null,
++  provider: null,
++  goal: null,
++  backgroundTasks: null,
++  supportsSteering: true,
++};
++
+ function buildAgentStateSelector(serverId: string, agentId: string) {
+   return (state: ReturnType<typeof useSessionStore.getState>) => {
+     const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
++    if (agent === null) return ABSENT_AGENT_STATE;
+     return {
+-      status: agent?.status ?? null,
+-      contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
+-      contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
+-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+-      model: agent?.model ?? null,
++      status: agent.status,
++      contextWindowMaxTokens: agent.lastUsage?.contextWindowMaxTokens ?? null,
++      contextWindowUsedTokens: agent.lastUsage?.contextWindowUsedTokens ?? null,
++      totalCostUsd: agent.lastUsage?.totalCostUsd ?? null,
++      model: agent.model,
++      provider: agent.provider,
++      goal: agent.goal ?? null,
++      backgroundTasks: agent.backgroundTasks ?? null,
 +      // A daemon that predates the flag leaves it undefined. Assume the agent can
 +      // steer then, so nothing changes for the providers that always could.
-+      supportsSteering: agent?.capabilities?.supportsSteering !== false,
++      supportsSteering: agent.capabilities?.supportsSteering !== false,
      };
    };
  }
-@@ -1550,10 +1555,12 @@ function ComposerContentImpl({
+@@ -1666,10 +1688,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
 -        appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
-+        appSettings.sendBehavior === "steer" && agentState.supportsSteering
-+          ? "steer"
-+          : "interrupt",
++        appSettings.sendBehavior === "steer" && agentState.supportsSteering ? "steer" : "interrupt",
        );
      },
 -    [appSettings.sendBehavior, cwd, onMessageSent, t],
@@ -791,7 +825,7 @@ index d6b4bae63..9237a4345 100644
    );
  
    useEffect(() => {
-@@ -1617,6 +1624,7 @@ function ComposerContentImpl({
+@@ -1733,6 +1755,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -799,10 +833,14 @@ index d6b4bae63..9237a4345 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2082,6 +2090,13 @@ function ComposerContentImpl({
+@@ -2196,18 +2219,32 @@ function ComposerContentImpl({
+     ],
    );
  
-   const contextWindowMeterGlyphSize = isCompactLayout ? ICON_SIZE.md : buttonIconSize;
++  const goalPill = useMemo(
++    () => <GoalPill goal={agentState.goal} provider={agentState.provider} />,
++    [agentState.goal, agentState.provider],
++  );
 +  const backgroundTaskPill = useMemo(
 +    () => <BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />,
 +    [agentState.backgroundTasks],
@@ -813,28 +851,64 @@ index d6b4bae63..9237a4345 100644
    const beforeVoiceContent = useMemo(
      () =>
        hasAgent ? (
-@@ -2489,6 +2504,7 @@ function ComposerContentImpl({
+-        <View style={styles.contextWindowMeterSlot}>
+-          <ContextWindowMeter
+-            serverId={serverId}
+-            agentId={agentId}
+-            maxTokens={agentState.contextWindowMaxTokens}
+-            usedTokens={agentState.contextWindowUsedTokens}
+-            totalCostUsd={agentState.totalCostUsd}
+-            toolbarRing={TOOLBAR_RINGS[controlSizing]}
+-          />
++        <View style={styles.composerToolbarSlot}>
++          {goalPill}
++          <View style={styles.contextWindowMeterSlot}>
++            <ContextWindowMeter
++              serverId={serverId}
++              agentId={agentId}
++              maxTokens={agentState.contextWindowMaxTokens}
++              usedTokens={agentState.contextWindowUsedTokens}
++              totalCostUsd={agentState.totalCostUsd}
++              toolbarRing={TOOLBAR_RINGS[controlSizing]}
++            />
++          </View>
+         </View>
+       ) : null,
+     [
+@@ -2218,6 +2255,7 @@ function ComposerContentImpl({
+       agentState.contextWindowUsedTokens,
+       agentState.totalCostUsd,
+       controlSizing,
++      goalPill,
+     ],
+   );
+ 
+@@ -2612,6 +2650,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
 +                  voiceButtonReplacement={backgroundTaskVoiceReplacement}
-                   rightContent={rightContent}
+                   voiceModeContent={voiceModeContent}
                    activeActionContent={activeActionContent}
                    voiceServerId={serverId}
+@@ -2736,6 +2775,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+     alignItems: "center",
+     gap: TOOLBAR_CONTROL_GAP,
+   },
++  composerToolbarSlot: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[1],
++    flexShrink: 0,
++  },
+   contextWindowMeterSlot: {
+     ...toolbarSlot(),
+     flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index 8cb8cd4c3..b81d93f8c 100644
+index a3ae8652a..2a4888b78 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
-@@ -26,7 +26,7 @@ import {
- } from "react";
- import { StyleSheet, withUnistyles } from "react-native-unistyles";
- import { useTranslation } from "react-i18next";
--import { ICON_SIZE, type Theme } from "@/styles/theme";
-+import { ICON_SIZE, SPACING, type Theme } from "@/styles/theme";
- import { ArrowUp, Mic, MicOff, CornerDownLeft, Plus, Square } from "lucide-react-native";
- import * as Haptics from "expo-haptics";
- import { useDictation } from "@/hooks/use-dictation";
-@@ -44,6 +44,7 @@ import {
+@@ -66,6 +66,7 @@ import {
  } from "@/utils/image-attachments-from-files";
  import type { ComposerAttachment } from "@/attachments/types";
  import type { ImageAttachment, MessagePayload, TextReplacement } from "@/composer/types";
@@ -842,41 +916,41 @@ index 8cb8cd4c3..b81d93f8c 100644
  import { focusWithRetries } from "@/utils/web-focus";
  import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
  import { Shortcut } from "@/components/ui/shortcut";
-@@ -162,6 +163,8 @@ export interface MessageInputProps {
+@@ -185,6 +186,8 @@ export interface MessageInputProps {
    leftContent?: React.ReactNode;
    /** Content to render on the right side before the voice button (e.g., context window meter) */
    beforeVoiceContent?: React.ReactNode;
 +  /** Replaces the dictation/voice button in the composer toolbar when provided. */
 +  voiceButtonReplacement?: React.ReactNode;
-   /** Auxiliary content to render on the right side after the voice button. */
-   rightContent?: React.ReactNode;
+   /** The realtime voice mode button, which takes the trailing disc while there is nothing to send. */
+   voiceModeContent?: React.ReactNode;
    /** Primary action to render when the agent is active and the composer has no sendable content. */
-@@ -1126,6 +1129,7 @@ interface ResolvedMessageInputProps {
+@@ -1187,6 +1190,7 @@ interface ResolvedMessageInputProps {
    disabled: boolean;
    leftContent: React.ReactNode;
    beforeVoiceContent: React.ReactNode;
 +  voiceButtonReplacement: React.ReactNode;
-   rightContent: React.ReactNode;
+   voiceModeContent: React.ReactNode;
    activeActionContent: React.ReactNode;
    voiceServerId: string | undefined;
-@@ -1174,6 +1178,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+@@ -1235,6 +1239,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
      disabled: props.disabled ?? false,
      leftContent: props.leftContent,
      beforeVoiceContent: props.beforeVoiceContent,
 +    voiceButtonReplacement: props.voiceButtonReplacement,
-     rightContent: props.rightContent,
+     voiceModeContent: props.voiceModeContent,
      activeActionContent: props.activeActionContent,
      voiceServerId: props.voiceServerId,
-@@ -1252,6 +1257,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -1317,6 +1322,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
        disabled,
        leftContent,
        beforeVoiceContent,
 +      voiceButtonReplacement,
-       rightContent,
+       voiceModeContent,
        activeActionContent,
        voiceServerId,
-@@ -2133,18 +2139,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
-           {/* Right: voice button, contextual button (realtime/send/cancel) */}
+@@ -2235,18 +2241,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+           {/* Right: dictation, then the trailing action (voice mode, send or stop) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
 -            <VoiceButtonTooltip
@@ -905,10 +979,10 @@ index 8cb8cd4c3..b81d93f8c 100644
 +                dictationToggleKeys={dictationToggleKeys}
 +              />
 +            )}
-             {rightContent}
-             {sendButton}
+             <View style={styles.trailingDisc}>{sendButton}</View>
            </View>
-@@ -2160,6 +2168,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         </View>
+@@ -2262,6 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -916,7 +990,7 @@ index 8cb8cd4c3..b81d93f8c 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2219,6 +2228,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2320,6 +2329,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -952,7 +1026,7 @@ index 8cb8cd4c3..b81d93f8c 100644
      return (
        <View
          ref={rootRef}
-@@ -2242,7 +2280,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2348,7 +2386,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -961,7 +1035,7 @@ index 8cb8cd4c3..b81d93f8c 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2309,6 +2347,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2406,6 +2444,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -971,7 +1045,7 @@ index 8cb8cd4c3..b81d93f8c 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2324,6 +2365,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2421,6 +2462,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -1040,42 +1114,45 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 911573762..067531d12 100644
+index 625c3d8c2..1edcb4ce7 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
-@@ -39,6 +39,7 @@ import type {
-   ServerCapabilities,
-   WorkspaceDescriptorPayload,
-   WorkspaceProjectDescriptorPayload,
+@@ -36,6 +36,8 @@ import type {
+   AgentPersistenceHandle,
+ } from "@getpaseo/protocol/agent-types";
+ import type {
++  AgentGoalPayload,
 +  AgentBackgroundTasksPayload,
- } from "@getpaseo/protocol/messages";
- import {
-   normalizeWorkspaceOpaqueId,
-@@ -86,6 +87,7 @@ export interface Agent {
-   persistence: AgentPersistenceHandle | null;
+   ServerInfoStatusPayload,
+   ProjectPlacementPayload,
+   ServerCapabilities,
+@@ -92,6 +94,8 @@ export interface Agent {
    runtimeInfo?: AgentRuntimeInfo;
+   usageScopeKey?: string;
    lastUsage?: AgentUsage;
++  goal?: AgentGoalPayload | null;
 +  backgroundTasks?: AgentBackgroundTasksPayload | null;
    lastError?: string | null;
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..9a4887f30 100644
+index 4d14f101b..88a0601cc 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
-@@ -1,9 +1,11 @@
+@@ -1,9 +1,12 @@
  import equal from "fast-deep-equal";
  import type { AgentUsage } from "@getpaseo/protocol/agent-types";
-+import type { AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
++import type { AgentGoalPayload, AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
  
  interface AgentUpdateValue {
    updatedAt: Date | string;
    lastUsage?: AgentUsage;
++  goal?: AgentGoalPayload | null;
 +  backgroundTasks?: AgentBackgroundTasksPayload | null;
  }
  
  function timestamp(value: Date | string): number {
-@@ -15,7 +17,18 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
+@@ -15,7 +18,21 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
    incoming: T,
  ): T {
    if (!current || timestamp(incoming.updatedAt) >= timestamp(current.updatedAt)) return incoming;
@@ -1083,11 +1160,14 @@ index 4d14f101b..9a4887f30 100644
 -  if (equal(incoming.lastUsage, current.lastUsage)) return current;
 -  return { ...current, lastUsage: incoming.lastUsage };
 +
-+  // The daemon's emitState() does not bump updatedAt, so backgroundTasks changes arrive on
-+  // deltas that look stale. That field merges anyway; the rest of the delta is dropped.
++  // The daemon's emitState() does not bump updatedAt, so usage, goal and backgroundTasks changes arrive on
++  // deltas that look stale. Those fields merge anyway; the rest of the delta is dropped.
 +  let merged = current;
 +  if (incoming.lastUsage !== undefined && !equal(incoming.lastUsage, merged.lastUsage)) {
 +    merged = { ...merged, lastUsage: incoming.lastUsage };
++  }
++  if (incoming.goal !== undefined && !equal(incoming.goal, merged.goal)) {
++    merged = { ...merged, goal: incoming.goal };
 +  }
 +  if (
 +    incoming.backgroundTasks !== undefined &&
@@ -1098,30 +1178,32 @@ index 4d14f101b..9a4887f30 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 13a7bcd14..584290e6a 100644
+index 86da628bd..88747abf0 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
-@@ -78,6 +78,7 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
-     persistence: agent.persistence,
+@@ -81,6 +81,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
      ...(agent.runtimeInfo ? { runtimeInfo: agent.runtimeInfo } : {}),
+     ...(agent.usageScopeKey ? { usageScopeKey: agent.usageScopeKey } : {}),
      ...(agent.lastUsage ? { lastUsage: agent.lastUsage } : {}),
++    ...(agent.goal ? { goal: agent.goal } : {}),
 +    ...(agent.backgroundTasks ? { backgroundTasks: agent.backgroundTasks } : {}),
      ...(agent.lastError ? { lastError: agent.lastError } : {}),
      title: agent.title,
      labels: agent.labels,
-@@ -122,6 +123,7 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
-     persistence: snapshot.persistence ?? null,
+@@ -129,6 +131,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
      runtimeInfo: snapshot.runtimeInfo,
+     usageScopeKey: snapshot.usageScopeKey,
      lastUsage: snapshot.lastUsage,
++    goal: snapshot.goal ?? null,
 +    backgroundTasks: snapshot.backgroundTasks ?? null,
      lastError: snapshot.lastError ?? null,
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 18654bf33..ff3e83207 100644
+index 271d3bab9..bd8579ce7 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -428,6 +428,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -465,6 +465,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -1130,10 +1212,29 @@ index 18654bf33..ff3e83207 100644
    })
    .catchall(z.boolean());
  
-@@ -860,6 +862,24 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -898,6 +900,43 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
++export const AgentGoalStatusSchema = z.enum(["active", "paused", "complete", "blocked", "cleared"]);
++
++export const AgentGoalPayloadSchema = z.object({
++  goalId: z.string(),
++  objective: z.string(),
++  completionCriterion: z.string().optional(),
++  status: AgentGoalStatusSchema,
++  turnsUsed: z.number(),
++  tokensUsed: z.number(),
++  inputTokens: z.number().optional(),
++  cachedInputTokens: z.number().optional(),
++  startedAt: z.number().optional(),
++  endedAt: z.number().nullable().optional(),
++  updatedAt: z.number(),
++  terminalReason: z.string().optional(),
++});
++
++export type AgentGoalPayload = z.infer<typeof AgentGoalPayloadSchema>;
++
 +export const AgentBackgroundTaskPayloadSchema = z.object({
 +  id: z.string(),
 +  command: z.string().nullable().optional(),
@@ -1155,10 +1256,11 @@ index 18654bf33..ff3e83207 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -881,6 +901,7 @@ export const AgentSnapshotPayloadSchema = z.object({
-   persistence: AgentPersistenceHandleSchema.nullable(),
-   runtimeInfo: AgentRuntimeInfoSchema.optional(),
+@@ -926,6 +965,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+   /** Opaque. Changes whenever the accounts this agent reports usage for can change. */
+   usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
++  goal: AgentGoalPayloadSchema.nullable().optional(),
 +  backgroundTasks: AgentBackgroundTasksPayloadSchema.nullable().optional(),
    lastError: z.string().optional(),
    title: z.string().nullable(),
