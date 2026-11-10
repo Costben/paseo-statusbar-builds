@@ -2834,7 +2834,7 @@ index 2449b9a90..146be9517 100644
          contract:
            providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index b94a6de94..090e55afa 100644
+index b94a6de..cf58143 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2854,7 +2854,7 @@ index b94a6de94..090e55afa 100644
    type SessionStateResponse,
    buildACPClientCapabilities,
    createLoggedNdJsonStream,
-+  deriveFeaturesFromACP,
++  deriveControlsFromACP,
    deriveModelDefinitionsFromACP,
    deriveModesFromACP,
    mapACPUsage,
@@ -2875,12 +2875,10 @@ index b94a6de94..090e55afa 100644
    AgentSession,
    ProviderRefreshContext,
  } from "../agent-sdk-types.js";
-@@ -101,7 +105,8 @@ interface ACPSessionInternals {
-   sessionId: string | null;
+@@ -102,6 +106,7 @@ interface ACPSessionInternals {
    connection: {
      prompt: (...args: unknown[]) => Promise<PromptResponse>;
--    signal: AbortSignal;
-+    signal?: AbortSignal;
+     signal: AbortSignal;
 +    cancel?: (input: { sessionId: string }) => Promise<void>;
    };
    activeForegroundTurnId: string | null;
@@ -3317,14 +3315,10 @@ index b94a6de94..090e55afa 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2930,14 +3316,120 @@ describe("ACPAgentSession", () => {
+@@ -2930,6 +3316,112 @@ describe("ACPAgentSession", () => {
      );
    });
  
--  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
--    const session = createKiroSession({
--      waitForInitialCommands: true,
--      initialCommandsWaitTimeoutMs: 1500,
 +  test("maps the compaction extension notification into a timeline marker", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
@@ -3335,7 +3329,7 @@ index b94a6de94..090e55afa 100644
 +      sessionId: "session-1",
 +      status: "in_progress",
 +      trigger: "auto",
-     });
++    });
 +    await session.extNotification("_paseo.dev/session/compaction", {
 +      sessionId: "session-1",
 +      status: "completed",
@@ -3362,10 +3356,9 @@ index b94a6de94..090e55afa 100644
 +  test("ignores a compaction notification for another session or without a status", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    session.subscribe((event) => events.push(event));
- 
--    const listCommandsPromise = session.listCommands();
++
 +    await session.extNotification("_paseo.dev/session/compaction", {
 +      sessionId: "session-2",
 +      status: "completed",
@@ -3432,111 +3425,61 @@ index b94a6de94..090e55afa 100644
 +    ]);
 +  });
 +
-+  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
-+    const session = createKiroSession({
-+      waitForInitialCommands: true,
-+      initialCommandsWaitTimeoutMs: 1500,
-+    });
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+
-+    const listCommandsPromise = session.listCommands();
- 
-     await session.extNotification("_kiro.dev/commands/available", {
-       sessionId: "session-1",
-@@ -3240,128 +3732,258 @@ describe("ACPAgentSession", () => {
+   test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
+     const session = createKiroSession({
+       waitForInitialCommands: true,
+@@ -3240,6 +3732,500 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
--  test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
--    const session = createSession();
--    const events: AgentStreamEvent[] = [];
--    let resolvePrompt!: (value: PromptResponse) => void;
--    const prompt = vi.fn(
--      () =>
--        new Promise<PromptResponse>((resolve) => {
--          resolvePrompt = resolve;
--        }),
 +  test("Kimi reliable mode fails explicitly when completion produces no timeline output", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 0 },
 +      createTestLogger(),
 +      { kimiReliableQueue: true },
-     );
--
-+    const events: AgentStreamEvent[] = [];
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
--    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+    asInternals<ACPSessionInternals>(session).connection = {
-+      prompt: async () => ({ stopReason: "end_turn" }),
-+    };
-+    session.subscribe((event) => events.push(event));
- 
--    session.subscribe((event) => {
--      events.push(event);
--    });
-+    const { turnId } = await session.startTurn("hello");
-+    await Promise.resolve();
-+    await Promise.resolve();
- 
--    const { turnId } = await session.startTurn("hello", {
--      clientMessageId: "msg-client-1",
-+    const failure = events.find((event) => event.type === "turn_failed");
-+    expect(failure).toMatchObject({
-+      type: "turn_failed",
-+      code: "kimi_timeline_missing",
-+      turnId,
-     });
-+    expect(JSON.stringify(failure)).not.toContain("proxy");
-+  });
- 
--    expect(prompt).toHaveBeenCalledWith({
--      sessionId: "session-1",
--      messageId: "msg-client-1",
--      prompt: [{ type: "text", text: "hello" }],
--    });
--    expect(
--      events
--        .filter(
--          (event) =>
--            event.type === "turn_started" ||
--            (event.type === "timeline" && event.item.type === "user_message"),
--        )
--        .map((event) => event.type),
--    ).toEqual(["turn_started", "timeline"]);
--    expect(
--      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
--    ).toEqual([
-+  test("Kimi reliable mode reports the provider's explanation for a missing timeline", async () => {
-+    const session = createSessionWithConfig(
-+      { provider: "kimi", lateTimelineGraceMs: 0 },
-+      createTestLogger(),
-+      { kimiReliableQueue: true },
-       {
--        type: "timeline",
--        provider: "claude-acp",
--        turnId,
--        item: {
--          type: "user_message",
--          text: "hello",
--          messageId: "msg-client-1",
--          clientMessageId: "msg-client-1",
--        },
-+        describeMissingTimeline: () => ({
-+          code: "kimi_prompt_not_accepted",
-+          error: "custom",
-+          diagnostic: "why",
-+        }),
-       },
--    ]);
 +    );
 +    const events: AgentStreamEvent[] = [];
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: async () => ({ stopReason: "end_turn" }),
++      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => events.push(event));
- 
--    resolvePrompt({ stopReason: "end_turn" });
++
++    const { turnId } = await session.startTurn("hello");
++    await Promise.resolve();
++    await Promise.resolve();
++
++    const failure = events.find((event) => event.type === "turn_failed");
++    expect(failure).toMatchObject({
++      type: "turn_failed",
++      code: "kimi_timeline_missing",
++      turnId,
++    });
++    expect(JSON.stringify(failure)).not.toContain("proxy");
++  });
++
++  test("Kimi reliable mode reports the provider's explanation for a missing timeline", async () => {
++    const session = createSessionWithConfig(
++      { provider: "kimi", lateTimelineGraceMs: 0 },
++      createTestLogger(),
++      { kimiReliableQueue: true },
++      {
++        describeMissingTimeline: () => ({
++          code: "kimi_prompt_not_accepted",
++          error: "custom",
++          diagnostic: "why",
++        }),
++      },
++    );
++    const events: AgentStreamEvent[] = [];
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt: async () => ({ stopReason: "end_turn" }),
++      signal: new AbortController().signal,
++    };
++    session.subscribe((event) => events.push(event));
++
 +    const { turnId } = await session.startTurn("hello");
 +    await Promise.resolve();
 +    await Promise.resolve();
@@ -3547,10 +3490,8 @@ index b94a6de94..090e55afa 100644
 +      error: "custom",
 +      turnId,
 +    });
-   });
- 
--  test("startTurn dedupes ACP user echo chunks for the submitted message", async () => {
--    const session = createSession();
++  });
++
 +  test("Kimi accepted task notification with no timeline does not report a dropped prompt", async () => {
 +    const home = await mkdtemp(path.join(tmpdir(), "paseo-kimi-notification-"));
 +    const sessionId = "session_notification-test";
@@ -3559,8 +3500,7 @@ index b94a6de94..090e55afa 100644
 +    const wire = path.join(logDir, "wire.jsonl");
 +    await writeFile(wire, "");
 +    const hooks = createKimiProviderHooks({ kimiHome: home, pollIntervalMs: 10 });
-     const events: AgentStreamEvent[] = [];
--    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++    const events: AgentStreamEvent[] = [];
 +    const logger = createTestLogger();
 +    let observeLog!: () => void;
 +    const logObserved = new Promise<void>((resolve) => {
@@ -3592,6 +3532,7 @@ index b94a6de94..090e55afa 100644
 +        '<notification id="task:question-uk3q7g81:completed" category="task" type="task.completed" />';
 +      asInternals<ACPSessionInternals>(session).sessionId = sessionId;
 +      asInternals<ACPSessionInternals>(session).connection = {
++        signal: new AbortController().signal,
 +        prompt: async () => {
 +          const records = [
 +            { type: "turn.prompt", agentId: "main", turnId: 20, origin },
@@ -3638,7 +3579,7 @@ index b94a6de94..090e55afa 100644
 +      await rm(home, { recursive: true, force: true });
 +    }
 +  });
- 
++
 +  test("a dropped provider notice neither shows up nor counts as output of the turn", async () => {
 +    const hooks: ACPProviderHooks = {
 +      shouldDropSessionUpdate: (update) =>
@@ -3653,13 +3594,9 @@ index b94a6de94..090e55afa 100644
 +      hooks,
 +    );
 +    const events: AgentStreamEvent[] = [];
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
--    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
--
--    session.subscribe((event) => {
--      events.push(event);
--    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    asInternals<ACPSessionInternals>(session).connection = {
++      signal: new AbortController().signal,
 +      prompt: async () => {
 +        await session.sessionUpdate({
 +          sessionId: "session-1",
@@ -3673,40 +3610,25 @@ index b94a6de94..090e55afa 100644
 +      },
 +    };
 +    session.subscribe((event) => events.push(event));
- 
--    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
--    await session.sessionUpdate({
--      sessionId: "session-1",
--      update: {
--        sessionUpdate: "user_message_chunk",
--        messageId: "msg-client-1",
--        content: { type: "text", text: "hello" },
--      } as SessionUpdate,
--    });
++
 +    const { turnId } = await session.startTurn("hello");
 +    await flushMicrotasks();
- 
-     expect(
--      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
--    ).toHaveLength(1);
++
++    expect(
 +      events.filter((event) => event.type === "timeline" && event.item.type !== "user_message"),
 +    ).toEqual([]);
 +    expect(events).toContainEqual(
 +      expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
 +    );
-   });
- 
--  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
--    const session = createSession();
++  });
++
 +  test("Kimi reliable mode keeps a turn alive when its prompt resolves before the turn's updates", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 1_000 },
 +      createTestLogger(),
 +      { kimiReliableQueue: true },
 +    );
-     const events: AgentStreamEvent[] = [];
--    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
--
++    const events: AgentStreamEvent[] = [];
 +    let resolvePrompt!: (value: PromptResponse) => void;
 +    const prompt = vi.fn(
 +      () =>
@@ -3714,52 +3636,31 @@ index b94a6de94..090e55afa 100644
 +          resolvePrompt = resolve;
 +        }),
 +    );
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
--    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      signal: new AbortController().signal,
++    };
 +    session.subscribe((event) => events.push(event));
- 
--    session.subscribe((event) => {
--      events.push(event);
--    });
++
 +    const { turnId } = await session.startTurn("hello");
 +    resolvePrompt({ stopReason: "end_turn" });
 +    await new Promise<void>((resolve) => setImmediate(resolve));
- 
--    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
--        sessionUpdate: "user_message_chunk",
--        content: { type: "text", text: "hello" },
++
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
 +        sessionUpdate: "agent_message_chunk",
 +        messageId: "assistant-late",
 +        content: { type: "text", text: "late output" },
-       } as SessionUpdate,
-     });
++      } as SessionUpdate,
++    });
 +    await new Promise<void>((resolve) => setImmediate(resolve));
- 
--    expect(
--      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
--    ).toEqual([
--      {
--        type: "timeline",
--        provider: "claude-acp",
--        item: {
--          type: "user_message",
--          text: "hello",
--          messageId: "msg-client-1",
--          clientMessageId: "msg-client-1",
--        },
--        turnId: expect.any(String),
--      },
--    ]);
++
 +    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
 +    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
-   });
- 
--  test("startTurn dedupes ACP user echo chunks without message ids across turns", async () => {
--    const session = createSession();
++  });
++
 +  test("Kimi reliable mode fails once the late-timeline grace expires with no output", async () => {
 +    vi.useFakeTimers();
 +    try {
@@ -3772,6 +3673,7 @@ index b94a6de94..090e55afa 100644
 +      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +      asInternals<ACPSessionInternals>(session).connection = {
 +        prompt: async () => ({ stopReason: "end_turn" }),
++        signal: new AbortController().signal,
 +      };
 +      session.subscribe((event) => events.push(event));
 +
@@ -3790,30 +3692,26 @@ index b94a6de94..090e55afa 100644
 +    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
 +      kimiReliableQueue: true,
 +    });
-     const events: AgentStreamEvent[] = [];
-     let resolvePrompt!: (value: PromptResponse) => void;
-     const prompt = vi.fn(
-@@ -3370,64 +3992,308 @@ describe("ACPAgentSession", () => {
-           resolvePrompt = resolve;
-         }),
-     );
--
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
--    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    const events: AgentStreamEvent[] = [];
++    let resolvePrompt!: (value: PromptResponse) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise<PromptResponse>((resolve) => {
++          resolvePrompt = resolve;
++        }),
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      signal: new AbortController().signal,
++    };
 +    session.subscribe((event) => events.push(event));
- 
--    session.subscribe((event) => {
--      events.push(event);
--    });
++
 +    const { turnId } = await session.startTurn("hello");
- 
--    await session.startTurn("first", { clientMessageId: "msg-client-1" });
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
--        sessionUpdate: "user_message_chunk",
--        content: { type: "text", text: "first" },
++
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
 +        sessionUpdate: "agent_thought_chunk",
 +        messageId: "thought-1",
 +        content: { type: "text", text: "Working on it" },
@@ -3827,14 +3725,13 @@ index b94a6de94..090e55afa 100644
 +        title: "Read file",
 +        kind: "read",
 +        status: "in_progress",
-       } as SessionUpdate,
-     });
++      } as SessionUpdate,
++    });
 +
-     resolvePrompt({ stopReason: "end_turn" });
-     await Promise.resolve();
-     await Promise.resolve();
- 
--    await session.startTurn("second", { clientMessageId: "msg-client-2" });
++    resolvePrompt({ stopReason: "end_turn" });
++    await Promise.resolve();
++    await Promise.resolve();
++
 +    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
 +    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
 +  });
@@ -3847,11 +3744,9 @@ index b94a6de94..090e55afa 100644
 +
 +    // Kimi opens the call with the tool's own name and only afterwards replaces
 +    // the title with a sentence describing what the tool is doing.
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
--        sessionUpdate: "user_message_chunk",
--        content: { type: "text", text: "second" },
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
 +        sessionUpdate: "tool_call",
 +        toolCallId: "tool-1",
 +        title: "AskUserQuestion",
@@ -3868,12 +3763,9 @@ index b94a6de94..090e55afa 100644
 +        kind: "other",
 +        status: "in_progress",
 +        content: [{ type: "content", content: { type: "text", text: "{}" } }],
-       } as SessionUpdate,
-     });
- 
--    expect(
--      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
--    ).toEqual([
++      } as SessionUpdate,
++    });
++
 +    const toolCalls = events.flatMap((event) =>
 +      event.type === "timeline" && event.item.type === "tool_call" ? [event.item] : [],
 +    );
@@ -3892,6 +3784,7 @@ index b94a6de94..090e55afa 100644
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: async () => ({ stopReason: "cancelled" }),
++      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => events.push(event));
 +
@@ -3949,7 +3842,10 @@ index b94a6de94..090e55afa 100644
 +        }),
 +    );
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      signal: new AbortController().signal,
++    };
 +    session.subscribe((event) => events.push(event));
 +
 +    const { turnId } = await session.startTurn("hello");
@@ -3990,7 +3886,7 @@ index b94a6de94..090e55afa 100644
 +    );
 +    const internals = asInternals<ACPSessionInternals>(session);
 +    internals.sessionId = "session-1";
-+    internals.connection = { prompt };
++    internals.connection = { prompt, signal: new AbortController().signal };
 +    session.subscribe((event) => events.push(event));
 +
 +    const { turnId } = await session.startTurn("hello");
@@ -4030,464 +3926,10 @@ index b94a6de94..090e55afa 100644
 +    );
 +  });
 +
-+  test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    let resolvePrompt!: (value: PromptResponse) => void;
-+    const prompt = vi.fn(
-+      () =>
-+        new Promise<PromptResponse>((resolve) => {
-+          resolvePrompt = resolve;
-+        }),
-+    );
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    const { turnId } = await session.startTurn("hello", {
-+      clientMessageId: "msg-client-1",
-+    });
-+
-+    expect(prompt).toHaveBeenCalledWith({
-+      sessionId: "session-1",
-+      messageId: "msg-client-1",
-+      prompt: [{ type: "text", text: "hello" }],
-+    });
-+    expect(
-+      events
-+        .filter(
-+          (event) =>
-+            event.type === "turn_started" ||
-+            (event.type === "timeline" && event.item.type === "user_message"),
-+        )
-+        .map((event) => event.type),
-+    ).toEqual(["turn_started", "timeline"]);
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toEqual([
-       {
-         type: "timeline",
-         provider: "claude-acp",
-+        turnId,
-         item: {
-           type: "user_message",
--          text: "first",
-+          text: "hello",
-           messageId: "msg-client-1",
-           clientMessageId: "msg-client-1",
-         },
--        turnId: expect.any(String),
--      },
--      {
--        type: "timeline",
--        provider: "claude-acp",
--        item: {
--          type: "user_message",
--          text: "second",
--          messageId: "msg-client-2",
--          clientMessageId: "msg-client-2",
--        },
--        turnId: expect.any(String),
-       },
-     ]);
-+
-+    resolvePrompt({ stopReason: "end_turn" });
-   });
- 
--  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
-+  test("startTurn dedupes ACP user echo chunks for the submitted message", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        messageId: "msg-client-1",
-+        content: { type: "text", text: "hello" },
-+      } as SessionUpdate,
-+    });
-+
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toHaveLength(1);
-+  });
-+
-+  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
+   test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-     const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3444,7 +4310,6 @@ describe("ACPAgentSession", () => {
-       sessionId: "session-1",
-       update: {
-         sessionUpdate: "user_message_chunk",
--        messageId: "msg-provider-1",
-         content: { type: "text", text: "hello" },
-       } as SessionUpdate,
-     });
-@@ -3466,10 +4331,16 @@ describe("ACPAgentSession", () => {
-     ]);
-   });
- 
--  test("startTurn dedupes a provider-owned user echo streamed as text and image chunks", async () => {
-+  test("startTurn dedupes ACP user echo chunks without message ids across turns", async () => {
-     const session = createSession();
-     const events: AgentStreamEvent[] = [];
--    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+    let resolvePrompt!: (value: PromptResponse) => void;
-+    const prompt = vi.fn(
-+      () =>
-+        new Promise<PromptResponse>((resolve) => {
-+          resolvePrompt = resolve;
-+        }),
-+    );
- 
-     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-     asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-@@ -3478,27 +4349,24 @@ describe("ACPAgentSession", () => {
-       events.push(event);
-     });
- 
--    await session.startTurn(
--      [
--        { type: "text", text: "hey" },
--        { type: "image", data: "AA==", mimeType: "image/png" },
--      ],
--      { clientMessageId: "msg-client-1" },
--    );
-+    await session.startTurn("first", { clientMessageId: "msg-client-1" });
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
-         sessionUpdate: "user_message_chunk",
--        messageId: "msg-provider-1",
--        content: { type: "text", text: "hey" },
-+        content: { type: "text", text: "first" },
-       } as SessionUpdate,
-     });
-+    resolvePrompt({ stopReason: "end_turn" });
-+    await Promise.resolve();
-+    await Promise.resolve();
-+
-+    await session.startTurn("second", { clientMessageId: "msg-client-2" });
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
-         sessionUpdate: "user_message_chunk",
--        messageId: "msg-provider-1",
--        content: { type: "image", data: "AA==", mimeType: "image/png" },
-+        content: { type: "text", text: "second" },
-       } as SessionUpdate,
-     });
- 
-@@ -3507,19 +4375,30 @@ describe("ACPAgentSession", () => {
-     ).toEqual([
-       {
-         type: "timeline",
--        provider: session.provider,
-+        provider: "claude-acp",
-         item: {
-           type: "user_message",
--          text: "hey",
-+          text: "first",
-           messageId: "msg-client-1",
-           clientMessageId: "msg-client-1",
-         },
-         turnId: expect.any(String),
-       },
-+      {
-+        type: "timeline",
-+        provider: "claude-acp",
-+        item: {
-+          type: "user_message",
-+          text: "second",
-+          messageId: "msg-client-2",
-+          clientMessageId: "msg-client-2",
-+        },
-+        turnId: expect.any(String),
-+      },
-     ]);
-   });
- 
--  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
-+  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
-     const session = createSession();
-     const events: AgentStreamEvent[] = [];
-     const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3531,28 +4410,246 @@ describe("ACPAgentSession", () => {
-       events.push(event);
-     });
- 
--    await session.startTurn([{ type: "image", data: "AA==", mimeType: "image/png" }], {
--      clientMessageId: "msg-client-1",
--    });
-+    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
-     await session.sessionUpdate({
-       sessionId: "session-1",
-       update: {
-         sessionUpdate: "user_message_chunk",
--        content: { type: "image", data: "AA==", mimeType: "image/png" },
--      } as SessionUpdate,
--    });
--    await session.sessionUpdate({
--      sessionId: "session-1",
--      update: {
--        sessionUpdate: "agent_message_chunk",
--        messageId: "assistant-1",
--        content: { type: "text", text: "I see it" },
-+        messageId: "msg-client-1",
-+        content: { type: "text", text: "hello" },
-       } as SessionUpdate,
-     });
- 
-     expect(
-       events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
--    ).toEqual([
-+    ).toHaveLength(1);
-+  });
-+
-+  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        content: { type: "text", text: "hello" },
-+      } as SessionUpdate,
-+    });
-+
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toEqual([
-+      {
-+        type: "timeline",
-+        provider: "claude-acp",
-+        item: {
-+          type: "user_message",
-+          text: "hello",
-+          messageId: "msg-client-1",
-+          clientMessageId: "msg-client-1",
-+        },
-+        turnId: expect.any(String),
-+      },
-+    ]);
-+  });
-+
-+  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    await session.startTurn("first", { clientMessageId: "msg-client-1" });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        content: { type: "text", text: "first" },
-+      } as SessionUpdate,
-+    });
-+    resolvePrompt({ stopReason: "end_turn" });
-+    await Promise.resolve();
-+    await Promise.resolve();
-+
-+    await session.startTurn("second", { clientMessageId: "msg-client-2" });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        content: { type: "text", text: "second" },
-+      } as SessionUpdate,
-+    });
-+
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toEqual([
-+      {
-+        type: "timeline",
-+        provider: "claude-acp",
-+        item: {
-+          type: "user_message",
-+          text: "first",
-+          messageId: "msg-client-1",
-+          clientMessageId: "msg-client-1",
-+        },
-+        turnId: expect.any(String),
-+      },
-+      {
-+        type: "timeline",
-+        provider: "claude-acp",
-+        item: {
-+          type: "user_message",
-+          text: "second",
-+          messageId: "msg-client-2",
-+          clientMessageId: "msg-client-2",
-+        },
-+        turnId: expect.any(String),
-+      },
-+    ]);
-+  });
-+
-+  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        messageId: "msg-provider-1",
-+        content: { type: "text", text: "hello" },
-+      } as SessionUpdate,
-+    });
-+
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toEqual([
-+      {
-+        type: "timeline",
-+        provider: "claude-acp",
-+        item: {
-+          type: "user_message",
-+          text: "hello",
-+          messageId: "msg-client-1",
-+          clientMessageId: "msg-client-1",
-+        },
-+        turnId: expect.any(String),
-+      },
-+    ]);
-+  });
-+
-+  test("startTurn dedupes a provider-owned user echo streamed as text and image chunks", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    await session.startTurn(
-+      [
-+        { type: "text", text: "hey" },
-+        { type: "image", data: "AA==", mimeType: "image/png" },
-+      ],
-+      { clientMessageId: "msg-client-1" },
-+    );
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        messageId: "msg-provider-1",
-+        content: { type: "text", text: "hey" },
-+      } as SessionUpdate,
-+    });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        messageId: "msg-provider-1",
-+        content: { type: "image", data: "AA==", mimeType: "image/png" },
-+      } as SessionUpdate,
-+    });
-+
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toEqual([
-+      {
-+        type: "timeline",
-+        provider: session.provider,
-+        item: {
-+          type: "user_message",
-+          text: "hey",
-+          messageId: "msg-client-1",
-+          clientMessageId: "msg-client-1",
-+        },
-+        turnId: expect.any(String),
-+      },
-+    ]);
-+  });
-+
-+  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
-+    const session = createSession();
-+    const events: AgentStreamEvent[] = [];
-+    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-+
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
-+
-+    session.subscribe((event) => {
-+      events.push(event);
-+    });
-+
-+    await session.startTurn([{ type: "image", data: "AA==", mimeType: "image/png" }], {
-+      clientMessageId: "msg-client-1",
-+    });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
-+        content: { type: "image", data: "AA==", mimeType: "image/png" },
-+      } as SessionUpdate,
-+    });
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "agent_message_chunk",
-+        messageId: "assistant-1",
-+        content: { type: "text", text: "I see it" },
-+      } as SessionUpdate,
-+    });
-+
-+    expect(
-+      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
-+    ).toEqual([
-       {
-         type: "timeline",
-         provider: session.provider,
-@@ -5198,3 +6295,1040 @@ describe("custom ACP provider with configured models", () => {
+@@ -5198,3 +6184,1051 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -4597,7 +4039,10 @@ index b94a6de94..090e55afa 100644
 +
 +    const session = createSessionWithConfig({}, createTestLogger(), {}, providerHooks);
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      signal: new AbortController().signal,
++    };
 +    session.subscribe((event) => {
 +      events.push(event);
 +      if (
@@ -4663,7 +4108,10 @@ index b94a6de94..090e55afa 100644
 +      createKimiProviderHooks(),
 +    );
 +    asInternals<ACPSessionInternals>(session).sessionId = "session_goal-test";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt };
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      signal: new AbortController().signal,
++    };
 +
 +    await session.startTurn("/goal write the runbook");
 +
@@ -4744,7 +4192,11 @@ index b94a6de94..090e55afa 100644
 +      },
 +    );
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+    asInternals<ACPSessionInternals>(session).connection = { prompt, cancel };
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      cancel,
++      signal: new AbortController().signal,
++    };
 +    session.subscribe((event) => {
 +      events.push(event);
 +      if (
@@ -4796,6 +4248,7 @@ index b94a6de94..090e55afa 100644
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: vi.fn(async (): Promise<PromptResponse> => ({ stopReason: "end_turn" })),
 +      cancel: vi.fn(async () => {}),
++      signal: new AbortController().signal,
 +    };
 +
 +    await session.startTurn("hello");
@@ -4849,6 +4302,7 @@ index b94a6de94..090e55afa 100644
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: vi.fn(() => response),
 +      cancel: vi.fn(async () => {}),
++      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => {
 +      if (
@@ -4924,7 +4378,11 @@ index b94a6de94..090e55afa 100644
 +    const prompt = vi.fn(async () => ({ stopReason: "end_turn" as const }));
 +    const cancel = vi.fn(async () => {});
 +    asInternals<ACPSessionInternals>(session).sessionId = sessionId;
-+    asInternals<ACPSessionInternals>(session).connection = { prompt, cancel };
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      cancel,
++      signal: new AbortController().signal,
++    };
 +    const events: AgentStreamEvent[] = [];
 +    session.subscribe((event) => events.push(event));
 +    asInternals<{ notifyProviderSessionReady(): void }>(session).notifyProviderSessionReady();
@@ -5467,9 +4925,9 @@ index b94a6de94..090e55afa 100644
 +});
 +
 +
-+describe("deriveFeaturesFromACP", () => {
-+  test("maps a custom ACP agent preset option onto the agent feature", () => {
-+    const features = deriveFeaturesFromACP(
++describe("deriveControlsFromACP", () => {
++  test("maps a custom ACP agent preset option onto the agent control", () => {
++    const controls = deriveControlsFromACP(
 +      [
 +        {
 +          id: "agent",
@@ -5485,34 +4943,29 @@ index b94a6de94..090e55afa 100644
 +      [ACP_AGENT_PRESET_FEATURE_OPTION],
 +    );
 +
-+    expect(features).toHaveLength(1);
-+    expect(features[0]).toMatchObject({
++    expect(controls).toHaveLength(1);
++    expect(controls[0]).toMatchObject({
 +      type: "select",
-+      id: "agent",
++      key: "agent",
 +      label: "Agent",
-+      value: "standard",
 +    });
-+    const feature = features[0];
-+    expect(feature && feature.type === "select" ? feature.options : []).toEqual([
++    const control = controls[0];
++    expect(control && control.type === "select" ? control.choices : []).toEqual([
 +      {
-+        id: "standard",
++        value: "standard",
 +        label: "Standard",
 +        description: undefined,
-+        isDefault: true,
-+        metadata: undefined,
 +      },
 +      {
-+        id: "redteam",
++        value: "redteam",
 +        label: "Red Team",
 +        description: undefined,
-+        isDefault: false,
-+        metadata: undefined,
 +      },
 +    ]);
 +  });
 +
 +  test("stays silent when the agent advertises no agent option", () => {
-+    const features = deriveFeaturesFromACP(
++    const controls = deriveControlsFromACP(
 +      [
 +        {
 +          id: "model",
@@ -5525,7 +4978,7 @@ index b94a6de94..090e55afa 100644
 +      [ACP_AGENT_PRESET_FEATURE_OPTION],
 +    );
 +
-+    expect(features).toEqual([]);
++    expect(controls).toEqual([]);
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts

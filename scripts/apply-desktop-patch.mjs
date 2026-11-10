@@ -142,15 +142,6 @@ const PATCHES = [
     },
   },
   {
-    name: "agent-cwd-guard",
-    file: "paseo-agent-cwd-guard.patch",
-    platforms: ["mac", "win"],
-    marker: {
-      path: "packages/server/src/server/agent/agent-loading.ts",
-      needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
-    },
-  },
-  {
     // A provider override may carry an `icon` (inline SVG or an .svg path), so a
     // custom ACP provider such as dsh renders its own logo instead of falling
     // back to the generic bot icon.
@@ -514,9 +505,9 @@ const MARKERS = [
     needle: "child = forkProcess(workerEntry, workerArgs, {",
   },
   {
-    label: "Agent resume refuses a missing workspace directory",
-    path: "packages/server/src/server/agent/agent-loading.ts",
-    needle: 'Agent ${agentId} workspace directory no longer exists: ${record.cwd}',
+    label: "Agent resume refuses a missing workspace directory (upstream)",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: "await assertUsableWorkingDirectory(normalized.cwd);",
   },
   {
     label: "ACP catch-all tool calls are labelled with the tool name",

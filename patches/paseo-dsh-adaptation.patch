@@ -1076,10 +1076,10 @@ index 16dad265f..9d8f1113a 100644
              ...acpOptions,
              configFeatureOptions: [ACP_AGENT_PRESET_FEATURE_OPTION],
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 090e55afa..d62ece96d 100644
+index cf58143..4ae1ecd 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -4065,6 +4065,82 @@ describe("ACPAgentSession", () => {
+@@ -4076,6 +4076,82 @@ describe("ACPAgentSession", () => {
      });
    });
  
@@ -1162,7 +1162,7 @@ index 090e55afa..d62ece96d 100644
    test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
      const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
        kimiReliableQueue: true,
-@@ -5302,7 +5378,7 @@ describe("ACPAgentClient probe cleanup", () => {
+@@ -5191,7 +5267,7 @@ describe("ACPAgentClient probe cleanup", () => {
      expect(terminator.terminated).toContain(child);
    });
  
@@ -1171,7 +1171,7 @@ index 090e55afa..d62ece96d 100644
      const terminator = new FakeTerminator();
      const child = createProbeChildStub();
      const abort = new AbortController();
-@@ -5361,7 +5437,8 @@ describe("ACPAgentClient probe cleanup", () => {
+@@ -5250,7 +5326,8 @@ describe("ACPAgentClient probe cleanup", () => {
      });
  
      await expect(catalog).rejects.toThrow("refresh cancelled");
@@ -1181,8 +1181,8 @@ index 090e55afa..d62ece96d 100644
      expect(terminator.terminated).toContain(child);
    });
  
-@@ -7332,3 +7409,96 @@ describe("deriveFeaturesFromACP", () => {
-     expect(features).toEqual([]);
+@@ -7232,3 +7309,97 @@ describe("deriveControlsFromACP", () => {
+     expect(controls).toEqual([]);
    });
  });
 +
@@ -1201,6 +1201,7 @@ index 090e55afa..d62ece96d 100644
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt,
 +      cancel: vi.fn(async () => {}),
++      signal: new AbortController().signal,
 +    };
 +
 +    let settle!: () => void;
@@ -1278,7 +1279,6 @@ index 090e55afa..d62ece96d 100644
 +    expect(seen).toEqual([false]);
 +  });
 +});
-\ No newline at end of file
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
 index e1d9283..b734652 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
