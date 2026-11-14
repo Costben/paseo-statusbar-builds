@@ -195,6 +195,19 @@ const PATCHES = [
       needle: "private async steerIntoRunningTurn(prompt: AgentPromptInput): Promise<boolean> {",
     },
   },
+  {
+    // AskUserQuestion requests carrying `_meta.questions` (from patched
+    // kimi-code-builds) map to kind "question" so Paseo renders QuestionFormCard
+    // with free-text "Other" input, and relays `updatedInput.answers` back in
+    // `_meta.answers` instead of collapsing everything to an optionId button.
+    name: "acp-question-form",
+    file: "paseo-acp-question-form.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/acp-agent.ts",
+      needle: "function extractACPQuestionPrompts(",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -764,6 +777,11 @@ const MARKERS = [
     label: "the trajectory sheet is reachable from the composer",
     path: "packages/app/src/composer/trajectory-pill.tsx",
     needle: "export function TrajectoryPill(",
+  },
+  {
+    label: "ACP AskUserQuestion _meta.questions maps to QuestionFormCard",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "function resolveACPQuestionAnswers(",
   },
 ];
 

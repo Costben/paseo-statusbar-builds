@@ -1,0 +1,380 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index db2aedf..387625f 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -7496,3 +7496,147 @@ describe("ACP provider hook continuation", () => {
+     expect(seen).toEqual([false]);
+   });
+ });
++
++describe("ACPAgentSession AskUserQuestion _meta question form", () => {
++  test("maps _meta.questions to kind=question and relays free-text answers via _meta.answers", async () => {
++    const session = createSessionWithConfig({ provider: "kimi-acp", modeId: "bypassPermissions" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    internals.activeForegroundTurnId = "turn-1";
++    session.subscribe((event) => events.push(event));
++
++    const permission = session.requestPermission({
++      sessionId: "session-1",
++      toolCall: {
++        toolCallId: "q-1",
++        title: "AskUserQuestion",
++        content: [{ type: "content", content: { type: "text", text: "Pick a page?" } }],
++      },
++      options: [
++        { optionId: "q0_opt_0", name: "Page A", kind: "allow_once" },
++        { optionId: "q0_opt_1", name: "Page B", kind: "allow_once" },
++        { optionId: "q0_skip", name: "Skip", kind: "reject_once" },
++      ],
++      _meta: {
++        questions: [
++          {
++            question: "Pick a page?",
++            header: "Page",
++            options: [
++              { label: "Page A", description: "First" },
++              { label: "Page B" },
++            ],
++            multiSelect: false,
++            allowOther: true,
++          },
++          {
++            question: "Pick tags?",
++            options: [{ label: "Tag 1" }, { label: "Tag 2" }],
++            multiSelect: true,
++          },
++        ],
++      },
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++    expect(requested.request.kind).toBe("question");
++    expect(requested.request.input).toEqual({
++      questions: [
++        {
++          question: "Pick a page?",
++          header: "Page",
++          options: [
++            { label: "Page A", description: "First" },
++            { label: "Page B" },
++          ],
++          multiSelect: false,
++          allowOther: true,
++        },
++        {
++          question: "Pick tags?",
++          header: "Question 2",
++          options: [{ label: "Tag 1" }, { label: "Tag 2" }],
++          multiSelect: true,
++          allowOther: true,
++        },
++      ],
++    });
++
++    await session.respondToPermission(requested.request.id, {
++      behavior: "allow",
++      updatedInput: {
++        answers: {
++          Page: "Custom page URL",
++          "Question 2": "Tag 1, Custom tag",
++        },
++      },
++    });
++
++    await expect(permission).resolves.toEqual({
++      outcome: {
++        outcome: "selected",
++        optionId: "q0_opt_0",
++        _meta: {
++          answers: {
++            "Pick a page?": "Custom page URL",
++            "Pick tags?": "Tag 1, Custom tag",
++          },
++        },
++      },
++      _meta: {
++        answers: {
++          "Pick a page?": "Custom page URL",
++          "Pick tags?": "Tag 1, Custom tag",
++        },
++      },
++    });
++  });
++
++  test("relays Skip when QuestionFormCard is dismissed and ignores auto_accept", async () => {
++    const session = createSessionWithConfig({
++      provider: "kimi-acp",
++      providerOptions: { auto_accept: true },
++    });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++
++    internals.sessionId = "session-1";
++    internals.activeForegroundTurnId = "turn-1";
++    session.subscribe((event) => events.push(event));
++
++    const permission = session.requestPermission({
++      sessionId: "session-1",
++      toolCall: { toolCallId: "q-2", title: "AskUserQuestion" },
++      options: [
++        { optionId: "q0_opt_0", name: "Only option", kind: "allow_once" },
++        { optionId: "q0_skip", name: "Skip", kind: "reject_once" },
++      ],
++      _meta: {
++        questions: [{ question: "Confirm?", options: [{ label: "Only option" }] }],
++      },
++    } satisfies RequestPermissionRequest);
++
++    await Promise.resolve();
++
++    const requested = events.find((event) => event.type === "permission_requested");
++    if (requested?.type !== "permission_requested") {
++      throw new Error("Expected permission request");
++    }
++
++    await session.respondToPermission(requested.request.id, {
++      behavior: "deny",
++      message: "Dismissed by user",
++    });
++
++    await expect(permission).resolves.toEqual({
++      outcome: { outcome: "selected", optionId: "q0_skip" },
++    });
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 27bfb5e..797aae3 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -3679,6 +3679,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       throw new Error(`No pending permission request with id '${requestId}'`);
+     }
+ 
++    const questionAnswers = resolveACPQuestionAnswers(pending, response);
+     const selectedOption = selectPermissionOption(pending.options, response);
+     if (response.selectedActionId !== undefined && !selectedOption) {
+       throw new Error(
+@@ -3687,16 +3688,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+ 
+     this.pendingPermissions.delete(requestId);
+-    pending.resolve(
+-      selectedOption
+-        ? {
+-            outcome: {
+-              outcome: "selected",
+-              optionId: selectedOption.optionId,
+-            },
+-          }
+-        : { outcome: { outcome: "cancelled" } },
+-    );
++    if (questionAnswers !== null) {
++      const optionId = resolveACPQuestionOptionId(pending, questionAnswers, selectedOption);
++      pending.resolve({
++        outcome: {
++          outcome: "selected",
++          optionId,
++          _meta: { answers: questionAnswers },
++        },
++        _meta: { answers: questionAnswers },
++      });
++    } else {
++      pending.resolve(
++        selectedOption
++          ? {
++              outcome: {
++                outcome: "selected",
++                optionId: selectedOption.optionId,
++              },
++            }
++          : { outcome: { outcome: "cancelled" } },
++      );
++    }
+ 
+     this.pushEvent({
+       type: "permission_resolved",
+@@ -3714,7 +3727,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     // request nobody is waiting on any more. Hand the answer back as a prompt
+     // instead of letting it disappear.
+     if (pending.turnId !== null && pending.turnId !== this.activeForegroundTurnId) {
+-      const prompt = buildLatePermissionAnswer(pending, response, selectedOption);
++      const effectiveResponse =
++        questionAnswers !== null
++          ? {
++              ...response,
++              updatedInput: { ...response.updatedInput, answers: questionAnswers },
++            }
++          : response;
++      const prompt = buildLatePermissionAnswer(pending, effectiveResponse, selectedOption);
+       if (prompt !== null) {
+         return { followUpPrompt: prompt };
+       }
+@@ -3860,8 +3880,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
++    const isQuestionRequest = extractACPQuestionPrompts(params) !== null;
+     const canAutoAccept =
+-      isACPAutoAcceptEnabled(this.config) && !isACPChooserRequest(params.options);
++      isACPAutoAcceptEnabled(this.config) &&
++      !isACPChooserRequest(params.options) &&
++      !isQuestionRequest;
+     if (canAutoAccept) {
+       const allowOption = selectPermissionOption(params.options, { behavior: "allow" });
+       if (allowOption) {
+@@ -5806,6 +5829,111 @@ function extractTerminalContent(
+   };
+ }
+ 
++interface ACPQuestionPrompt {
++  question: string;
++  header: string;
++  options: Array<{ label: string; description?: string }>;
++  multiSelect: boolean;
++  allowOther: boolean;
++}
++
++function extractACPQuestionPrompts(params: RequestPermissionRequest): ACPQuestionPrompt[] | null {
++  const rawQuestions = isRecord(params._meta) ? params._meta["questions"] : undefined;
++  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
++    return null;
++  }
++
++  const questions: ACPQuestionPrompt[] = [];
++  for (let index = 0; index < rawQuestions.length; index += 1) {
++    const item = rawQuestions[index];
++    if (!isRecord(item)) {
++      return null;
++    }
++    const question = typeof item["question"] === "string" ? item["question"].trim() : "";
++    const rawOptions = item["options"];
++    if (!question || !Array.isArray(rawOptions)) {
++      return null;
++    }
++    const options: Array<{ label: string; description?: string }> = [];
++    for (const rawOption of rawOptions) {
++      if (!isRecord(rawOption) || typeof rawOption["label"] !== "string") {
++        return null;
++      }
++      const description =
++        typeof rawOption["description"] === "string" ? rawOption["description"] : undefined;
++      options.push({
++        label: rawOption["label"],
++        ...(description !== undefined ? { description } : {}),
++      });
++    }
++    const rawHeader = typeof item["header"] === "string" ? item["header"].trim() : "";
++    const header =
++      rawHeader.length > 0
++        ? rawHeader
++        : rawQuestions.length === 1
++          ? "Question"
++          : `Question ${index + 1}`;
++    questions.push({
++      question,
++      header,
++      options,
++      multiSelect: item["multiSelect"] === true,
++      allowOther: item["allowOther"] !== false,
++    });
++  }
++  return questions;
++}
++
++function resolveACPQuestionAnswers(
++  pending: PendingPermission,
++  response: AgentPermissionResponse,
++): Record<string, string> | null {
++  if (pending.request.kind !== "question" || response.behavior !== "allow") {
++    return null;
++  }
++  const rawAnswers = readQuestionFormAnswers(response.updatedInput);
++  if (!rawAnswers) {
++    return null;
++  }
++
++  const rawQuestions = pending.request.input?.["questions"];
++  if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
++    return rawAnswers;
++  }
++
++  const normalized: Record<string, string> = {};
++  for (const item of rawQuestions) {
++    if (!isRecord(item) || typeof item["question"] !== "string") {
++      continue;
++    }
++    const questionText = item["question"];
++    const header = typeof item["header"] === "string" ? item["header"] : undefined;
++    const answer =
++      rawAnswers[questionText] ?? (header !== undefined ? rawAnswers[header] : undefined);
++    if (typeof answer === "string" && answer.trim().length > 0) {
++      normalized[questionText] = answer.trim();
++    }
++  }
++  return Object.keys(normalized).length > 0 ? normalized : rawAnswers;
++}
++
++function resolveACPQuestionOptionId(
++  pending: PendingPermission,
++  answers: Record<string, string>,
++  fallbackSelected: PermissionOption | null,
++): string {
++  const entries = Object.values(answers);
++  if (entries.length === 1) {
++    const matched = pending.options.find(
++      (option) => option.kind.startsWith("allow") && option.name === entries[0],
++    );
++    if (matched) {
++      return matched.optionId;
++    }
++  }
++  return fallbackSelected?.optionId ?? "q0_opt_0";
++}
++
+ function mapPermissionRequest(
+   provider: string,
+   requestId: string,
+@@ -5813,6 +5941,35 @@ function mapPermissionRequest(
+   snapshot: ACPToolSnapshot,
+ ): AgentPermissionRequest {
+   const toolName = params.toolCall.title ?? snapshot.title;
++  const questionPrompts = extractACPQuestionPrompts(params);
++  if (questionPrompts !== null) {
++    const questionText = questionPrompts.map((item) => item.question).join("\n");
++    return {
++      id: requestId,
++      provider,
++      name: snapshot.kind ?? snapshot.title,
++      kind: "question",
++      title: toolName,
++      detail: {
++        type: "plain_text",
++        label: toolName,
++        text: questionText,
++        icon: "wrench",
++      },
++      input: { questions: questionPrompts },
++      actions: params.options.map((option) => ({
++        id: option.optionId,
++        label: option.name,
++        behavior: option.kind.startsWith("allow") ? "allow" : "deny",
++      })),
++      metadata: {
++        toolCallId: params.toolCall.toolCallId,
++        rawRequest: params,
++        options: params.options,
++        questions: questionPrompts,
++      },
++    };
++  }
+   // ExitPlanMode asks the user to review a plan, and the agent puts the plan
+   // file's contents in the request's content. The `plan` kind is what makes the
+   // approval card render that text at full height; the `tool` kind renders it
