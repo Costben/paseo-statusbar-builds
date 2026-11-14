@@ -251,6 +251,40 @@ const PATCHES = [
       needle: "export function createAntigravityProviderHooks(",
     },
   },
+  {
+    // Kimi 2.6 writes a turn as a `turn.prompt` receipt plus a `turn.ended` and
+    // no `agent.turn.*` record at all. The session log counted turns only from
+    // those absent records, so it never saw a turn: the log renderer had no
+    // turn to render into, and the bridge judged a prompt the runtime had
+    // queued as never run once 30s of an unreadable-as-busy log had passed,
+    // failing the turn as `kimi_prompt_not_accepted` and closing it without a
+    // word on the timeline. The turn id now decides when a turn starts and
+    // ends, a prompt receipt the tail could not attribute to the submission
+    // means the prompt did run, a lagging tail is unknown rather than idle, and
+    // a failed turn is put on the timeline instead of vanishing.
+    name: "kimi-turn-watermark",
+    file: "paseo-kimi-turn-watermark.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+      needle: "hasUnreadBacklog(): boolean {",
+    },
+  },
+  {
+    // Antigravity leaves its transcript's last record unterminated, and the
+    // tailer only consumed newline-terminated lines. Whatever a session last
+    // wrote — `/compact`'s checkpoint above all — therefore sat in the pending
+    // fragment until an unrelated record followed it, so the compaction divider
+    // never appeared. A tail that already parses as one whole record is
+    // delivered instead of held back.
+    name: "antigravity-unterminated-tail",
+    file: "paseo-antigravity-unterminated-tail.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/antigravity/transcript-log.ts",
+      needle: "function isCompleteTranscriptRecord(",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -850,6 +884,26 @@ const MARKERS = [
     label: "Antigravity compaction and background work bridge present",
     path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
     needle: "export function createAntigravityProviderHooks(",
+  },
+  {
+    label: "A Kimi turn named only by its prompt receipt is counted",
+    path: "packages/server/src/server/agent/providers/kimi/session-log.ts",
+    needle: "function noteTurnStart(",
+  },
+  {
+    label: "A Kimi log tail that has not caught up is not read as idle",
+    path: "packages/server/src/server/agent/providers/kimi/native-bridge.ts",
+    needle: "this.log.hasUnreadBacklog()",
+  },
+  {
+    label: "A Kimi turn that failed is shown on the timeline",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "private emitTurnFailureNotice(",
+  },
+  {
+    label: "Antigravity's unterminated last record is delivered",
+    path: "packages/server/src/server/agent/providers/antigravity/transcript-log.ts",
+    needle: "isCompleteTranscriptRecord(tail)",
   },
 ];
 
