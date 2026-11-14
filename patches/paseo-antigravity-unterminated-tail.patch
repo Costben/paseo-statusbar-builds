@@ -1,0 +1,97 @@
+diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
+index 97404e3..a0fb5d6 100644
+--- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
++++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
+@@ -205,6 +205,52 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+     }
+   });
+ 
++  test("delivers the transcript's last record, which Antigravity leaves unterminated", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "/compact");
++
++      // A `/compact` ends the session with its checkpoint, and the file's last
++      // line carries no newline: it still has to be delivered, or the marker
++      // would wait for a write that never comes.
++      appendFileSync(
++        harness.transcriptPath,
++        JSON.stringify({
++          step_index: 1,
++          source: "SYSTEM",
++          type: "CHECKPOINT",
++          status: "DONE",
++          input_tokens: 1000,
++          cache_read_tokens: 9000,
++          content: "# Resuming from a compaction",
++        }),
++        "utf8",
++      );
++
++      await harness.hooks.holdTurnWhile?.({
++        acpSessionId: harness.sessionId,
++        logger: harness.ctx.logger,
++        signal: new AbortController().signal,
++        sawTimeline: false,
++      });
++
++      const compactions = harness.events.filter(
++        (event): event is Extract<AgentStreamEvent, { type: "timeline" }> =>
++          event.type === "timeline" && event.item.type === "compaction",
++      );
++      expect(compactions).toHaveLength(1);
++      expect(compactions[0]!.item).toMatchObject({
++        type: "compaction",
++        status: "completed",
++        trigger: "manual",
++      });
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
+   test("holds foreground turn while non-daemon background task runs and renders post-wakeup turn without duplicating pre-hold text", async () => {
+     const harness = createHarness();
+     const sessionHandle = harness.attach();
+diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
+index a7db2ea..1012848 100644
+--- a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
++++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
+@@ -220,6 +220,15 @@ export function parseAntigravityTranscriptLine(line: string): AntigravityTranscr
+   };
+ }
+ 
++/** A line that already holds one whole record, as opposed to a partial write. */
++function isCompleteTranscriptRecord(line: string): boolean {
++  try {
++    return asRecord(JSON.parse(line)) !== null;
++  } catch {
++    return false;
++  }
++}
++
+ export function parseBackgroundTaskSpawn(content: string | null): ParsedBackgroundTaskSpawn | null {
+   if (!content) {
+     return null;
+@@ -600,7 +609,18 @@ export class AntigravityTranscriptLog {
+       }
+     } else {
+       const tail = lines.pop() ?? "";
+-      this.pendingFragment = Buffer.byteLength(tail, "utf8") > MAX_PENDING_LINE_BYTES ? "" : tail;
++      // Antigravity never terminates the transcript's last line, so a record
++      // that nothing follows would sit in the fragment waiting for a write that
++      // never comes. `/compact`'s checkpoint and a session's final answer are
++      // exactly that record. A tail that already parses is complete, not
++      // partial, so it is delivered now; anything else keeps accumulating.
++      if (tail.trim().length > 0 && isCompleteTranscriptRecord(tail)) {
++        lines.push(tail);
++        this.pendingFragment = "";
++      } else {
++        this.pendingFragment =
++          Buffer.byteLength(tail, "utf8") > MAX_PENDING_LINE_BYTES ? "" : tail;
++      }
+     }
+ 
+     for (const rawLine of lines) {
