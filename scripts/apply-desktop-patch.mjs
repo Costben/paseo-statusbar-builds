@@ -237,6 +237,20 @@ const PATCHES = [
       needle: "export async function fetchUsage(",
     },
   },
+  {
+    // Tails Antigravity's `transcript.jsonl` via ACP providerHooks to surface
+    // live `background_work`, hold foreground turns while non-daemon tasks or
+    // spawned subagents remain active, render unstreamed wakeup turns (and
+    // block idle runtime reaping meanwhile), and emit native `compaction`
+    // timeline markers for `/compact` and auto-compaction `CHECKPOINT` rows.
+    name: "antigravity-native-bridge",
+    file: "paseo-antigravity-native-bridge.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
+      needle: "export function createAntigravityProviderHooks(",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -826,6 +840,16 @@ const MARKERS = [
     label: "Antigravity built-in usage source registered",
     path: "packages/server/src/server/plugins/builtin/index.ts",
     needle: '"antigravity-usage-source",',
+  },
+  {
+    label: "Antigravity native transcript bridge hooks wired",
+    path: "packages/server/src/server/agent/providers/antigravity-acp-agent.ts",
+    needle: "providerHooks: createAntigravityProviderHooks(),",
+  },
+  {
+    label: "Antigravity compaction and background work bridge present",
+    path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
+    needle: "export function createAntigravityProviderHooks(",
   },
 ];
 

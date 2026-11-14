@@ -1,0 +1,1943 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index 89e6699..e523d3c 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -738,6 +738,12 @@ export interface ACPProviderHooks {
+     error: string;
+     diagnostic?: string;
+   } | null;
++  /**
++   * False while the provider has live native background work (e.g. async shell
++   * commands or spawned subagents) that must keep this ACP runtime alive even
++   * when no foreground turn is active.
++   */
++  canStopRuntime?(ctx: ACPProviderHookContext): boolean;
+ }
+ 
+ export type ACPSessionMetaBuilder = (
+@@ -2682,6 +2688,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+    * reply Kimi narrates next to it is dropped.
+    */
+   private pushProviderEvent(event: AgentStreamEvent): void {
++    if (
++      event.type === "turn_completed" &&
++      event.turnId === undefined &&
++      this.autonomousTurn !== null &&
++      this.activeForegroundTurnId === this.autonomousTurn.id
++    ) {
++      this.closeAutonomousTurn("provider");
++      return;
++    }
+     if (
+       event.type === "timeline" &&
+       event.item.type !== "user_message" &&
+@@ -3947,12 +3962,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   async canStopRuntime(): Promise<boolean> {
+-    return (
+-      this.activeForegroundTurnId === null &&
+-      this.pendingPermissions.size === 0 &&
+-      this.pendingUserMessage === null &&
+-      !Array.from(this.terminalEntries.values()).some((terminal) => terminal.running)
+-    );
++    if (
++      this.activeForegroundTurnId !== null ||
++      this.pendingPermissions.size > 0 ||
++      this.pendingUserMessage !== null ||
++      Array.from(this.terminalEntries.values()).some((terminal) => terminal.running)
++    ) {
++      return false;
++    }
++    const hooks = this.providerHooks;
++    const ctx = hooks?.canStopRuntime ? this.providerHookContext() : null;
++    if (hooks?.canStopRuntime && ctx && !hooks.canStopRuntime(ctx)) {
++      return false;
++    }
++    return true;
+   }
+ 
+   async close(): Promise<void> {
+diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
+index 98ac07e..b1e06f3 100644
+--- a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
+@@ -31,6 +31,7 @@ import {
+   formatProviderDiagnosticError,
+   toDiagnosticErrorMessage,
+ } from "./diagnostic-utils.js";
++import { createAntigravityProviderHooks } from "./antigravity/native-bridge.js";
+ 
+ const ANTIGRAVITY_CAPABILITIES: AgentCapabilityFlags = {
+   ...DEFAULT_ACP_CAPABILITIES,
+@@ -295,6 +296,7 @@ export class AntigravityACPAgentClient extends ACPAgentClient {
+       waitForInitialCommands: true,
+       catalogCacheKey: "host",
+       supportsAutoAccept: false,
++      providerHooks: createAntigravityProviderHooks(),
+     });
+   }
+ 
+diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
+new file mode 100644
+index 0000000..97404e3
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
+@@ -0,0 +1,519 @@
++import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
++import os from "node:os";
++import path from "node:path";
++
++import { afterEach, describe, expect, test } from "vitest";
++
++import { createTestLogger } from "../../../../test-utils/test-logger.js";
++import type { AgentStreamEvent } from "../../agent-sdk-types.js";
++import type { ACPProviderHookContext } from "../acp-agent.js";
++import { createAntigravityProviderHooks } from "./native-bridge.js";
++import {
++  parseBackgroundTaskSpawn,
++  parseSubagentSpawn,
++  parseSystemMessageSenders,
++  unwrapAntigravityArgString,
++} from "./transcript-log.js";
++
++const tempDirs: string[] = [];
++
++function createTempAntigravityHome(): string {
++  const dir = mkdtempSync(path.join(os.tmpdir(), "paseo-agy-bridge-test-"));
++  tempDirs.push(dir);
++  return dir;
++}
++
++function getTranscriptPath(antigravityHome: string, sessionId: string): string {
++  const logsDir = path.join(antigravityHome, "brain", sessionId, ".system_generated", "logs");
++  mkdirSync(logsDir, { recursive: true });
++  return path.join(logsDir, "transcript.jsonl");
++}
++
++function appendJsonl(filePath: string, record: Record<string, unknown>): void {
++  appendFileSync(filePath, `${JSON.stringify(record)}\n`, "utf8");
++}
++
++function createHarness(options?: {
++  antigravityHome?: string;
++  sessionId?: string;
++  postSettleWaitMs?: number;
++}) {
++  const antigravityHome = options?.antigravityHome ?? createTempAntigravityHome();
++  const sessionId = options?.sessionId ?? "11111111-2222-4333-8444-555555555555";
++  const transcriptPath = getTranscriptPath(antigravityHome, sessionId);
++  const events: AgentStreamEvent[] = [];
++  let foregroundActive = false;
++  let lastStreamedAt: number | null = null;
++
++  const hooks = createAntigravityProviderHooks({
++    antigravityHome,
++    pollIntervalMs: 25,
++    heldPollIntervalMs: 15,
++    postSettleWaitMs: options?.postSettleWaitMs ?? 80,
++    postSettleToolWaitMs: 300,
++    streamFlushGraceMs: 200,
++  });
++
++  const ctx: ACPProviderHookContext = {
++    acpSessionId: sessionId,
++    provider: "antigravity",
++    logger: createTestLogger(),
++    emit: (event) => events.push(event),
++    isForegroundTurnActive: () => foregroundActive,
++    lastStreamedContentAt: () => lastStreamedAt,
++  };
++
++  return {
++    antigravityHome,
++    sessionId,
++    transcriptPath,
++    events,
++    hooks,
++    ctx,
++    attach() {
++      return hooks.onSessionReady?.(ctx);
++    },
++    setForeground(active: boolean) {
++      foregroundActive = active;
++    },
++    setStreamedAt(at: number | null) {
++      lastStreamedAt = at;
++    },
++  };
++}
++
++afterEach(() => {
++  while (tempDirs.length > 0) {
++    const dir = tempDirs.pop()!;
++    rmSync(dir, { recursive: true, force: true });
++  }
++});
++
++describe("Antigravity transcript helpers", () => {
++  test("unwraps JSON-quoted tool call argument strings cleanly", () => {
++    expect(unwrapAntigravityArgString('"./gradlew test"')).toBe("./gradlew test");
++    expect(unwrapAntigravityArgString("plain text")).toBe("plain text");
++    expect(unwrapAntigravityArgString(42)).toBeUndefined();
++  });
++
++  test("parses background task spawn, subagent spawn, and SYSTEM_MESSAGE senders", () => {
++    const taskSpawn = parseBackgroundTaskSpawn(
++      "Created At: 2026-11-14T18:00:00+08:00\nTool is running as a background task with task id: abc-123/task-42\nTask Description: sleep 30",
++    );
++    expect(taskSpawn).toEqual({
++      taskId: "abc-123/task-42",
++      taskDescription: "sleep 30",
++    });
++
++    const subSpawn = parseSubagentSpawn(
++      'Created At: 2026-11-14T18:00:00+08:00\nCreated the following subagent:\n{\n  "conversationId": "sub-999",\n  "logAbsoluteUri": "file:///tmp/t.jsonl"\n}\nThe subagent will send you a message.',
++    );
++    expect(subSpawn).toEqual({ conversationId: "sub-999" });
++
++    expect(
++      parseSystemMessageSenders(
++        "<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-14T10:00:00Z sender=abc-123/task-42 priority=HIGH content=done\n</SYSTEM_MESSAGE>",
++      ),
++    ).toEqual(["abc-123/task-42"]);
++  });
++});
++
++describe("AntigravityNativeBridge & provider hooks", () => {
++  test("ignores pre-existing transcript history on attach and emits manual vs auto compaction", async () => {
++    const home = createTempAntigravityHome();
++    const sessionId = "aaaa1111-2222-4333-8444-555555555555";
++    const transcriptPath = getTranscriptPath(home, sessionId);
++    writeFileSync(
++      transcriptPath,
++      `${JSON.stringify({
++        step_index: 1,
++        source: "SYSTEM",
++        type: "CHECKPOINT",
++        status: "DONE",
++        input_tokens: 1000,
++        cache_read_tokens: 9000,
++      })}\n`,
++      "utf8",
++    );
++
++    const harness = createHarness({ antigravityHome: home, sessionId });
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "/compact");
++
++      appendJsonl(transcriptPath, {
++        step_index: 2,
++        source: "SYSTEM",
++        type: "CHECKPOINT",
++        status: "DONE",
++        input_tokens: 4252,
++        cache_read_tokens: 254356,
++        content: "# Resuming from a compaction",
++      });
++
++      await harness.hooks.holdTurnWhile?.({
++        acpSessionId: sessionId,
++        logger: harness.ctx.logger,
++        signal: new AbortController().signal,
++        sawTimeline: false,
++      });
++
++      const compactions = harness.events.filter(
++        (event): event is Extract<AgentStreamEvent, { type: "timeline" }> =>
++          event.type === "timeline" && event.item.type === "compaction",
++      );
++      expect(compactions).toHaveLength(1);
++      expect(compactions[0]!.item).toEqual({
++        type: "compaction",
++        status: "completed",
++        trigger: "manual",
++        preTokens: 258608,
++      });
++
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "continue working");
++      appendJsonl(transcriptPath, {
++        step_index: 3,
++        source: "SYSTEM",
++        type: "CHECKPOINT",
++        status: "DONE",
++        input_tokens: 2000,
++        cache_read_tokens: 180000,
++        content: "# Resuming from auto compaction",
++      });
++
++      await harness.hooks.holdTurnWhile?.({
++        acpSessionId: sessionId,
++        logger: harness.ctx.logger,
++        signal: new AbortController().signal,
++        sawTimeline: true,
++      });
++
++      const autoCompactions = harness.events.filter(
++        (event): event is Extract<AgentStreamEvent, { type: "timeline" }> =>
++          event.type === "timeline" && event.item.type === "compaction",
++      );
++      expect(autoCompactions).toHaveLength(2);
++      expect(autoCompactions[1]!.item).toEqual({
++        type: "compaction",
++        status: "completed",
++        trigger: "auto",
++        preTokens: 182000,
++      });
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("holds foreground turn while non-daemon background task runs and renders post-wakeup turn without duplicating pre-hold text", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.setStreamedAt(Date.now());
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "run tests");
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [
++          {
++            name: "run_command",
++            args: {
++              CommandLine: '"./gradlew test"',
++              IsDaemon: "false",
++              toolSummary: '"Run Gradle tests"',
++            },
++          },
++        ],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-1\nTask Description: ./gradlew test`,
++      });
++      // Pre-hold assistant message already streamed over ACP; if written near end_turn it must not duplicate.
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Running Gradle tests in the background...",
++      });
++
++      let settled = false;
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        acpSessionId: harness.sessionId,
++        logger: harness.ctx.logger,
++        signal: new AbortController().signal,
++        sawTimeline: true,
++      })?.then(() => {
++        settled = true;
++      });
++
++      await expect
++        .poll(() =>
++          harness.events.findLast((event) => event.type === "background_work"),
++        )
++        .toEqual({
++          type: "background_work",
++          provider: "antigravity",
++          items: [
++            {
++              id: `${harness.sessionId}/task-1`,
++              kind: "shell",
++              description: "Run Gradle tests",
++              command: "./gradlew test",
++            },
++          ],
++        });
++      expect(harness.hooks.canStopRuntime?.(harness.ctx)).toBe(false);
++      expect(settled).toBe(false);
++
++      // Background task finishes and triggers an unstreamed post-wakeup turn.
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-14T10:10:00Z sender=${harness.sessionId}/task-1 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-1" finished with result:\nCommand exited with code 0.\n</SYSTEM_MESSAGE>`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "The Gradle build succeeded; reading summary output.",
++        tool_calls: [
++          {
++            name: "read_file",
++            args: { Path: '"/tmp/report.txt"' },
++          },
++        ],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "42 tests passed",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "All 42 Gradle tests passed.",
++      });
++
++      await holdPromise;
++      expect(settled).toBe(true);
++      expect(harness.hooks.canStopRuntime?.(harness.ctx)).toBe(true);
++
++      const timelineItems = harness.events
++        .filter(
++          (event): event is Extract<AgentStreamEvent, { type: "timeline" }> =>
++            event.type === "timeline",
++        )
++        .map((event) => event.item);
++
++      expect(timelineItems).not.toContainEqual({
++        type: "assistant_message",
++        text: "Running Gradle tests in the background...",
++      });
++      expect(timelineItems).toContainEqual({
++        type: "reasoning",
++        text: "The Gradle build succeeded; reading summary output.",
++      });
++      expect(timelineItems).toContainEqual(
++        expect.objectContaining({
++          type: "tool_call",
++          name: "read_file",
++          status: "completed",
++          detail: {
++            type: "read",
++            filePath: "/tmp/report.txt",
++            content: "42 tests passed",
++          },
++        }),
++      );
++      expect(timelineItems).toContainEqual({
++        type: "assistant_message",
++        text: "All 42 Gradle tests passed.",
++      });
++      expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
++        type: "background_work",
++        provider: "antigravity",
++        items: [],
++      });
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("does not hold turns or runtime cleanup for IsDaemon commands", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "start dev server");
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [
++          {
++            name: "run_command",
++            args: {
++              CommandLine: '"npm run dev"',
++              IsDaemon: "true",
++              toolSummary: '"Start dev server"',
++            },
++          },
++        ],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-1\nTask Description: npm run dev`,
++      });
++
++      await harness.hooks.holdTurnWhile?.({
++        acpSessionId: harness.sessionId,
++        logger: harness.ctx.logger,
++        signal: new AbortController().signal,
++        sawTimeline: true,
++      });
++
++      expect(harness.hooks.canStopRuntime?.(harness.ctx)).toBe(true);
++      expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
++        type: "background_work",
++        provider: "antigravity",
++        items: [
++          {
++            id: `${harness.sessionId}/task-1`,
++            kind: "monitor",
++            description: "Start dev server",
++            command: "npm run dev",
++          },
++        ],
++      });
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++    expect(harness.events.at(-1)).toEqual({
++      type: "background_work",
++      provider: "antigravity",
++      items: null,
++    });
++  });
++
++  test("tracks spawned subagents across hold and supports abort and autonomous idle wakeups", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "delegate investigation");
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [
++          {
++            name: "invoke_subagent",
++            args: {
++              TypeName: '"research"',
++              Role: '"Codebase Researcher"',
++              Prompt: '"Inspect module"',
++            },
++          },
++        ],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content:
++          'Created At: 2026-11-14T18:16:10+08:00\nCreated the following subagent:\n{\n  "conversationId": "child-subagent-1",\n  "logAbsoluteUri": "file:///tmp/child.jsonl"\n}\nThe subagent will send you a message when it has completed its task.',
++      });
++
++      const abortController = new AbortController();
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        acpSessionId: harness.sessionId,
++        logger: harness.ctx.logger,
++        signal: abortController.signal,
++        sawTimeline: true,
++      });
++
++      await expect
++        .poll(() => harness.events.findLast((event) => event.type === "background_work"))
++        .toEqual({
++          type: "background_work",
++          provider: "antigravity",
++          items: [
++            {
++              id: "subagent:child-subagent-1",
++              kind: "other",
++              description: "Subagent: Codebase Researcher",
++              command: "research",
++            },
++          ],
++        });
++
++      abortController.abort();
++      await holdPromise;
++      harness.setForeground(false);
++
++      // Later autonomous wakeup arrives after foreground turn was interrupted/ended.
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content:
++          "<SYSTEM_MESSAGE>\n[Message] timestamp=2026-11-14T10:18:00Z sender=child-subagent-1 priority=MESSAGE_PRIORITY_HIGH content=Research finished.\n</SYSTEM_MESSAGE>",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Subagent findings integrated.",
++      });
++
++      await expect
++        .poll(() =>
++          harness.events.some(
++            (event) =>
++              event.type === "timeline" &&
++              event.item.type === "assistant_message" &&
++              event.item.text === "Subagent findings integrated.",
++          ),
++        )
++        .toBe(true);
++
++      expect(harness.events.findLast((event) => event.type === "turn_completed")).toEqual({
++        type: "turn_completed",
++        provider: "antigravity",
++      });
++      expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
++        type: "background_work",
++        provider: "antigravity",
++        items: [],
++      });
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
+new file mode 100644
+index 0000000..cd4993d
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
+@@ -0,0 +1,699 @@
++import { setTimeout as delay } from "node:timers/promises";
++
++import type { Logger } from "pino";
++
++import type {
++  AgentProvider,
++  AgentStreamEvent,
++  AgentTimelineItem,
++} from "../../agent-sdk-types.js";
++import type { AgentBackgroundWorkInput } from "../../background-work/index.js";
++import { extractPromptText, type ACPProviderHookContext, type ACPProviderHooks } from "../acp-agent.js";
++import {
++  AntigravityTranscriptLog,
++  buildAntigravityRunningToolItem,
++  buildAntigravitySettledToolItem,
++  computeCheckpointPreTokens,
++  isAntigravityTruthyArg,
++  parseBackgroundTaskSpawn,
++  parseSubagentSpawn,
++  parseSystemMessageSenders,
++  unwrapAntigravityArgString,
++  unwrapAntigravityStringArrayArg,
++  type AntigravityToolCallEntry,
++  type AntigravityTranscriptRecord,
++} from "./transcript-log.js";
++
++export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
++export const HELD_ANTIGRAVITY_POLL_INTERVAL_MS = 250;
++export const ANTIGRAVITY_TURN_HOLD_TIMEOUT_MS = 15 * 60 * 1000;
++const STREAM_FLUSH_GRACE_MS = 1_500;
++const DEFAULT_POST_SETTLE_WAIT_MS = 3_000;
++const DEFAULT_POST_SETTLE_TOOL_WAIT_MS = 15_000;
++
++interface TrackedBackgroundEntry {
++  id: string;
++  kind: "shell" | "monitor" | "other";
++  blocking: boolean;
++  description: string | null;
++  command?: string;
++}
++
++interface PendingStepToolEntry {
++  call: AntigravityToolCallEntry;
++  renderedCallId: string | null;
++}
++
++interface RenderedCallRef {
++  call: AntigravityToolCallEntry;
++  callId: string;
++}
++
++export interface AntigravityNativeBridgeOptions {
++  sessionId: string;
++  antigravityHome?: string;
++  logger: Logger;
++  provider: AgentProvider;
++  emit: (event: AgentStreamEvent) => void;
++  isForegroundTurnActive?: () => boolean;
++  lastStreamedContentAt?: () => number | null;
++  pollIntervalMs?: number;
++  heldPollIntervalMs?: number;
++  postSettleWaitMs?: number;
++  postSettleToolWaitMs?: number;
++  streamFlushGraceMs?: number;
++  now?: () => number;
++}
++
++export interface AntigravityProviderHooksOptions {
++  antigravityHome?: string;
++  pollIntervalMs?: number;
++  heldPollIntervalMs?: number;
++  turnHoldTimeoutMs?: number;
++  postSettleWaitMs?: number;
++  postSettleToolWaitMs?: number;
++  streamFlushGraceMs?: number;
++}
++
++/**
++ * Bridges Antigravity's on-disk `transcript.jsonl` to Paseo stream events:
++ *
++ * 1. Background `run_command` tasks (`task-<N>`) and `invoke_subagent` children
++ *    often keep running after `agy acp` returns `end_turn`, and their later
++ *    wakeup turns are written only to `transcript.jsonl` (0 bytes on ACP stdio).
++ *    The bridge exposes live `background_work`, holds the foreground turn until
++ *    non-daemon background work settles, renders unstreamed wakeup turns into
++ *    the held foreground turn (or opens an autonomous turn if woken up later),
++ *    and blocks idle runtime reaper collection while blocking work is active.
++ * 2. `/compact` and auto-compaction write `SYSTEM/CHECKPOINT` to `transcript.jsonl`
++ *    while ACP emits only `usage_update` + `end_turn`. The bridge emits a
++ *    native `compaction` timeline marker (`manual` or `auto`).
++ */
++export class AntigravityNativeBridge {
++  private readonly log: AntigravityTranscriptLog;
++  private readonly logger: Logger;
++  private readonly provider: AgentProvider;
++  private readonly emit: (event: AgentStreamEvent) => void;
++  private readonly isForegroundTurnActive: () => boolean;
++  private readonly lastStreamedContentAt: () => number | null;
++  private readonly pollIntervalMs: number;
++  private readonly heldPollIntervalMs: number;
++  private readonly postSettleWaitMs: number;
++  private readonly postSettleToolWaitMs: number;
++  private readonly streamFlushGraceMs: number;
++  private readonly now: () => number;
++
++  private started = false;
++  private stopped = false;
++  private pollTimer: ReturnType<typeof setTimeout> | null = null;
++  private holdWakeResolve: (() => void) | null = null;
++
++  private pendingManualCompact = false;
++  private lastUserInputText: string | null = null;
++  private lastForegroundEndedAt: number | null = null;
++
++  private inTurnHold = false;
++  private holdEpochSawWakeup = false;
++  private awaitingPostSettleResponse = false;
++  private postSettleFinalPlannerSeen = false;
++  private postSettleDeadline: number | null = null;
++  private idleWakeupActive = false;
++
++  private readonly pendingStepTools: PendingStepToolEntry[] = [];
++  private readonly trackedTasks = new Map<string, TrackedBackgroundEntry>();
++  private readonly trackedSubagents = new Map<string, TrackedBackgroundEntry>();
++  private readonly backgroundToolCalls = new Map<string, RenderedCallRef>();
++  private lastEmittedBackgroundKey = "[]";
++  private emittedAnyBackgroundWork = false;
++  private syntheticCallOrdinal = 0;
++
++  constructor(options: AntigravityNativeBridgeOptions) {
++    this.logger = options.logger;
++    this.provider = options.provider;
++    this.emit = options.emit;
++    this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
++    this.lastStreamedContentAt = options.lastStreamedContentAt ?? (() => null);
++    this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS;
++    this.heldPollIntervalMs = options.heldPollIntervalMs ?? HELD_ANTIGRAVITY_POLL_INTERVAL_MS;
++    this.postSettleWaitMs = options.postSettleWaitMs ?? DEFAULT_POST_SETTLE_WAIT_MS;
++    this.postSettleToolWaitMs = options.postSettleToolWaitMs ?? DEFAULT_POST_SETTLE_TOOL_WAIT_MS;
++    this.streamFlushGraceMs = options.streamFlushGraceMs ?? STREAM_FLUSH_GRACE_MS;
++    this.now = options.now ?? (() => Date.now());
++    this.log = new AntigravityTranscriptLog({
++      sessionId: options.sessionId,
++      antigravityHome: options.antigravityHome,
++      logger: options.logger,
++      onRecord: (record) => this.handleRecord(record),
++    });
++  }
++
++  start(): void {
++    if (this.started || this.stopped) {
++      return;
++    }
++    this.started = true;
++    this.log.start();
++    this.scheduleNextPoll();
++  }
++
++  stop(): void {
++    if (this.stopped) {
++      return;
++    }
++    this.stopped = true;
++    if (this.pollTimer !== null) {
++      clearTimeout(this.pollTimer);
++      this.pollTimer = null;
++    }
++    this.log.stop();
++    this.trackedTasks.clear();
++    this.trackedSubagents.clear();
++    this.backgroundToolCalls.clear();
++    this.pendingStepTools.length = 0;
++    if (this.emittedAnyBackgroundWork) {
++      this.emit({ type: "background_work", provider: this.provider, items: null });
++    }
++    this.wakeHoldLoop();
++  }
++
++  async pollNow(): Promise<void> {
++    if (this.stopped) {
++      return;
++    }
++    await this.log.pollNow();
++  }
++
++  markPromptSubmitted(promptText: string | null): void {
++    this.pendingManualCompact = promptText !== null && isCompactSlashCommand(promptText);
++    this.idleWakeupActive = false;
++    this.awaitingPostSettleResponse = false;
++    this.postSettleFinalPlannerSeen = false;
++    this.postSettleDeadline = null;
++  }
++
++  hasBlockingBackgroundWork(): boolean {
++    for (const entry of this.trackedTasks.values()) {
++      if (entry.blocking) {
++        return true;
++      }
++    }
++    for (const entry of this.trackedSubagents.values()) {
++      if (entry.blocking) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  /**
++   * Holds the active foreground turn open until all non-daemon background
++   * tasks and spawned subagents have settled AND the post-wakeup response has
++   * finished (or a bounded quiet period elapses). Resolves early on abort.
++   */
++  async waitForBackgroundSettled(timeoutMs: number, signal?: AbortSignal): Promise<void> {
++    if (this.stopped || signal?.aborted) {
++      return;
++    }
++    await this.pollNow();
++    if (!this.hasBlockingBackgroundWork()) {
++      this.lastForegroundEndedAt = this.now();
++      return;
++    }
++
++    const deadline = this.now() + timeoutMs;
++    this.inTurnHold = true;
++    this.holdEpochSawWakeup = false;
++    this.awaitingPostSettleResponse = false;
++    this.postSettleFinalPlannerSeen = false;
++    this.postSettleDeadline = null;
++
++    const onAbort = (): void => {
++      this.wakeHoldLoop();
++    };
++    signal?.addEventListener("abort", onAbort, { once: true });
++
++    try {
++      while (!this.stopped && !signal?.aborted) {
++        await this.pollNow();
++
++        if (this.hasBlockingBackgroundWork()) {
++          this.awaitingPostSettleResponse = false;
++          this.postSettleFinalPlannerSeen = false;
++          this.postSettleDeadline = null;
++        } else if (!this.awaitingPostSettleResponse || this.postSettleFinalPlannerSeen) {
++          break;
++        } else if (this.postSettleDeadline !== null && this.now() >= this.postSettleDeadline) {
++          break;
++        }
++
++        const nowMs = this.now();
++        if (nowMs >= deadline) {
++          break;
++        }
++        const nextWaitCap = Math.min(this.heldPollIntervalMs, Math.max(1, deadline - nowMs));
++        const waitMs =
++          this.postSettleDeadline !== null
++            ? Math.min(nextWaitCap, Math.max(1, this.postSettleDeadline - nowMs))
++            : nextWaitCap;
++        await this.waitHoldStep(waitMs, signal);
++      }
++    } finally {
++      signal?.removeEventListener("abort", onAbort);
++      this.inTurnHold = false;
++      this.holdEpochSawWakeup = false;
++      this.awaitingPostSettleResponse = false;
++      this.postSettleFinalPlannerSeen = false;
++      this.postSettleDeadline = null;
++      this.lastForegroundEndedAt = this.now();
++    }
++  }
++
++  private scheduleNextPoll(): void {
++    if (this.stopped || this.pollTimer !== null) {
++      return;
++    }
++    const interval = this.inTurnHold ? this.heldPollIntervalMs : this.pollIntervalMs;
++    this.pollTimer = setTimeout(() => {
++      this.pollTimer = null;
++      void this.pollNow().finally(() => {
++        if (!this.stopped) {
++          this.scheduleNextPoll();
++        }
++      });
++    }, interval);
++    this.pollTimer.unref?.();
++  }
++
++  private wakeHoldLoop(): void {
++    const resolve = this.holdWakeResolve;
++    if (resolve) {
++      this.holdWakeResolve = null;
++      resolve();
++    }
++  }
++
++  private async waitHoldStep(ms: number, signal?: AbortSignal): Promise<void> {
++    if (this.stopped || signal?.aborted) {
++      return;
++    }
++    await new Promise<void>((resolve) => {
++      let settled = false;
++      const done = (): void => {
++        if (settled) {
++          return;
++        }
++        settled = true;
++        clearTimeout(timer);
++        if (this.holdWakeResolve === done) {
++          this.holdWakeResolve = null;
++        }
++        resolve();
++      };
++      this.holdWakeResolve = done;
++      const timer = setTimeout(done, ms);
++      timer.unref?.();
++      if (signal) {
++        void delay(ms, undefined, { signal }).then(done, done);
++      }
++    });
++  }
++
++  private handleRecord(record: AntigravityTranscriptRecord): void {
++    if (record.source === "USER_EXPLICIT" && record.type === "USER_INPUT") {
++      this.pendingStepTools.length = 0;
++      this.lastUserInputText = record.content;
++      if (!this.inTurnHold) {
++        this.idleWakeupActive = false;
++      }
++      return;
++    }
++
++    if (record.source === "SYSTEM" && record.type === "CHECKPOINT" && record.status === "DONE") {
++      const manualFromPrompt = this.pendingManualCompact;
++      const manualFromTranscript =
++        !manualFromPrompt &&
++        this.lastUserInputText !== null &&
++        isCompactSlashCommand(this.lastUserInputText);
++      const trigger: "manual" | "auto" = manualFromPrompt || manualFromTranscript ? "manual" : "auto";
++      this.pendingManualCompact = false;
++      if (manualFromTranscript) {
++        this.lastUserInputText = null;
++      }
++      const preTokens = computeCheckpointPreTokens(record);
++      this.emit({
++        type: "timeline",
++        provider: this.provider,
++        item: {
++          type: "compaction",
++          status: "completed",
++          trigger,
++          ...(preTokens !== undefined ? { preTokens } : {}),
++        },
++      });
++      return;
++    }
++
++    if (record.source === "SYSTEM" && record.type === "SYSTEM_MESSAGE") {
++      this.handleSystemMessage(record);
++      return;
++    }
++
++    if (record.source === "SYSTEM" && record.type === "ERROR_MESSAGE") {
++      if (this.inTurnHold) {
++        this.holdEpochSawWakeup = true;
++        if (this.awaitingPostSettleResponse) {
++          this.postSettleDeadline = this.now() + this.postSettleToolWaitMs;
++        }
++      }
++      if (this.shouldRenderCurrentStep()) {
++        this.emitTimelineItem({
++          type: "error",
++          message: record.error ?? record.content ?? "Antigravity runtime error",
++        });
++      }
++      return;
++    }
++
++    if (record.source === "MODEL" && record.type === "PLANNER_RESPONSE") {
++      this.handlePlannerResponse(record);
++      return;
++    }
++
++    if (record.source === "MODEL" && record.type === "GENERIC") {
++      this.handleGenericToolResult(record);
++    }
++  }
++
++  private handlePlannerResponse(record: AntigravityTranscriptRecord): void {
++    // Discard any unconsumed tool queue entries from a previously interrupted turn.
++    this.pendingStepTools.length = 0;
++
++    const renderThisStep = this.shouldRenderCurrentStep();
++    const hasToolCalls = record.toolCalls.length > 0;
++
++    if (renderThisStep && record.thinking && record.thinking.trim().length > 0) {
++      this.emitTimelineItem({
++        type: "reasoning",
++        text: record.thinking,
++      });
++    }
++
++    for (let idx = 0; idx < record.toolCalls.length; idx++) {
++      const call = record.toolCalls[idx]!;
++      let renderedCallId: string | null = null;
++      if (renderThisStep) {
++        renderedCallId = `agy-step-${record.stepIndex ?? this.syntheticCallOrdinal++}-tc-${idx}`;
++        this.emitTimelineItem(buildAntigravityRunningToolItem(call, renderedCallId));
++      }
++      this.pendingStepTools.push({ call, renderedCallId });
++    }
++
++    if (renderThisStep && record.content && record.content.length > 0) {
++      this.emitTimelineItem({
++        type: "assistant_message",
++        text: record.content,
++      });
++    }
++
++    if (renderThisStep) {
++      if (this.inTurnHold && this.awaitingPostSettleResponse) {
++        if (hasToolCalls) {
++          this.postSettleDeadline = this.now() + this.postSettleToolWaitMs;
++        } else if (!this.hasBlockingBackgroundWork()) {
++          this.postSettleFinalPlannerSeen = true;
++          this.wakeHoldLoop();
++        }
++      } else if (
++        !this.inTurnHold &&
++        this.idleWakeupActive &&
++        !hasToolCalls &&
++        !this.hasBlockingBackgroundWork()
++      ) {
++        this.idleWakeupActive = false;
++        this.emit({ type: "turn_completed", provider: this.provider });
++      }
++    }
++  }
++
++  private handleGenericToolResult(record: AntigravityTranscriptRecord): void {
++    const stepTool = this.pendingStepTools.shift() ?? null;
++    const call = stepTool?.call ?? null;
++    const renderedCallId = stepTool?.renderedCallId ?? null;
++
++    if (record.status === "RUNNING") {
++      const taskSpawn = parseBackgroundTaskSpawn(record.content);
++      if (taskSpawn) {
++        const isDaemon = call?.name === "run_command" && isAntigravityTruthyArg(call.args?.IsDaemon);
++        const command =
++          (call?.name === "run_command"
++            ? unwrapAntigravityArgString(call.args?.CommandLine)
++            : undefined) ?? (taskSpawn.taskDescription || undefined);
++        const summary =
++          (call?.name === "run_command"
++            ? unwrapAntigravityArgString(call.args?.toolSummary)
++            : undefined) ??
++          (taskSpawn.taskDescription || (isDaemon ? "Background daemon" : "Background command"));
++
++        this.trackedTasks.set(taskSpawn.taskId, {
++          id: taskSpawn.taskId,
++          kind: isDaemon ? "monitor" : "shell",
++          blocking: !isDaemon,
++          description: summary,
++          ...(command ? { command } : {}),
++        });
++        if (renderedCallId && call) {
++          this.backgroundToolCalls.set(taskSpawn.taskId, { call, callId: renderedCallId });
++        }
++        this.emitBackgroundWorkIfChanged();
++        return;
++      }
++    }
++
++    let backgroundChanged = false;
++    const subagentSpawn = parseSubagentSpawn(record.content);
++    if (subagentSpawn) {
++      const role =
++        call?.name === "invoke_subagent" ? unwrapAntigravityArgString(call.args?.Role) : undefined;
++      const typeName =
++        call?.name === "invoke_subagent"
++          ? unwrapAntigravityArgString(call.args?.TypeName)
++          : undefined;
++      this.trackedSubagents.set(subagentSpawn.conversationId, {
++        id: `subagent:${subagentSpawn.conversationId}`,
++        kind: "other",
++        blocking: true,
++        description: role ? `Subagent: ${role}` : `Subagent ${subagentSpawn.conversationId.slice(0, 8)}`,
++        ...(typeName ? { command: typeName } : {}),
++      });
++      backgroundChanged = true;
++    }
++
++    if (record.status === "DONE" && call?.name === "manage_task") {
++      const action = unwrapAntigravityArgString(call.args?.Action)?.toLowerCase();
++      const targetTaskId = unwrapAntigravityArgString(call.args?.TaskId);
++      if (action === "kill" && targetTaskId && this.trackedTasks.delete(targetTaskId)) {
++        this.backgroundToolCalls.delete(targetTaskId);
++        backgroundChanged = true;
++      }
++    }
++
++    if (record.status === "DONE" && call?.name === "manage_subagents") {
++      const action = unwrapAntigravityArgString(call.args?.Action)?.toLowerCase();
++      if (action === "kill_all" && this.trackedSubagents.size > 0) {
++        this.trackedSubagents.clear();
++        backgroundChanged = true;
++      } else if (action === "kill") {
++        for (const childId of unwrapAntigravityStringArrayArg(call.args?.ConversationIds)) {
++          if (this.trackedSubagents.delete(childId)) {
++            backgroundChanged = true;
++          }
++        }
++      }
++    }
++
++    if (backgroundChanged) {
++      this.emitBackgroundWorkIfChanged();
++      if (!this.hasBlockingBackgroundWork()) {
++        this.wakeHoldLoop();
++      }
++    }
++
++    if (renderedCallId && call) {
++      const failed = record.status === "ERROR" || record.status === "INVALID";
++      this.emitTimelineItem(buildAntigravitySettledToolItem(call, renderedCallId, failed, record.content));
++    }
++
++    if (this.inTurnHold && this.awaitingPostSettleResponse && !this.hasBlockingBackgroundWork()) {
++      this.postSettleDeadline = this.now() + this.postSettleWaitMs;
++    }
++  }
++
++  private handleSystemMessage(record: AntigravityTranscriptRecord): void {
++    const senders = parseSystemMessageSenders(record.content);
++    let backgroundChanged = false;
++    const renderThisStep = this.shouldRenderCurrentStep() || this.inTurnHold || !this.isForegroundTurnActive();
++
++    for (const sender of senders) {
++      if (this.trackedTasks.delete(sender)) {
++        backgroundChanged = true;
++      }
++      if (this.trackedSubagents.delete(sender)) {
++        backgroundChanged = true;
++      }
++      const bgTool = this.backgroundToolCalls.get(sender);
++      if (bgTool) {
++        this.backgroundToolCalls.delete(sender);
++        if (renderThisStep) {
++          const canceledOrFailed = /\b(was canceled|failed)\b/i.test(record.content ?? "");
++          this.emitTimelineItem(
++            buildAntigravitySettledToolItem(bgTool.call, bgTool.callId, canceledOrFailed, record.content),
++          );
++        }
++      }
++    }
++
++    if (backgroundChanged) {
++      this.emitBackgroundWorkIfChanged();
++    }
++
++    if (this.inTurnHold) {
++      this.holdEpochSawWakeup = true;
++      if (!this.hasBlockingBackgroundWork()) {
++        this.awaitingPostSettleResponse = true;
++        this.postSettleFinalPlannerSeen = false;
++        this.postSettleDeadline = this.now() + this.postSettleWaitMs;
++      } else {
++        this.awaitingPostSettleResponse = false;
++        this.postSettleFinalPlannerSeen = false;
++        this.postSettleDeadline = null;
++      }
++      this.wakeHoldLoop();
++      return;
++    }
++
++    if (!this.isForegroundTurnActive()) {
++      this.idleWakeupActive = true;
++    }
++  }
++
++  private shouldRenderCurrentStep(): boolean {
++    if (this.inTurnHold) {
++      return this.holdEpochSawWakeup;
++    }
++    if (this.idleWakeupActive) {
++      return true;
++    }
++    if (this.isForegroundTurnActive()) {
++      return false;
++    }
++    return this.shouldRenderAutonomousStep();
++  }
++
++  private shouldRenderAutonomousStep(): boolean {
++    if (this.idleWakeupActive) {
++      return true;
++    }
++    const lastStreamed = this.lastStreamedContentAt() ?? 0;
++    const lastEnded = this.lastForegroundEndedAt ?? 0;
++    const mostRecentForegroundActivity = Math.max(lastStreamed, lastEnded);
++    if (mostRecentForegroundActivity <= 0) {
++      return true;
++    }
++    if (this.now() - mostRecentForegroundActivity > this.streamFlushGraceMs) {
++      this.idleWakeupActive = true;
++      return true;
++    }
++    return false;
++  }
++
++  private emitTimelineItem(item: AgentTimelineItem): void {
++    this.emit({
++      type: "timeline",
++      provider: this.provider,
++      item,
++    });
++  }
++
++  private emitBackgroundWorkIfChanged(): void {
++    const items: AgentBackgroundWorkInput[] = [];
++    for (const entry of this.trackedTasks.values()) {
++      items.push({
++        id: entry.id,
++        kind: entry.kind,
++        description: entry.description,
++        ...(entry.command ? { command: entry.command } : {}),
++      });
++    }
++    for (const entry of this.trackedSubagents.values()) {
++      items.push({
++        id: entry.id,
++        kind: entry.kind,
++        description: entry.description,
++        ...(entry.command ? { command: entry.command } : {}),
++      });
++    }
++    const serialized = JSON.stringify(items);
++    if (serialized === this.lastEmittedBackgroundKey) {
++      return;
++    }
++    this.lastEmittedBackgroundKey = serialized;
++    this.emittedAnyBackgroundWork = true;
++    this.emit({
++      type: "background_work",
++      provider: this.provider,
++      items,
++    });
++  }
++}
++
++export function createAntigravityProviderHooks(
++  options: AntigravityProviderHooksOptions = {},
++): ACPProviderHooks {
++  const bridges = new Map<string, AntigravityNativeBridge>();
++  const holdTimeoutMs = options.turnHoldTimeoutMs ?? ANTIGRAVITY_TURN_HOLD_TIMEOUT_MS;
++
++  return {
++    onSessionReady(ctx) {
++      const bridge = new AntigravityNativeBridge({
++        sessionId: ctx.acpSessionId,
++        antigravityHome: options.antigravityHome,
++        logger: ctx.logger,
++        provider: ctx.provider,
++        emit: ctx.emit,
++        isForegroundTurnActive: ctx.isForegroundTurnActive,
++        lastStreamedContentAt: ctx.lastStreamedContentAt,
++        pollIntervalMs: options.pollIntervalMs,
++        heldPollIntervalMs: options.heldPollIntervalMs,
++        postSettleWaitMs: options.postSettleWaitMs,
++        postSettleToolWaitMs: options.postSettleToolWaitMs,
++        streamFlushGraceMs: options.streamFlushGraceMs,
++      });
++      bridges.set(ctx.acpSessionId, bridge);
++      bridge.start();
++      return {
++        onClose: () => {
++          bridges.delete(ctx.acpSessionId);
++          bridge.stop();
++        },
++      };
++    },
++    onForegroundTurnStarting(ctx, prompt) {
++      const text = extractPromptText(prompt);
++      bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
++    },
++    holdTurnWhile(ctx) {
++      const bridge = bridges.get(ctx.acpSessionId);
++      if (!bridge) {
++        return null;
++      }
++      return bridge.waitForBackgroundSettled(holdTimeoutMs, ctx.signal);
++    },
++    canStopRuntime(ctx: ACPProviderHookContext) {
++      return !(bridges.get(ctx.acpSessionId)?.hasBlockingBackgroundWork() ?? false);
++    },
++  };
++}
++
++function isCompactSlashCommand(text: string): boolean {
++  return /^\/compact(?:\s|$)/i.test(text.trim());
++}
+diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
+new file mode 100644
+index 0000000..a7db2ea
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
+@@ -0,0 +1,627 @@
++import { statSync } from "node:fs";
++import { open, stat } from "node:fs/promises";
++import os from "node:os";
++import path from "node:path";
++import { StringDecoder } from "node:string_decoder";
++
++import type { Logger } from "pino";
++
++import type { AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js";
++
++const DEFAULT_ANTIGRAVITY_HOME_SEGMENTS = [".gemini", "antigravity-cli"] as const;
++const MAX_BYTES_PER_READ = 256 * 1024;
++const MAX_PENDING_LINE_BYTES = 4 * 1024 * 1024;
++const FULL_TRANSCRIPT_TAIL_BYTES = 512 * 1024;
++
++export interface AntigravityToolCallEntry {
++  name: string;
++  args: Record<string, unknown> | null;
++}
++
++export interface AntigravityTranscriptRecord {
++  stepIndex: number | null;
++  source: string | null;
++  type: string | null;
++  status: string | null;
++  createdAtMs: number | null;
++  content: string | null;
++  thinking: string | null;
++  error: string | null;
++  inputTokens: number | null;
++  cacheReadTokens: number | null;
++  truncatedFields: string[];
++  toolCalls: AntigravityToolCallEntry[];
++}
++
++export interface ParsedBackgroundTaskSpawn {
++  taskId: string;
++  taskDescription: string;
++}
++
++export interface ParsedSubagentSpawn {
++  conversationId: string;
++}
++
++export function isSafeAntigravitySessionId(sessionId: string): boolean {
++  const trimmed = sessionId.trim();
++  return (
++    trimmed.length > 0 &&
++    !trimmed.includes("/") &&
++    !trimmed.includes("\\") &&
++    !trimmed.includes("..") &&
++    !trimmed.includes("\0")
++  );
++}
++
++export function resolveAntigravityHome(antigravityHome?: string): string {
++  const configured = antigravityHome?.trim() || process.env.ANTIGRAVITY_HOME?.trim();
++  if (configured) {
++    return path.resolve(configured);
++  }
++  return path.join(os.homedir(), ...DEFAULT_ANTIGRAVITY_HOME_SEGMENTS);
++}
++
++export function resolveAntigravityTranscriptPath(
++  sessionId: string,
++  antigravityHome?: string,
++): string | null {
++  if (!isSafeAntigravitySessionId(sessionId)) {
++    return null;
++  }
++  return path.join(
++    resolveAntigravityHome(antigravityHome),
++    "brain",
++    sessionId,
++    ".system_generated",
++    "logs",
++    "transcript.jsonl",
++  );
++}
++
++export function resolveAntigravityFullTranscriptPath(
++  sessionId: string,
++  antigravityHome?: string,
++): string | null {
++  if (!isSafeAntigravitySessionId(sessionId)) {
++    return null;
++  }
++  return path.join(
++    resolveAntigravityHome(antigravityHome),
++    "brain",
++    sessionId,
++    ".system_generated",
++    "logs",
++    "transcript_full.jsonl",
++  );
++}
++
++export function asRecord(value: unknown): Record<string, unknown> | null {
++  if (typeof value !== "object" || value === null || Array.isArray(value)) {
++    return null;
++  }
++  return value as Record<string, unknown>;
++}
++
++export function readString(value: unknown): string | undefined {
++  return typeof value === "string" ? value : undefined;
++}
++
++export function readFiniteNumber(value: unknown): number | null {
++  return typeof value === "number" && Number.isFinite(value) ? value : null;
++}
++
++/**
++ * Antigravity serializes some `tool_calls[].args` string fields with an extra
++ * layer of JSON string quotes (for example `"\"echo hi\""`). Unwrap one layer
++ * when it parses back as a string.
++ */
++export function unwrapAntigravityArgString(value: unknown): string | undefined {
++  if (typeof value !== "string") {
++    return undefined;
++  }
++  const trimmed = value.trim();
++  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
++    try {
++      const parsed: unknown = JSON.parse(trimmed);
++      if (typeof parsed === "string") {
++        return parsed;
++      }
++    } catch {
++      return value;
++    }
++  }
++  return value;
++}
++
++export function isAntigravityTruthyArg(value: unknown): boolean {
++  if (value === true) {
++    return true;
++  }
++  const unwrapped = unwrapAntigravityArgString(value);
++  return unwrapped !== undefined && unwrapped.trim().toLowerCase() === "true";
++}
++
++export function unwrapAntigravityStringArrayArg(value: unknown): string[] {
++  if (Array.isArray(value)) {
++    return value
++      .map((entry) => unwrapAntigravityArgString(entry))
++      .filter((entry): entry is string => entry !== undefined && entry.length > 0);
++  }
++  const raw = unwrapAntigravityArgString(value);
++  if (raw === undefined) {
++    return [];
++  }
++  const trimmed = raw.trim();
++  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
++    try {
++      const parsed: unknown = JSON.parse(trimmed);
++      if (Array.isArray(parsed)) {
++        return parsed
++          .map((entry) => unwrapAntigravityArgString(entry))
++          .filter((entry): entry is string => entry !== undefined && entry.length > 0);
++      }
++    } catch {
++      return [];
++    }
++  }
++  return [];
++}
++
++export function parseAntigravityTranscriptLine(line: string): AntigravityTranscriptRecord | null {
++  const trimmed = line.trim();
++  if (trimmed.length === 0) {
++    return null;
++  }
++  let parsed: unknown;
++  try {
++    parsed = JSON.parse(trimmed);
++  } catch {
++    return null;
++  }
++  const record = asRecord(parsed);
++  if (record === null) {
++    return null;
++  }
++
++  const createdAtRaw = readString(record.created_at);
++  const parsedTime = createdAtRaw ? Date.parse(createdAtRaw) : Number.NaN;
++  const truncatedFields = Array.isArray(record.truncated_fields)
++    ? record.truncated_fields.filter((entry): entry is string => typeof entry === "string")
++    : [];
++
++  const toolCalls: AntigravityToolCallEntry[] = [];
++  if (Array.isArray(record.tool_calls)) {
++    for (const rawCall of record.tool_calls) {
++      const callObj = asRecord(rawCall);
++      const name = callObj ? readString(callObj.name) : undefined;
++      if (!name) {
++        continue;
++      }
++      toolCalls.push({
++        name,
++        args: asRecord(callObj?.args),
++      });
++    }
++  }
++
++  return {
++    stepIndex: readFiniteNumber(record.step_index),
++    source: readString(record.source) ?? null,
++    type: readString(record.type) ?? null,
++    status: readString(record.status) ?? null,
++    createdAtMs: Number.isFinite(parsedTime) ? parsedTime : null,
++    content: readString(record.content) ?? null,
++    thinking: readString(record.thinking) ?? null,
++    error: readString(record.error) ?? null,
++    inputTokens: readFiniteNumber(record.input_tokens),
++    cacheReadTokens: readFiniteNumber(record.cache_read_tokens),
++    truncatedFields,
++    toolCalls,
++  };
++}
++
++export function parseBackgroundTaskSpawn(content: string | null): ParsedBackgroundTaskSpawn | null {
++  if (!content) {
++    return null;
++  }
++  const match =
++    /Tool is running as a background task with task id:\s*([^\s\r\n]+)(?:\r?\nTask Description:\s*([\s\S]*))?/i.exec(
++      content,
++    );
++  if (!match?.[1]) {
++    return null;
++  }
++  return {
++    taskId: match[1].trim(),
++    taskDescription: (match[2] ?? "").trim(),
++  };
++}
++
++export function parseSubagentSpawn(content: string | null): ParsedSubagentSpawn | null {
++  if (!content) {
++    return null;
++  }
++  const marker = "Created the following subagent:";
++  const idx = content.indexOf(marker);
++  if (idx < 0) {
++    return null;
++  }
++  const after = content.slice(idx + marker.length);
++  const startBrace = after.indexOf("{");
++  if (startBrace < 0) {
++    return null;
++  }
++  let depth = 0;
++  let endBrace = -1;
++  let inString = false;
++  let escaped = false;
++  for (let i = startBrace; i < after.length; i++) {
++    const ch = after[i]!;
++    if (inString) {
++      if (escaped) {
++        escaped = false;
++      } else if (ch === "\\") {
++        escaped = true;
++      } else if (ch === '"') {
++        inString = false;
++      }
++      continue;
++    }
++    if (ch === '"') {
++      inString = true;
++    } else if (ch === "{") {
++      depth++;
++    } else if (ch === "}") {
++      depth--;
++      if (depth === 0) {
++        endBrace = i;
++        break;
++      }
++    }
++  }
++  if (endBrace < 0) {
++    return null;
++  }
++  try {
++    const parsed = asRecord(JSON.parse(after.slice(startBrace, endBrace + 1)));
++    const conversationId = readString(parsed?.conversationId)?.trim();
++    return conversationId ? { conversationId } : null;
++  } catch {
++    return null;
++  }
++}
++
++export function parseSystemMessageSenders(content: string | null): string[] {
++  if (!content) {
++    return [];
++  }
++  const senders: string[] = [];
++  const regex = /\bsender=([^\s\r\n]+)/g;
++  let match: RegExpExecArray | null;
++  while ((match = regex.exec(content)) !== null) {
++    const sender = match[1]?.trim();
++    if (sender && !senders.includes(sender)) {
++      senders.push(sender);
++    }
++  }
++  return senders;
++}
++
++export function computeCheckpointPreTokens(record: AntigravityTranscriptRecord): number | undefined {
++  const input = record.inputTokens ?? 0;
++  const cacheRead = record.cacheReadTokens ?? 0;
++  const total = input + cacheRead;
++  return total > 0 ? total : undefined;
++}
++
++export function buildAntigravityToolDetail(
++  call: AntigravityToolCallEntry,
++  output?: string | null,
++): ToolCallDetail {
++  const args = call.args ?? {};
++  switch (call.name) {
++    case "run_command": {
++      const command = unwrapAntigravityArgString(args.CommandLine) ?? "";
++      return {
++        type: "shell",
++        command,
++        ...(typeof output === "string" ? { output } : {}),
++      };
++    }
++    case "read_file": {
++      const filePath = unwrapAntigravityArgString(args.Path) ?? "";
++      return {
++        type: "read",
++        filePath,
++        ...(typeof output === "string" ? { content: output } : {}),
++      };
++    }
++    case "edit_file": {
++      const filePath = unwrapAntigravityArgString(args.Path) ?? "";
++      const oldString = unwrapAntigravityArgString(args.Target);
++      const newString = unwrapAntigravityArgString(args.Replacement);
++      return {
++        type: "edit",
++        filePath,
++        ...(oldString !== undefined ? { oldString } : {}),
++        ...(newString !== undefined ? { newString } : {}),
++      };
++    }
++    case "write_file": {
++      const filePath = unwrapAntigravityArgString(args.Path) ?? "";
++      const content = unwrapAntigravityArgString(args.Content);
++      return {
++        type: "write",
++        filePath,
++        ...(content !== undefined ? { content } : {}),
++      };
++    }
++    case "search_web": {
++      const query = unwrapAntigravityArgString(args.query) ?? "";
++      return {
++        type: "search",
++        query,
++        toolName: "web_search",
++        ...(typeof output === "string" ? { content: output } : {}),
++      };
++    }
++    case "invoke_subagent": {
++      const subAgentType = unwrapAntigravityArgString(args.TypeName);
++      const description = unwrapAntigravityArgString(args.Role) ?? unwrapAntigravityArgString(args.Prompt);
++      return {
++        type: "sub_agent",
++        ...(subAgentType ? { subAgentType } : {}),
++        ...(description ? { description } : {}),
++      };
++    }
++    default:
++      return {
++        type: "unknown",
++        input: call.args ?? null,
++        output: output ?? null,
++      };
++  }
++}
++
++export function buildAntigravityRunningToolItem(
++  call: AntigravityToolCallEntry,
++  callId: string,
++): Extract<AgentTimelineItem, { type: "tool_call" }> {
++  return {
++    type: "tool_call",
++    callId,
++    name: call.name,
++    detail: buildAntigravityToolDetail(call),
++    status: "running",
++    error: null,
++  };
++}
++
++export function buildAntigravitySettledToolItem(
++  call: AntigravityToolCallEntry,
++  callId: string,
++  failed: boolean,
++  output: string | null,
++): Extract<AgentTimelineItem, { type: "tool_call" }> {
++  if (failed) {
++    return {
++      type: "tool_call",
++      callId,
++      name: call.name,
++      detail: buildAntigravityToolDetail(call, output),
++      status: "failed",
++      error: output ?? "Tool execution failed",
++    };
++  }
++  return {
++    type: "tool_call",
++    callId,
++    name: call.name,
++    detail: buildAntigravityToolDetail(call, output),
++    status: "completed",
++    error: null,
++  };
++}
++
++export interface AntigravityTranscriptLogOptions {
++  sessionId: string;
++  antigravityHome?: string;
++  logger: Logger;
++  onRecord: (record: AntigravityTranscriptRecord) => void | Promise<void>;
++}
++
++/**
++ * Tails `<antigravityHome>/brain/<sessionId>/.system_generated/logs/transcript.jsonl`
++ * starting from the file's size when attached so historical turns are never
++ * replayed as fresh activity.
++ */
++export class AntigravityTranscriptLog {
++  private readonly transcriptPath: string | null;
++  private readonly fullTranscriptPath: string | null;
++  private readonly logger: Logger;
++  private readonly onRecord: (record: AntigravityTranscriptRecord) => void | Promise<void>;
++
++  private offset = 0;
++  private pendingFragment = "";
++  private initializedBaseline = false;
++  private decoder = new StringDecoder("utf8");
++  private reading: Promise<void> | null = null;
++  private stopped = false;
++
++  constructor(options: AntigravityTranscriptLogOptions) {
++    this.transcriptPath = resolveAntigravityTranscriptPath(
++      options.sessionId,
++      options.antigravityHome,
++    );
++    this.fullTranscriptPath = resolveAntigravityFullTranscriptPath(
++      options.sessionId,
++      options.antigravityHome,
++    );
++    this.logger = options.logger;
++    this.onRecord = options.onRecord;
++  }
++
++  /** Capture baseline file size synchronously on session attach. */
++  start(): void {
++    if (this.initializedBaseline || this.stopped) {
++      return;
++    }
++    this.initializedBaseline = true;
++    if (!this.transcriptPath) {
++      return;
++    }
++    try {
++      const stats = statSync(this.transcriptPath);
++      this.offset = stats.size;
++    } catch {
++      this.offset = 0;
++    }
++  }
++
++  stop(): void {
++    this.stopped = true;
++    this.pendingFragment = "";
++  }
++
++  async pollNow(): Promise<void> {
++    if (this.stopped || !this.transcriptPath) {
++      return;
++    }
++    if (!this.initializedBaseline) {
++      this.start();
++    }
++    if (this.reading) {
++      await this.reading;
++      return;
++    }
++    this.reading = this.drainNewLines().finally(() => {
++      this.reading = null;
++    });
++    await this.reading;
++  }
++
++  /**
++   * Resolves a full `PLANNER_RESPONSE` record from `transcript_full.jsonl` when
++   * `transcript.jsonl` had a field truncated. Scans only the tail window so
++   * multi-megabyte logs stay bounded.
++   */
++  async readFullRecordForStep(stepIndex: number): Promise<AntigravityTranscriptRecord | null> {
++    if (!this.fullTranscriptPath) {
++      return null;
++    }
++    try {
++      const stats = await stat(this.fullTranscriptPath);
++      if (stats.size <= 0) {
++        return null;
++      }
++      const start = Math.max(0, stats.size - FULL_TRANSCRIPT_TAIL_BYTES);
++      const length = stats.size - start;
++      const handle = await open(this.fullTranscriptPath, "r");
++      try {
++        const buffer = Buffer.allocUnsafe(length);
++        const { bytesRead } = await handle.read(buffer, 0, length, start);
++        let text = buffer.subarray(0, bytesRead).toString("utf8");
++        if (start > 0) {
++          const firstNewline = text.indexOf("\n");
++          if (firstNewline >= 0) {
++            text = text.slice(firstNewline + 1);
++          }
++        }
++        for (const rawLine of text.split(/\r?\n/)) {
++          const parsed = parseAntigravityTranscriptLine(rawLine);
++          if (parsed && parsed.stepIndex === stepIndex) {
++            return parsed;
++          }
++        }
++        return null;
++      } finally {
++        await handle.close();
++      }
++    } catch {
++      return null;
++    }
++  }
++
++  private async drainNewLines(): Promise<void> {
++    if (!this.transcriptPath || this.stopped) {
++      return;
++    }
++    let fileSize: number;
++    try {
++      const stats = await stat(this.transcriptPath);
++      fileSize = stats.size;
++    } catch (error) {
++      const code = (error as NodeJS.ErrnoException).code;
++      if (code === "ENOENT") {
++        return;
++      }
++      this.logger.warn(
++        { err: error, path: this.transcriptPath },
++        "Antigravity transcript stat failed",
++      );
++      return;
++    }
++
++    if (fileSize < this.offset) {
++      // Truncation/rotation recovery.
++      this.offset = 0;
++      this.pendingFragment = "";
++      this.decoder = new StringDecoder("utf8");
++    }
++
++    while (!this.stopped && this.offset < fileSize) {
++      const bytesToRead = Math.min(MAX_BYTES_PER_READ, fileSize - this.offset);
++      const buffer = Buffer.allocUnsafe(bytesToRead);
++      let bytesRead = 0;
++      const handle = await open(this.transcriptPath, "r");
++      try {
++        const result = await handle.read(buffer, 0, bytesToRead, this.offset);
++        bytesRead = result.bytesRead;
++      } finally {
++        await handle.close();
++      }
++      if (bytesRead <= 0) {
++        break;
++      }
++      this.offset += bytesRead;
++      const chunk = this.decoder.write(buffer.subarray(0, bytesRead));
++      await this.consumeTextChunk(chunk);
++    }
++  }
++
++  private async consumeTextChunk(chunk: string): Promise<void> {
++    const combined = this.pendingFragment + chunk;
++    const endsWithNewline = combined.endsWith("\n");
++    const lines = combined.split(/\r?\n/);
++    if (endsWithNewline) {
++      this.pendingFragment = "";
++      if (lines.length > 0 && lines[lines.length - 1] === "") {
++        lines.pop();
++      }
++    } else {
++      const tail = lines.pop() ?? "";
++      this.pendingFragment = Buffer.byteLength(tail, "utf8") > MAX_PENDING_LINE_BYTES ? "" : tail;
++    }
++
++    for (const rawLine of lines) {
++      if (this.stopped) {
++        return;
++      }
++      let record = parseAntigravityTranscriptLine(rawLine);
++      if (!record) {
++        continue;
++      }
++      if (
++        record.type === "PLANNER_RESPONSE" &&
++        record.stepIndex !== null &&
++        record.truncatedFields.some((f) => f === "content" || f === "thinking")
++      ) {
++        const full = await this.readFullRecordForStep(record.stepIndex);
++        if (full) {
++          record = full;
++        }
++      }
++      await this.onRecord(record);
++    }
++  }
++}
