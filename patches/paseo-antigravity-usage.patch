@@ -49,10 +49,10 @@ index 0000000..33cc7f3
 +{ "id": "antigravity-usage-source", "requirements": { "paseo": ">=0.11.0" } }
 diff --git a/plugins/antigravity-usage-source/server/usage.test.ts b/plugins/antigravity-usage-source/server/usage.test.ts
 new file mode 100644
-index 0000000..ef6e0c3
+index 0000000..d6cc0dc
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.test.ts
-@@ -0,0 +1,247 @@
+@@ -0,0 +1,364 @@
 +import { describe, expect, test } from "vitest";
 +import { decodeKeyringPayload, discover, fetchUsage } from "./usage.js";
 +
@@ -78,6 +78,7 @@ index 0000000..ef6e0c3
 +      accessToken: "ya29.test-token",
 +      email: "user@example.com",
 +      expiresAtMs: Date.parse("2026-11-14T18:32:07.000Z"),
++      authMethod: "consumer",
 +    });
 +  });
 +
@@ -119,10 +120,14 @@ index 0000000..ef6e0c3
 +      id_token_email: "user@example.com",
 +    });
 +
-+    const calls: Array<{ url: string; body: unknown }> = [];
++    const calls: Array<{ url: string; body: unknown; userAgent: string | null }> = [];
 +    const fetchApi: typeof fetch = async (input, init) => {
 +      const url = String(input);
-+      calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
++      calls.push({
++        url,
++        body: JSON.parse(String(init?.body ?? "{}")),
++        userAgent: new Headers(init?.headers).get("user-agent"),
++      });
 +
 +      if (url.endsWith("/v1internal:loadCodeAssist")) {
 +        return new Response(
@@ -197,6 +202,10 @@ index 0000000..ef6e0c3
 +    expect(calls.find((c) => c.url.endsWith("retrieveUserQuota"))?.body).toEqual({
 +      project: "aicode-consumers",
 +    });
++
++    expect(calls[0]?.userAgent).toBe(
++      "antigravity/cli/1.5.9 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
++    );
 +
 +    expect(report).toEqual({
 +      status: "available",
@@ -299,13 +308,121 @@ index 0000000..ef6e0c3
 +      },
 +    });
 +  });
++
++  test("renders first-party Gemini windows from the summary and skips per-model duplicates", async () => {
++    const raw = encodeGoKeyring({
++      token: { access_token: "ya29.valid-token", expiry: "2026-11-14T19:00:00.000Z" },
++      id_token_email: "user@example.com",
++      auth_method: "consumer",
++    });
++
++    const userAgents: Array<string | null> = [];
++    const fetchApi: typeof fetch = async (input, init) => {
++      const url = String(input);
++      userAgents.push(new Headers(init?.headers).get("user-agent"));
++
++      if (url.endsWith("/v1internal:loadCodeAssist")) {
++        return new Response(
++          JSON.stringify({
++            paidTier: { name: "Google AI Ultra" },
++            cloudaicompanionProject: "aicode-consumers",
++          }),
++        );
++      }
++
++      if (url.endsWith("/v1internal:retrieveUserQuotaSummary")) {
++        return new Response(
++          JSON.stringify({
++            groups: [
++              {
++                displayName: "Gemini Models",
++                buckets: [
++                  {
++                    bucketId: "gemini-weekly",
++                    window: "weekly",
++                    resetTime: "2026-11-21T07:25:05Z",
++                    remainingFraction: 0.9380514,
++                  },
++                  {
++                    bucketId: "gemini-5h",
++                    window: "5h",
++                    resetTime: "2026-11-14T12:25:05Z",
++                    remainingFraction: 0.75220543,
++                  },
++                ],
++              },
++              {
++                displayName: "Claude and GPT models",
++                buckets: [
++                  {
++                    bucketId: "3p-weekly",
++                    window: "weekly",
++                    resetTime: "2026-11-21T12:14:32Z",
++                    remainingFraction: 1,
++                  },
++                  {
++                    bucketId: "3p-5h",
++                    window: "5h",
++                    resetTime: "2026-11-14T17:14:32Z",
++                    remainingFraction: 1,
++                  },
++                ],
++              },
++            ],
++          }),
++        );
++      }
++
++      if (url.endsWith("/v1internal:retrieveUserQuota")) {
++        return new Response(
++          JSON.stringify({
++            buckets: [
++              {
++                modelId: "gemini-3-flash",
++                remainingFraction: 0.75220543,
++                resetTime: "2026-11-14T12:25:05Z",
++              },
++            ],
++          }),
++        );
++      }
++
++      throw new Error(`Unexpected URL: ${url}`);
++    };
++
++    const report = await fetchUsage(
++      { route: { store: "keyring", service: "gemini", account: "antigravity" } },
++      fetchApi,
++      { platform: "darwin", arch: "arm64", readKeyringRaw: async () => raw },
++    );
++
++    expect(new Set(userAgents)).toEqual(
++      new Set([
++        "antigravity/cli/1.5.9 (aidev_client; os_type=darwin; arch=arm64; auth_method=consumer)",
++      ]),
++    );
++    if (report.status !== "available") {
++      throw new Error(`expected available, got ${report.status}`);
++    }
++    expect(report.windows.map((window) => window.id)).toEqual([
++      "gemini:weekly",
++      "gemini:five_hour",
++      "claude_gpt:weekly",
++      "claude_gpt:five_hour",
++    ]);
++    expect(report.windows[0]).toMatchObject({
++      label: "Gemini · Weekly",
++      shortLabel: "Gemini wk",
++      usedPct: 6.19,
++    });
++  });
 +});
 diff --git a/plugins/antigravity-usage-source/server/usage.ts b/plugins/antigravity-usage-source/server/usage.ts
 new file mode 100644
-index 0000000..3882f45
+index 0000000..47f0616
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.ts
-@@ -0,0 +1,610 @@
+@@ -0,0 +1,636 @@
 +import { execFile } from "node:child_process";
 +import { arch as osArch, platform as osPlatform } from "node:os";
 +import { promisify } from "node:util";
@@ -333,6 +450,11 @@ index 0000000..3882f45
 +const KEYRING_TIMEOUT_MS = 2_500;
 +const API_TIMEOUT_MS = 15_000;
 +const ANTIGRAVITY_USER_AGENT_VERSION = "1.5.9";
++/**
++ * CCPA 按 User-Agent 决定返回哪些配额组：`antigravity/<ver> <os>/<arch>` 只拿到
++ * Claude/GPT 组，`antigravity/cli/...` 才带上第一方 Gemini Models 组（周 + 5 小时）。
++ */
++const ANTIGRAVITY_USER_AGENT_CLIENT = "aidev_client";
 +
 +const ApiNumberSchema = z.coerce.number().finite();
 +
@@ -398,6 +520,17 @@ index 0000000..3882f45
 +  accessToken: string;
 +  email?: string;
 +  expiresAtMs?: number;
++  authMethod?: string;
++}
++
++/** 与 CLI 一致的 UA；CCPA 用它的产品段决定返回哪些配额组。 */
++export function buildAntigravityUserAgent(
++  platform: string,
++  arch: string,
++  authMethod?: string,
++): string {
++  const method = authMethod?.trim() || "consumer";
++  return `antigravity/cli/${ANTIGRAVITY_USER_AGENT_VERSION} (${ANTIGRAVITY_USER_AGENT_CLIENT}; os_type=${platform}; arch=${arch}; auth_method=${method})`;
 +}
 +
 +export interface AntigravityLookup {
@@ -436,11 +569,13 @@ index 0000000..3882f45
 +  if (!parsed.success) return null;
 +
 +  const email = parsed.data.id_token_email?.trim() || undefined;
++  const authMethod = parsed.data.auth_method?.trim() || undefined;
 +  const expiryRaw = parsed.data.token.expiry?.trim();
 +  const parsedExpiry = expiryRaw ? Date.parse(expiryRaw) : Number.NaN;
 +  return {
 +    accessToken: parsed.data.token.access_token,
 +    ...(email ? { email } : {}),
++    ...(authMethod ? { authMethod } : {}),
 +    ...(Number.isFinite(parsedExpiry) ? { expiresAtMs: parsedExpiry } : {}),
 +  };
 +}
@@ -615,7 +750,7 @@ index 0000000..3882f45
 +
 +function shortGroupLabel(displayName: string): string {
 +  if (/^claude\b.*\bgpt\b/i.test(displayName)) return "Claude/GPT";
-+  return displayName;
++  return displayName.replace(/\s+models?$/i, "").trim() || displayName;
 +}
 +
 +function uniqueWindowId(candidate: string, taken: Set<string>): string {
@@ -706,7 +841,7 @@ index 0000000..3882f45
 +
 +function buildBucketWindows(
 +  buckets: z.infer<typeof QuotaBucketSchema>[],
-+  hasSummaryGroups: boolean,
++  summary: { hasGroups: boolean; coversGemini: boolean },
 +  takenIds: Set<string>,
 +): UsageWindow[] {
 +  const grouped = new Map<
@@ -717,7 +852,8 @@ index 0000000..3882f45
 +  for (const bucket of buckets) {
 +    const family = classifyModelFamily(bucket.modelId);
 +    if (family === "internal") continue;
-+    if (family === "third_party" && hasSummaryGroups) continue;
++    if (family === "third_party" && summary.hasGroups) continue;
++    if (family === "gemini" && summary.coversGemini) continue;
 +
 +    const usedPct =
 +      typeof bucket.remainingFraction === "number"
@@ -830,7 +966,7 @@ index 0000000..3882f45
 +  );
 +  const platform = lookup.platform ?? osPlatform();
 +  const arch = lookup.arch ?? osArch();
-+  const userAgent = `antigravity/${ANTIGRAVITY_USER_AGENT_VERSION} ${platform}/${arch}`;
++  const userAgent = buildAntigravityUserAgent(platform, arch, credentials.authMethod);
 +
 +  const loadRes = await postCloudCode(
 +    fetchApi,
@@ -897,7 +1033,14 @@ index 0000000..3882f45
 +  const takenIds = new Set<string>();
 +  const windows = [
 +    ...buildSummaryWindows(summaryGroups, takenIds),
-+    ...buildBucketWindows(rawBuckets, summaryGroups.length > 0, takenIds),
++    ...buildBucketWindows(
++      rawBuckets,
++      {
++        hasGroups: summaryGroups.length > 0,
++        coversGemini: summaryGroups.some((group) => /gemini/i.test(group.displayName ?? "")),
++      },
++      takenIds,
++    ),
 +  ];
 +  const balances = extractCreditsBalance(tier);
 +
