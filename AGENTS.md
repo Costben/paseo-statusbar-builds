@@ -60,6 +60,26 @@ There is no local test suite; the workflows are the validator.
   rebuilding or publishing.
 - `-f force=true` rebuilds even when the Release already holds every artifact.
 
+## macOS first, Windows after
+
+A round is macOS-only until the macOS package is published, installed and
+confirmed. Windows follows; it never leads, and it never holds the queue the
+Mac is waiting in.
+
+- Dispatch `desktop-macos-build.yml` and wait for its artifacts. Windows is not
+  dispatched by hand — it chains off macOS through `workflow_run`.
+- Both desktop workflows share `paseo-desktop-builds-v1` with
+  `cancel-in-progress: false`, so whichever starts first runs to its end and the
+  other waits. A `schedule`-triggered Windows run therefore holds a macOS
+  dispatch for the length of a full build. A macOS run that sits `pending` with
+  no jobs is queued behind exactly that: `gh run cancel <id>` the Windows run
+  instead of waiting it out — the missing Windows assets are re-dispatched by
+  `upstream-release-watch.yml` later, so nothing is lost.
+- While a round is being tested and installed, keep Windows off with
+  `gh workflow disable desktop-windows-build.yml`. A disabled workflow answers
+  neither `schedule` nor `workflow_run`. Re-enable it (`gh workflow enable
+  desktop-windows-build.yml`) once the macOS build is installed and confirmed.
+
 ## Commits
 
 Conventional Commits, subject in Chinese, imperative, no trailing period.
