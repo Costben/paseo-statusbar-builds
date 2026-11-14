@@ -195,7 +195,7 @@ index 9e57643..40b8a27 100644
      if (this.prompts.size > 64) {
        const oldest = this.prompts.keys().next().value;
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-index df59917..5a738c6 100644
+index df59917..7e763f9 100644
 --- a/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -183,6 +183,11 @@ export class KimiNativeBridge {
@@ -210,15 +210,48 @@ index df59917..5a738c6 100644
    /**
     * True when Kimi recorded a compaction at or after the prompt was submitted.
     *
-@@ -235,9 +240,20 @@ export class KimiNativeBridge {
-         // own end record has not been read yet.
+@@ -218,18 +223,39 @@ export class KimiNativeBridge {
+       return "completed";
+     }
+     let idleSince: number | null = null;
++    let recordsSeen = this.log.getRecordCount();
+     while (!this.stopped) {
+       if (signal?.aborted) {
+         submission.outcome = "aborted";
+         return "aborted";
+       }
++      // A log that keeps growing is a runtime that keeps working, whatever its
++      // turn boundaries say. Only a log that has gone quiet for the whole grace
++      // period counts as idle.
++      const records = this.log.getRecordCount();
++      if (records !== recordsSeen) {
++        recordsSeen = records;
++        idleSince = null;
++      }
+       const prompt = this.renderer.findSubmittedPrompt(submission.sentAt, submission.text);
+       if (prompt?.ended) {
          submission.outcome = "completed";
          return "completed";
-+      } else if (this.log.hasUnreadBacklog()) {
-+        // The log has records this timeout has not folded in yet, so "idle" is
-+        // the state of the log, not of the runtime. The grace period only ever
-+        // counts observed idleness; a lagging tail restarts it.
-+        idleSince = null;
+       }
+-      if (this.log.isTurnInProgress()) {
++      if (this.log.hasUnreadBacklog()) {
++        // The log has records this wait has not folded in yet, so its state is
++        // the log's, not the runtime's. A lagging tail restarts the grace.
+         idleSince = null;
++      } else if (this.log.isTurnInProgress()) {
++        // A turn is open: Kimi is working on something, ours or the one ours is
++        // queued behind. Hold while it writes, but a turn that never ends must
++        // not hold this one forever — the prompt did run, so it is settled, not
++        // rejected, once the log has been silent for the whole grace period.
++        idleSince ??= Date.now();
++        if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
++          submission.outcome = "completed";
++          return "completed";
++        }
+       } else if (prompt) {
+         // Logged and no longer running: its turn is over even if the prompt's
+         // own end record has not been read yet.
+@@ -238,6 +264,12 @@ export class KimiNativeBridge {
        } else {
          idleSince ??= Date.now();
          if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
@@ -321,7 +354,7 @@ index 1c30449..38af58b 100644
      const { home, file } = createSessionHome(SESSION_ID);
      appendFileSync(file, `${userPromptLine("hi")}\n${injectionLine("reminder")}\n`);
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
-index 8bc6adf..a4d37a3 100644
+index 8bc6adf..d771115 100644
 --- a/packages/server/src/server/agent/providers/kimi/session-log.ts
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
 @@ -199,10 +199,16 @@ export interface KimiSessionLogState {
@@ -454,7 +487,7 @@ index 8bc6adf..a4d37a3 100644
  /** The alias a `profile.bind` or `llm.request` record binds, when it names one. */
  function readModelAlias(entry: Record<string, unknown>): string | undefined {
    const alias = readString(entry.modelAlias);
-@@ -798,7 +851,10 @@ export class KimiSessionLog {
+@@ -798,7 +851,12 @@ export class KimiSessionLog {
    private backgroundTasks: KimiBackgroundTaskRecord[] = [];
    private turnGeneration = 0;
    private settledThroughTurn = -1;
@@ -462,10 +495,12 @@ index 8bc6adf..a4d37a3 100644
    private acceptedPromptCount = 0;
 +  /** Bytes the last read left unread: the derived state is behind the file. */
 +  private backlogBytes = 0;
++  /** Log records folded so far: a runtime that keeps writing is still working. */
++  private recordsRead = 0;
    /** Value signature of the last goal considered; null means "nothing considered yet". */
    private goalSignature: string | null = null;
    private goalBucket = -1;
-@@ -887,6 +943,17 @@ export class KimiSessionLog {
+@@ -887,6 +945,26 @@ export class KimiSessionLog {
      return this.settledThroughTurn >= 0 && this.turnGeneration > this.settledThroughTurn;
    }
  
@@ -480,26 +515,38 @@ index 8bc6adf..a4d37a3 100644
 +    return this.backlogBytes > 0 || this.pending.length > 0;
 +  }
 +
++  /**
++   * Log records folded so far. A reader waiting for the runtime to finish
++   * something compares snapshots: a count that moves means the runtime is
++   * still writing, whether or not a turn boundary has been read yet.
++   */
++  getRecordCount(): number {
++    return this.recordsRead;
++  }
++
    /**
     * Prompts the runtime has accepted into the session so far. Snapshot this
     * before sending a prompt and compare afterwards: an unchanged count means the
-@@ -983,6 +1050,7 @@ export class KimiSessionLog {
+@@ -983,6 +1061,8 @@ export class KimiSessionLog {
      if (this.stopped) {
        return;
      }
 +    this.backlogBytes = read.backlogBytes;
++    this.recordsRead += read.lines;
      this.notifyTick();
      this.publishGoal();
      await this.publishUsage();
-@@ -1150,6 +1218,7 @@ export class KimiSessionLog {
+@@ -1150,7 +1230,9 @@ export class KimiSessionLog {
      this.backgroundTasks = [];
      this.turnGeneration = 0;
      this.settledThroughTurn = -1;
 +    this.lastTurnId = -1;
      this.acceptedPromptCount = 0;
++    this.recordsRead = 0;
      this.subagentTailers.clear();
      this.subagentSignatures.clear();
-@@ -1181,6 +1250,7 @@ export class KimiSessionLog {
+     this.backgroundTaskSignatures.clear();
+@@ -1181,6 +1263,7 @@ export class KimiSessionLog {
          backgroundTasks: this.backgroundTasks,
          turnGeneration: this.turnGeneration,
          settledThroughTurn: this.settledThroughTurn,
@@ -507,7 +554,7 @@ index 8bc6adf..a4d37a3 100644
          acceptedPromptCount: this.acceptedPromptCount,
        });
        this.goal = next.goal;
-@@ -1192,6 +1262,7 @@ export class KimiSessionLog {
+@@ -1192,6 +1275,7 @@ export class KimiSessionLog {
        this.backgroundTasks = next.backgroundTasks;
        this.turnGeneration = next.turnGeneration;
        this.settledThroughTurn = next.settledThroughTurn;
