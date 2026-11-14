@@ -608,7 +608,7 @@ new file mode 100644
 index 0000000..cd4993d
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-@@ -0,0 +1,699 @@
+@@ -0,0 +1,697 @@
 +import { setTimeout as delay } from "node:timers/promises";
 +
 +import type { Logger } from "pino";
@@ -702,7 +702,6 @@ index 0000000..cd4993d
 + */
 +export class AntigravityNativeBridge {
 +  private readonly log: AntigravityTranscriptLog;
-+  private readonly logger: Logger;
 +  private readonly provider: AgentProvider;
 +  private readonly emit: (event: AgentStreamEvent) => void;
 +  private readonly isForegroundTurnActive: () => boolean;
@@ -739,7 +738,6 @@ index 0000000..cd4993d
 +  private syntheticCallOrdinal = 0;
 +
 +  constructor(options: AntigravityNativeBridgeOptions) {
-+    this.logger = options.logger;
 +    this.provider = options.provider;
 +    this.emit = options.emit;
 +    this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
