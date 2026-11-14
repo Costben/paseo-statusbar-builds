@@ -223,6 +223,20 @@ const PATCHES = [
       needle: "export class AntigravityACPAgentClient extends ACPAgentClient {",
     },
   },
+  {
+    // Built-in `antigravity-usage-source` plugin: reads `agy` OAuth credentials
+    // from OS keyring (macOS Keychain / Windows Credential Manager / Linux
+    // Secret Service) and queries CloudCode `loadCodeAssist` +
+    // `retrieveUserQuotaSummary` + `retrieveUserQuota` for plan tier, 3P 5h/weekly
+    // limits, Gemini quota, and AI Credits.
+    name: "antigravity-usage",
+    file: "paseo-antigravity-usage.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "plugins/antigravity-usage-source/server/usage.ts",
+      needle: "export async function fetchUsage(",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -807,6 +821,11 @@ const MARKERS = [
     label: "Antigravity elicitation/create maps to QuestionFormCard",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "export function parseACPElicitationRequest(",
+  },
+  {
+    label: "Antigravity built-in usage source registered",
+    path: "packages/server/src/server/plugins/builtin/index.ts",
+    needle: '"antigravity-usage-source",',
   },
 ];
 

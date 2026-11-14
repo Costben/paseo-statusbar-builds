@@ -170,7 +170,7 @@ jobs:
           cat "$RUNNER_TEMP/changed.txt"
 
           status=0
-          for pkg in packages/server packages/protocol packages/app packages/cli packages/client packages/relay; do
+          for pkg in packages/server packages/protocol packages/app packages/cli packages/client packages/relay plugins; do
             [ -d "$pkg" ] || continue
             # Browser tests need a Playwright chromium build that this job does not
             # install; they are excluded. The desktop builds run no tests at all, so

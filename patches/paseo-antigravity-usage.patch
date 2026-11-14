@@ -1,0 +1,938 @@
+diff --git a/packages/server/src/server/plugins/builtin/index.ts b/packages/server/src/server/plugins/builtin/index.ts
+index ca80c95..2630e11 100644
+--- a/packages/server/src/server/plugins/builtin/index.ts
++++ b/packages/server/src/server/plugins/builtin/index.ts
+@@ -3,6 +3,7 @@ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+ 
+ export const builtinPlugins = [
++  "antigravity-usage-source",
+   "claude-usage-source",
+   "codex-usage-source",
+   "copilot-usage-source",
+diff --git a/plugins/antigravity-usage-source/icon.svg b/plugins/antigravity-usage-source/icon.svg
+new file mode 100644
+index 0000000..0576d92
+--- /dev/null
++++ b/plugins/antigravity-usage-source/icon.svg
+@@ -0,0 +1,3 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
++  <path transform="translate(12 12) scale(0.24) translate(-55.738 -56.945)" d="M89.6992 93.695C94.3659 97.195 101.366 94.8617 94.9492 88.445C75.6992 69.7783 79.7825 18.445 55.8659 18.445C31.9492 18.445 36.0325 69.7783 16.7825 88.445C9.78251 95.445 17.3658 97.195 22.0325 93.695C40.1159 81.445 38.9492 59.8617 55.8659 59.8617C72.7825 59.8617 71.6159 81.445 89.6992 93.695Z"/>
++</svg>
+diff --git a/plugins/antigravity-usage-source/index.server.ts b/plugins/antigravity-usage-source/index.server.ts
+new file mode 100644
+index 0000000..3ebe5f0
+--- /dev/null
++++ b/plugins/antigravity-usage-source/index.server.ts
+@@ -0,0 +1,15 @@
++import type { PluginServerContext } from "@getpaseo/plugin/server";
++import { inputSchema } from "./shared/input.js";
++import { discover, fetchUsage } from "./server/usage.js";
++
++export default function contribute(server: PluginServerContext) {
++  server.registerUsageSource({
++    id: "antigravity",
++    label: "Antigravity",
++    icon: "icon.svg",
++    input: inputSchema,
++    discover: (scope) => discover(scope),
++    fetch: fetchUsage,
++  });
++  return () => {};
++}
+diff --git a/plugins/antigravity-usage-source/paseo-plugin.json b/plugins/antigravity-usage-source/paseo-plugin.json
+new file mode 100644
+index 0000000..33cc7f3
+--- /dev/null
++++ b/plugins/antigravity-usage-source/paseo-plugin.json
+@@ -0,0 +1 @@
++{ "id": "antigravity-usage-source", "requirements": { "paseo": ">=0.11.0" } }
+diff --git a/plugins/antigravity-usage-source/server/usage.test.ts b/plugins/antigravity-usage-source/server/usage.test.ts
+new file mode 100644
+index 0000000..ef6e0c3
+--- /dev/null
++++ b/plugins/antigravity-usage-source/server/usage.test.ts
+@@ -0,0 +1,247 @@
++import { describe, expect, test } from "vitest";
++import { decodeKeyringPayload, discover, fetchUsage } from "./usage.js";
++
++function encodeGoKeyring(payload: unknown): string {
++  return `go-keyring-base64:${Buffer.from(JSON.stringify(payload), "utf8").toString("base64")}`;
++}
++
++describe("antigravity-usage-source", () => {
++  test("decodes go-keyring-base64 credential payload with email and expiry", () => {
++    const raw = encodeGoKeyring({
++      token: {
++        access_token: "ya29.test-token",
++        refresh_token: "1//refresh",
++        token_type: "Bearer",
++        expiry: "2026-11-14T18:32:07.000Z",
++      },
++      id_token_email: "user@example.com",
++      auth_method: "consumer",
++    });
++
++    const decoded = decodeKeyringPayload(raw);
++    expect(decoded).toEqual({
++      accessToken: "ya29.test-token",
++      email: "user@example.com",
++      expiresAtMs: Date.parse("2026-11-14T18:32:07.000Z"),
++    });
++  });
++
++  test("discover respects session scope provider filtering and preserves stable key", async () => {
++    const raw = encodeGoKeyring({
++      token: { access_token: "ya29.test-token" },
++      id_token_email: "User@Example.com",
++    });
++
++    const lookup = {
++      platform: "darwin" as const,
++      readKeyringRaw: async () => raw,
++    };
++
++    const globalAccounts = await discover({ kind: "global" }, lookup);
++    expect(globalAccounts).toHaveLength(1);
++    expect(globalAccounts[0]?.label).toBe("User@Example.com");
++    expect(globalAccounts[0]?.harness).toBe("Antigravity");
++
++    const agySession = await discover(
++      { kind: "session", provider: "antigravity", env: {} },
++      lookup,
++    );
++    expect(agySession).toEqual(globalAccounts);
++
++    const otherSession = await discover(
++      { kind: "session", provider: "claude", env: {} },
++      lookup,
++    );
++    expect(otherSession).toEqual([]);
++  });
++
++  test("fetchUsage maps plan tier, 3P summary windows, deduplicated Gemini bucket, and AI credits", async () => {
++    const raw = encodeGoKeyring({
++      token: {
++        access_token: "ya29.valid-token",
++        expiry: "2026-11-14T19:00:00.000Z",
++      },
++      id_token_email: "user@example.com",
++    });
++
++    const calls: Array<{ url: string; body: unknown }> = [];
++    const fetchApi: typeof fetch = async (input, init) => {
++      const url = String(input);
++      calls.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
++
++      if (url.endsWith("/v1internal:loadCodeAssist")) {
++        return new Response(
++          JSON.stringify({
++            currentTier: { id: "free-tier", name: "Antigravity" },
++            paidTier: {
++              id: "g1-ultra-lite-tier",
++              name: "Google AI Ultra",
++              availableCredits: [{ creditType: "AI_CREDITS", creditAmount: "2500" }],
++            },
++            cloudaicompanionProject: "aicode-consumers",
++          }),
++        );
++      }
++
++      if (url.endsWith("/v1internal:retrieveUserQuotaSummary")) {
++        return new Response(
++          JSON.stringify({
++            groups: [
++              {
++                displayName: "Claude and GPT models",
++                buckets: [
++                  {
++                    bucketId: "3p-weekly",
++                    displayName: "Weekly Limit Remaining",
++                    window: "weekly",
++                    resetTime: "2026-11-21T09:52:55Z",
++                    remainingFraction: 0.75,
++                  },
++                  {
++                    bucketId: "3p-5h",
++                    displayName: "Five Hour Limit Remaining",
++                    window: "5h",
++                    resetTime: "2026-11-14T14:52:55Z",
++                    remainingFraction: 0.9,
++                  },
++                ],
++              },
++            ],
++          }),
++        );
++      }
++
++      if (url.endsWith("/v1internal:retrieveUserQuota")) {
++        return new Response(
++          JSON.stringify({
++            buckets: [
++              { modelId: "chat_20706", remainingFraction: 1 },
++              { modelId: "tab_flash_lite_preview", remainingFraction: 1 },
++              { modelId: "claude-opus-5-5-high", remainingFraction: 0.9, resetTime: "2026-11-14T14:52:55Z" },
++              { modelId: "gemini-3-flash", remainingFraction: 0.8798897, resetTime: "2026-11-14T12:25:05Z" },
++              { modelId: "gemini-3.8-flash-tiered", remainingFraction: 0.8798897, resetTime: "2026-11-14T12:25:05Z" },
++            ],
++          }),
++        );
++      }
++
++      throw new Error(`Unexpected URL: ${url}`);
++    };
++
++    const report = await fetchUsage(
++      { route: { store: "keyring", service: "gemini", account: "antigravity" } },
++      fetchApi,
++      {
++        platform: "darwin",
++        arch: "arm64",
++        now: () => Date.parse("2026-11-14T18:00:00.000Z"),
++        readKeyringRaw: async () => raw,
++      },
++    );
++
++    expect(calls.find((c) => c.url.endsWith("retrieveUserQuota"))?.body).toEqual({
++      project: "aicode-consumers",
++    });
++
++    expect(report).toEqual({
++      status: "available",
++      planLabel: "Google AI Ultra",
++      windows: [
++        {
++          id: "claude_gpt:weekly",
++          label: "Claude/GPT · Weekly",
++          shortLabel: "Claude/GPT wk",
++          summary: true,
++          usedPct: 25,
++          remainingPct: 75,
++          resetsAt: "2026-11-21T09:52:55Z",
++          tone: "ok",
++        },
++        {
++          id: "claude_gpt:five_hour",
++          label: "Claude/GPT · 5-hour",
++          shortLabel: "Claude/GPT 5h",
++          summary: true,
++          usedPct: 10,
++          remainingPct: 90,
++          resetsAt: "2026-11-14T14:52:55Z",
++          tone: "ok",
++        },
++        {
++          id: "gemini",
++          label: "Gemini",
++          shortLabel: "Gemini",
++          summary: true,
++          usedPct: 12.01,
++          remainingPct: 87.99,
++          resetsAt: "2026-11-14T12:25:05Z",
++          tone: "ok",
++        },
++      ],
++      balances: [
++        {
++          id: "ai_credits",
++          label: "AI Credits",
++          remaining: 2500,
++          unit: "credits",
++          tone: "ok",
++        },
++      ],
++      details: [],
++    });
++  });
++
++  test("returns expired problem when stored access token is past expiry", async () => {
++    const raw = encodeGoKeyring({
++      token: {
++        access_token: "ya29.expired",
++        expiry: "2026-11-14T17:00:00.000Z",
++      },
++      id_token_email: "user@example.com",
++    });
++
++    const report = await fetchUsage(
++      { route: { store: "keyring", service: "gemini", account: "antigravity" } },
++      fetch,
++      {
++        platform: "darwin",
++        now: () => Date.parse("2026-11-14T18:00:00.000Z"),
++        readKeyringRaw: async () => raw,
++      },
++    );
++
++    expect(report).toEqual({
++      status: "unavailable",
++      problem: {
++        kind: "expired",
++        expiresAt: "2026-11-14T17:00:00.000Z",
++        refreshedBy: "Antigravity",
++      },
++    });
++  });
++
++  test("returns rejected problem when CloudCode API returns 401/403", async () => {
++    const raw = encodeGoKeyring({
++      token: { access_token: "ya29.revoked" },
++    });
++
++    const fetchApi: typeof fetch = async () => new Response("unauthorized", { status: 401 });
++    const report = await fetchUsage(
++      { route: { store: "keyring", service: "gemini", account: "antigravity" } },
++      fetchApi,
++      {
++        platform: "darwin",
++        readKeyringRaw: async () => raw,
++      },
++    );
++
++    expect(report).toEqual({
++      status: "unavailable",
++      problem: {
++        kind: "rejected",
++        status: 401,
++        refreshedBy: "Antigravity",
++      },
++    });
++  });
++});
+diff --git a/plugins/antigravity-usage-source/server/usage.ts b/plugins/antigravity-usage-source/server/usage.ts
+new file mode 100644
+index 0000000..3882f45
+--- /dev/null
++++ b/plugins/antigravity-usage-source/server/usage.ts
+@@ -0,0 +1,610 @@
++import { execFile } from "node:child_process";
++import { arch as osArch, platform as osPlatform } from "node:os";
++import { promisify } from "node:util";
++import { z } from "zod";
++import {
++  balanceToneFromRemaining,
++  hashAccountKey,
++  toneFromUsedPct,
++  unavailable,
++  windowFromUsedPct,
++  type UsageAccount,
++  type UsageBalance,
++  type UsageReport,
++  type UsageScope,
++  type UsageWindow,
++} from "@getpaseo/plugin/server/usage";
++import type { AntigravityUsageInput } from "../shared/input.js";
++
++const execFileAsync = promisify(execFile);
++
++const ANTIGRAVITY_KEYCHAIN_SERVICE = "gemini";
++const ANTIGRAVITY_KEYCHAIN_ACCOUNT = "antigravity";
++const GO_KEYRING_BASE64_PREFIX = "go-keyring-base64:";
++const DEFAULT_CLOUD_CODE_URL = "https://daily-cloudcode-pa.googleapis.com";
++const KEYRING_TIMEOUT_MS = 2_500;
++const API_TIMEOUT_MS = 15_000;
++const ANTIGRAVITY_USER_AGENT_VERSION = "1.5.9";
++
++const ApiNumberSchema = z.coerce.number().finite();
++
++const StoredTokenPayloadSchema = z.object({
++  token: z.object({
++    access_token: z.string().min(1),
++    refresh_token: z.string().optional(),
++    token_type: z.string().optional(),
++    expiry: z.string().optional(),
++  }),
++  id_token_email: z.string().optional(),
++  auth_method: z.string().optional(),
++});
++
++const CreditEntrySchema = z.object({
++  creditType: z.string().optional(),
++  creditAmount: ApiNumberSchema.optional(),
++  minimumCreditAmountForUsage: ApiNumberSchema.optional(),
++});
++
++const UserTierSchema = z.object({
++  id: z.string().optional(),
++  name: z.string().optional(),
++  availableCredits: z.array(CreditEntrySchema).optional(),
++});
++
++const LoadCodeAssistResponseSchema = z.object({
++  currentTier: UserTierSchema.nullish(),
++  paidTier: UserTierSchema.nullish(),
++  cloudaicompanionProject: z.string().nullish(),
++});
++
++const SummaryBucketSchema = z.object({
++  bucketId: z.string(),
++  displayName: z.string().optional(),
++  window: z.string().optional(),
++  resetTime: z.string().nullish(),
++  remainingFraction: ApiNumberSchema.nullish(),
++});
++
++const SummaryGroupSchema = z.object({
++  displayName: z.string(),
++  description: z.string().optional(),
++  buckets: z.array(SummaryBucketSchema).default([]),
++});
++
++const RetrieveUserQuotaSummaryResponseSchema = z.object({
++  groups: z.array(SummaryGroupSchema).default([]),
++});
++
++const QuotaBucketSchema = z.object({
++  modelId: z.string(),
++  tokenType: z.string().optional(),
++  resetTime: z.string().nullish(),
++  remainingFraction: ApiNumberSchema.nullish(),
++});
++
++const RetrieveUserQuotaResponseSchema = z.object({
++  buckets: z.array(QuotaBucketSchema).default([]),
++});
++
++export interface AntigravityCredentials {
++  accessToken: string;
++  email?: string;
++  expiresAtMs?: number;
++}
++
++export interface AntigravityLookup {
++  platform?: NodeJS.Platform;
++  arch?: string;
++  env?: NodeJS.ProcessEnv;
++  now?: () => number;
++  baseUrl?: string;
++  readKeyringRaw?: (service: string, account: string) => Promise<string | null>;
++}
++
++/** Decode a go-keyring payload (either `go-keyring-base64:...` or raw JSON). */
++export function decodeKeyringPayload(raw: string | null | undefined): AntigravityCredentials | null {
++  if (!raw) return null;
++  const trimmed = raw.trim();
++  if (!trimmed) return null;
++
++  let jsonText = trimmed;
++  if (trimmed.startsWith(GO_KEYRING_BASE64_PREFIX)) {
++    const encoded = trimmed.slice(GO_KEYRING_BASE64_PREFIX.length);
++    try {
++      jsonText = Buffer.from(encoded, "base64").toString("utf8");
++    } catch {
++      return null;
++    }
++  }
++
++  let parsedJson: unknown;
++  try {
++    parsedJson = JSON.parse(jsonText);
++  } catch {
++    return null;
++  }
++
++  const parsed = StoredTokenPayloadSchema.safeParse(parsedJson);
++  if (!parsed.success) return null;
++
++  const email = parsed.data.id_token_email?.trim() || undefined;
++  const expiryRaw = parsed.data.token.expiry?.trim();
++  const parsedExpiry = expiryRaw ? Date.parse(expiryRaw) : Number.NaN;
++  return {
++    accessToken: parsed.data.token.access_token,
++    ...(email ? { email } : {}),
++    ...(Number.isFinite(parsedExpiry) ? { expiresAtMs: parsedExpiry } : {}),
++  };
++}
++
++async function runExec(
++  file: string,
++  args: string[],
++  options: { timeout: number; windowsHide?: boolean; env?: NodeJS.ProcessEnv } = {
++    timeout: KEYRING_TIMEOUT_MS,
++  },
++): Promise<string | null> {
++  try {
++    const { stdout } = await execFileAsync(file, args, options);
++    return stdout.trim() || null;
++  } catch {
++    return null;
++  }
++}
++
++const WINDOWS_CRED_READ_SCRIPT = `
++$code = @'
++using System;
++using System.Runtime.InteropServices;
++public static class PaseoWinCred {
++  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
++  public struct CREDENTIAL {
++    public int Flags;
++    public int Type;
++    public string TargetName;
++    public string Comment;
++    public long LastWritten;
++    public int CredentialBlobSize;
++    public IntPtr CredentialBlob;
++    public int Persist;
++    public int AttributeCount;
++    public IntPtr Attributes;
++    public string TargetAlias;
++    public string UserName;
++  }
++  [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
++  public static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
++  [DllImport("advapi32.dll", SetLastError = true)]
++  public static extern void CredFree(IntPtr cred);
++  public static string ReadBase64(string target) {
++    IntPtr ptr;
++    if (!CredRead(target, 1, 0, out ptr)) return null;
++    try {
++      var c = Marshal.PtrToStructure<CREDENTIAL>(ptr);
++      if (c.CredentialBlob == IntPtr.Zero || c.CredentialBlobSize <= 0) return null;
++      var bytes = new byte[c.CredentialBlobSize];
++      Marshal.Copy(c.CredentialBlob, bytes, 0, c.CredentialBlobSize);
++      return Convert.ToBase64String(bytes);
++    } finally {
++      CredFree(ptr);
++    }
++  }
++}
++'@
++Add-Type -TypeDefinition $code -Language CSharp
++$b64 = [PaseoWinCred]::ReadBase64($env:PASEO_AGY_TARGET_PRIMARY)
++if (-not $b64) { $b64 = [PaseoWinCred]::ReadBase64($env:PASEO_AGY_TARGET_FALLBACK) }
++if ($b64) { [Console]::Write($b64) }
++`.trim();
++
++function decodeWindowsCredBlob(base64Stdout: string | null): string | null {
++  if (!base64Stdout) return null;
++  try {
++    const buf = Buffer.from(base64Stdout.trim(), "base64");
++    if (buf.length === 0) return null;
++    const utf8 = buf.toString("utf8");
++    return utf8.includes("\0") ? buf.toString("utf16le") : utf8;
++  } catch {
++    return null;
++  }
++}
++
++async function readDefaultKeyringRaw(
++  service: string,
++  account: string,
++  platform: NodeJS.Platform,
++  env: NodeJS.ProcessEnv,
++): Promise<string | null> {
++  if (platform === "darwin") {
++    return runExec("security", ["find-generic-password", "-s", service, "-a", account, "-w"], {
++      timeout: KEYRING_TIMEOUT_MS,
++    });
++  }
++  if (platform === "win32") {
++    const b64 = await runExec(
++      "powershell.exe",
++      ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_CRED_READ_SCRIPT],
++      {
++        timeout: 3_500,
++        windowsHide: true,
++        env: {
++          ...env,
++          PASEO_AGY_TARGET_PRIMARY: `${service}:${account}`,
++          PASEO_AGY_TARGET_FALLBACK: service,
++        },
++      },
++    );
++    return decodeWindowsCredBlob(b64);
++  }
++  if (platform === "linux") {
++    return (
++      (await runExec("secret-tool", ["lookup", "service", service, "username", account], {
++        timeout: KEYRING_TIMEOUT_MS,
++      })) ??
++      (await runExec("secret-tool", ["lookup", "service", service, "account", account], {
++        timeout: KEYRING_TIMEOUT_MS,
++      }))
++    );
++  }
++  return null;
++}
++
++async function readCredentials(
++  input: AntigravityUsageInput,
++  lookup: AntigravityLookup = {},
++): Promise<AntigravityCredentials | null> {
++  const { service, account } = input.route;
++  const platform = lookup.platform ?? osPlatform();
++  const env = lookup.env ?? process.env;
++  const raw = lookup.readKeyringRaw
++    ? await lookup.readKeyringRaw(service, account)
++    : await readDefaultKeyringRaw(service, account, platform, env);
++  return decodeKeyringPayload(raw);
++}
++
++export async function discover(
++  scope: UsageScope,
++  lookup: AntigravityLookup = {},
++): Promise<UsageAccount[]> {
++  if (scope.kind === "session") {
++    if (scope.provider !== "antigravity") return [];
++    lookup = { ...lookup, env: scope.env };
++  }
++  const input: AntigravityUsageInput = {
++    route: {
++      store: "keyring",
++      service: ANTIGRAVITY_KEYCHAIN_SERVICE,
++      account: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
++    },
++  };
++  const credentials = await readCredentials(input, lookup);
++  if (!credentials) return [];
++
++  const key = credentials.email
++    ? hashAccountKey(`antigravity:${credentials.email.toLowerCase()}`)
++    : hashAccountKey(JSON.stringify(input.route));
++  return [
++    {
++      key,
++      ...(credentials.email ? { label: credentials.email } : {}),
++      harness: "Antigravity",
++      input,
++    },
++  ];
++}
++
++function pctUsedFromRemainingFraction(remainingFraction: number): number {
++  const clamped = Math.max(0, Math.min(1, remainingFraction));
++  return Math.round((1 - clamped) * 10_000) / 100;
++}
++
++function normalizeId(value: string): string {
++  return value
++    .toLowerCase()
++    .replace(/[^a-z0-9]+/g, "_")
++    .replace(/^_+|_+$/g, "");
++}
++
++function shortGroupLabel(displayName: string): string {
++  if (/^claude\b.*\bgpt\b/i.test(displayName)) return "Claude/GPT";
++  return displayName;
++}
++
++function uniqueWindowId(candidate: string, taken: Set<string>): string {
++  if (!taken.has(candidate)) return candidate;
++  for (let suffix = 2; ; suffix += 1) {
++    const next = `${candidate}_${suffix}`;
++    if (!taken.has(next)) return next;
++  }
++}
++
++function buildSummaryWindows(
++  groups: z.infer<typeof SummaryGroupSchema>[],
++  takenIds: Set<string>,
++): UsageWindow[] {
++  const windows: UsageWindow[] = [];
++  for (const group of groups) {
++    const scopeLabel = shortGroupLabel(group.displayName.trim() || "Models");
++    const scopeId = normalizeId(scopeLabel) || "models";
++    for (const bucket of group.buckets) {
++      const usedPct =
++        typeof bucket.remainingFraction === "number"
++          ? pctUsedFromRemainingFraction(bucket.remainingFraction)
++          : null;
++      const resetsAt = bucket.resetTime ?? null;
++      const tone = toneFromUsedPct(usedPct);
++
++      if (bucket.window === "5h") {
++        const id = uniqueWindowId(`${scopeId}:five_hour`, takenIds);
++        takenIds.add(id);
++        windows.push(
++          windowFromUsedPct({
++            id,
++            label: `${scopeLabel} · 5-hour`,
++            shortLabel: `${scopeLabel} 5h`,
++            summary: true,
++            utilizationPct: usedPct,
++            resetsAt,
++            tone,
++          }),
++        );
++      } else if (bucket.window === "weekly") {
++        const id = uniqueWindowId(`${scopeId}:weekly`, takenIds);
++        takenIds.add(id);
++        windows.push(
++          windowFromUsedPct({
++            id,
++            label: `${scopeLabel} · Weekly`,
++            shortLabel: `${scopeLabel} wk`,
++            summary: true,
++            utilizationPct: usedPct,
++            resetsAt,
++            tone,
++          }),
++        );
++      } else {
++        const suffix = normalizeId(bucket.bucketId) || "limit";
++        const id = uniqueWindowId(`${scopeId}:${suffix}`, takenIds);
++        takenIds.add(id);
++        windows.push(
++          windowFromUsedPct({
++            id,
++            label: `${scopeLabel} · ${bucket.displayName || bucket.bucketId}`,
++            shortLabel: scopeLabel,
++            summary: true,
++            utilizationPct: usedPct,
++            resetsAt,
++            tone,
++          }),
++        );
++      }
++    }
++  }
++  return windows;
++}
++
++function classifyModelFamily(modelId: string): "internal" | "third_party" | "gemini" {
++  if (modelId.startsWith("chat_") || modelId.startsWith("tab_")) return "internal";
++  if (modelId.startsWith("claude-") || modelId.startsWith("gpt-")) return "third_party";
++  return "gemini";
++}
++
++function geminiBucketLabel(modelIds: string[]): string {
++  if (modelIds.every((id) => id.includes("image"))) return "Gemini Image";
++  if (modelIds.every((id) => id.includes("flash"))) return "Gemini Flash";
++  if (modelIds.every((id) => id.includes("pro"))) return "Gemini Pro";
++  return "Gemini";
++}
++
++function buildBucketWindows(
++  buckets: z.infer<typeof QuotaBucketSchema>[],
++  hasSummaryGroups: boolean,
++  takenIds: Set<string>,
++): UsageWindow[] {
++  const grouped = new Map<
++    string,
++    { family: "third_party" | "gemini"; modelIds: string[]; usedPct: number | null; resetsAt: string | null }
++  >();
++
++  for (const bucket of buckets) {
++    const family = classifyModelFamily(bucket.modelId);
++    if (family === "internal") continue;
++    if (family === "third_party" && hasSummaryGroups) continue;
++
++    const usedPct =
++      typeof bucket.remainingFraction === "number"
++        ? pctUsedFromRemainingFraction(bucket.remainingFraction)
++        : null;
++    const resetsAt = bucket.resetTime ?? null;
++    const key = `${family}|${usedPct ?? "null"}|${resetsAt ?? ""}`;
++    const existing = grouped.get(key);
++    if (existing) {
++      existing.modelIds.push(bucket.modelId);
++    } else {
++      grouped.set(key, { family, modelIds: [bucket.modelId], usedPct, resetsAt });
++    }
++  }
++
++  const entries = [...grouped.values()];
++  const geminiCount = entries.filter((entry) => entry.family === "gemini").length;
++
++  return entries.map((entry) => {
++    const label =
++      entry.family === "third_party"
++        ? "Claude/GPT"
++        : geminiCount === 1
++          ? "Gemini"
++          : geminiBucketLabel(entry.modelIds);
++    const id = uniqueWindowId(normalizeId(label) || "quota", takenIds);
++    takenIds.add(id);
++    return windowFromUsedPct({
++      id,
++      label,
++      shortLabel: label,
++      summary: true,
++      utilizationPct: entry.usedPct,
++      resetsAt: entry.resetsAt,
++      tone: toneFromUsedPct(entry.usedPct),
++    });
++  });
++}
++
++function extractCreditsBalance(tier: z.infer<typeof UserTierSchema> | null | undefined): UsageBalance[] {
++  const credits = tier?.availableCredits;
++  if (!credits || credits.length === 0) return [];
++  const amounts = credits
++    .map((entry) => entry.creditAmount)
++    .filter((amount): amount is number => typeof amount === "number" && Number.isFinite(amount));
++  if (amounts.length === 0) return [];
++  const remaining = amounts.reduce((sum, value) => sum + value, 0);
++  return [
++    {
++      id: "ai_credits",
++      label: "AI Credits",
++      remaining,
++      unit: "credits",
++      tone: balanceToneFromRemaining(remaining),
++    },
++  ];
++}
++
++async function postCloudCode(
++  fetchApi: typeof fetch,
++  url: string,
++  token: string,
++  userAgent: string,
++  body: Record<string, unknown>,
++): Promise<{ status: number; json?: unknown }> {
++  const response = await fetchApi(url, {
++    method: "POST",
++    signal: AbortSignal.timeout(API_TIMEOUT_MS),
++    headers: {
++      Authorization: `Bearer ${token}`,
++      "Content-Type": "application/json",
++      Accept: "application/json",
++      "User-Agent": userAgent,
++    },
++    body: JSON.stringify(body),
++  });
++  if (response.status === 401 || response.status === 403) {
++    return { status: response.status };
++  }
++  if (!response.ok) {
++    throw new Error(`Antigravity usage API (${url}) returned ${response.status}`);
++  }
++  return { status: response.status, json: await response.json() };
++}
++
++export async function fetchUsage(
++  rawInput: unknown,
++  fetchApi: typeof fetch = fetch,
++  lookup: AntigravityLookup = {},
++): Promise<UsageReport> {
++  const input = rawInput as AntigravityUsageInput;
++  const credentials = await readCredentials(input, lookup);
++  if (!credentials) {
++    throw new Error("Antigravity login store no longer exists");
++  }
++
++  const now = (lookup.now ?? Date.now)();
++  if (credentials.expiresAtMs !== undefined && credentials.expiresAtMs <= now) {
++    return unavailable({
++      kind: "expired",
++      expiresAt: new Date(credentials.expiresAtMs).toISOString(),
++      refreshedBy: "Antigravity",
++    });
++  }
++
++  const env = lookup.env ?? process.env;
++  const baseUrl = (lookup.baseUrl ?? env.CLOUD_CODE_URL ?? DEFAULT_CLOUD_CODE_URL).replace(
++    /\/+$/,
++    "",
++  );
++  const platform = lookup.platform ?? osPlatform();
++  const arch = lookup.arch ?? osArch();
++  const userAgent = `antigravity/${ANTIGRAVITY_USER_AGENT_VERSION} ${platform}/${arch}`;
++
++  const loadRes = await postCloudCode(
++    fetchApi,
++    `${baseUrl}/v1internal:loadCodeAssist`,
++    credentials.accessToken,
++    userAgent,
++    { metadata: { ideType: "ANTIGRAVITY" } },
++  );
++  if (loadRes.status === 401 || loadRes.status === 403) {
++    return unavailable({ kind: "rejected", status: loadRes.status, refreshedBy: "Antigravity" });
++  }
++
++  const loadCodeAssist = LoadCodeAssistResponseSchema.parse(loadRes.json);
++  const tier = loadCodeAssist.paidTier ?? loadCodeAssist.currentTier ?? undefined;
++  const planLabel = tier?.name?.trim() || undefined;
++  const project = loadCodeAssist.cloudaicompanionProject?.trim() || undefined;
++  const quotaBody = project ? { project } : {};
++
++  const [summaryResult, bucketsResult] = await Promise.allSettled([
++    postCloudCode(
++      fetchApi,
++      `${baseUrl}/v1internal:retrieveUserQuotaSummary`,
++      credentials.accessToken,
++      userAgent,
++      quotaBody,
++    ),
++    postCloudCode(
++      fetchApi,
++      `${baseUrl}/v1internal:retrieveUserQuota`,
++      credentials.accessToken,
++      userAgent,
++      quotaBody,
++    ),
++  ]);
++
++  if (summaryResult.status === "fulfilled" && (summaryResult.value.status === 401 || summaryResult.value.status === 403)) {
++    return unavailable({
++      kind: "rejected",
++      status: summaryResult.value.status,
++      refreshedBy: "Antigravity",
++    });
++  }
++  if (bucketsResult.status === "fulfilled" && (bucketsResult.value.status === 401 || bucketsResult.value.status === 403)) {
++    return unavailable({
++      kind: "rejected",
++      status: bucketsResult.value.status,
++      refreshedBy: "Antigravity",
++    });
++  }
++
++  if (summaryResult.status === "rejected" && bucketsResult.status === "rejected") {
++    throw summaryResult.reason;
++  }
++
++  const summaryGroups =
++    summaryResult.status === "fulfilled" && summaryResult.value.json !== undefined
++      ? RetrieveUserQuotaSummaryResponseSchema.parse(summaryResult.value.json).groups
++      : [];
++  const rawBuckets =
++    bucketsResult.status === "fulfilled" && bucketsResult.value.json !== undefined
++      ? RetrieveUserQuotaResponseSchema.parse(bucketsResult.value.json).buckets
++      : [];
++
++  const takenIds = new Set<string>();
++  const windows = [
++    ...buildSummaryWindows(summaryGroups, takenIds),
++    ...buildBucketWindows(rawBuckets, summaryGroups.length > 0, takenIds),
++  ];
++  const balances = extractCreditsBalance(tier);
++
++  if (windows.length === 0 && balances.length === 0 && !planLabel) {
++    return unavailable({
++      kind: "no_quota",
++      detail: "Antigravity returned no quota windows",
++    });
++  }
++
++  return {
++    status: "available",
++    ...(planLabel ? { planLabel } : {}),
++    windows,
++    balances,
++    details: [],
++  };
++}
+diff --git a/plugins/antigravity-usage-source/shared/input.ts b/plugins/antigravity-usage-source/shared/input.ts
+new file mode 100644
+index 0000000..d52e029
+--- /dev/null
++++ b/plugins/antigravity-usage-source/shared/input.ts
+@@ -0,0 +1,14 @@
++import { z } from "zod";
++
++export const routeSchema = z.discriminatedUnion("store", [
++  z
++    .object({
++      store: z.literal("keyring"),
++      service: z.string().min(1),
++      account: z.string().min(1),
++    })
++    .strict(),
++]);
++
++export const inputSchema = z.object({ route: routeSchema }).strict();
++export type AntigravityUsageInput = z.infer<typeof inputSchema>;
