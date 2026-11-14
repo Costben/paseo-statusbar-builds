@@ -1253,10 +1253,10 @@ index 0000000..377dfd0
 +}
 +
 +describe("AntigravityACPAgentClient", () => {
-+  test("advertises elicitation.form client capability and host catalog cache key", () => {
++  test("advertises elicitation.form client capability and host catalog cache key", async () => {
 +    const client = new AntigravityACPAgentClient({ logger: createTestLogger() });
 +    expect(client.provider).toBe("antigravity");
-+    expect(client.getCatalogCacheKey()).toBe("host");
++    expect(await client.getCatalogCacheKey()).toBe("host");
 +    expect(client.capabilities).toMatchObject({
 +      supportsStreaming: true,
 +      supportsSessionPersistence: true,
