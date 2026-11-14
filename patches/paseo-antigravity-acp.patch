@@ -979,7 +979,7 @@ index e7068eb..fcc49d0 100644
 +  return { multiSelect: false, options: [] };
 +}
 +
-+function isPlainStringProperty(prop: Record<string, unknown> | undefined): boolean {
++function isPlainStringProperty(prop: Record<string, unknown> | null | undefined): boolean {
 +  if (!prop || prop["type"] !== "string") {
 +    return false;
 +  }
