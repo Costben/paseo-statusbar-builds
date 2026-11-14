@@ -1,0 +1,517 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 67e2ebd..ae79fc6 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -3871,7 +3871,12 @@ describe("ACPAgentSession", () => {
+       const { turnId } = await session.startTurn(notification);
+       await finished;
+       expect(
+-        events.filter((event) => event.type === "timeline" && event.item.type !== "user_message"),
++        events.filter(
++          (event) =>
++            event.type === "timeline" &&
++            event.item.type !== "user_message" &&
++            event.item.type !== "error",
++        ),
+       ).toEqual([]);
+       expect(events).toContainEqual(
+         expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
+@@ -3919,7 +3924,12 @@ describe("ACPAgentSession", () => {
+     await flushMicrotasks();
+ 
+     expect(
+-      events.filter((event) => event.type === "timeline" && event.item.type !== "user_message"),
++      events.filter(
++        (event) =>
++          event.type === "timeline" &&
++          event.item.type !== "user_message" &&
++          event.item.type !== "error",
++      ),
+     ).toEqual([]);
+     expect(events).toContainEqual(
+       expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
+@@ -6922,6 +6932,12 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
+       );
+ 
+       expect(terminal).toMatchObject({ type: "turn_failed", code: "kimi_prompt_not_accepted" });
++      expect(harness.events).toContainEqual(
++        expect.objectContaining({
++          type: "timeline",
++          item: expect.objectContaining({ type: "error" }),
++        }),
++      );
+     } finally {
+       await harness.dispose();
+     }
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index e523d3c..f5dfe99 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -5212,6 +5212,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     ) {
+       const explained = this.describeMissingTimeline();
+       const failure = this.missingTimelineFailure(explained, response);
++      this.emitTurnFailureNotice(failure.error, failure.diagnostic);
+       this.finishTurn({
+         type: "turn_failed",
+         provider: this.provider,
+@@ -5249,6 +5250,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
++  /**
++   * Puts a failed turn on the timeline. The stream event alone only closes the
++   * turn, so an agent that never ran its prompt looked exactly like one that
++   * finished without saying anything.
++   */
++  private emitTurnFailureNotice(error: string, diagnostic?: string): void {
++    this.pushEvent(
++      this.wrapTimeline({
++        type: "error",
++        message: diagnostic === undefined ? error : `${error} — ${diagnostic}`,
++      }),
++    );
++  }
++
+   /**
+    * Ends a turn that was held after its response when the hold itself decided
+    * the outcome, and reports whether it did.
+@@ -5275,6 +5290,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (refuted === null) {
+       return false;
+     }
++    this.emitTurnFailureNotice(refuted.error, refuted.diagnostic);
+     this.finishTurn({
+       type: "turn_failed",
+       provider: this.provider,
+diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
+index ee6c43c..6fd5581 100644
+--- a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
++++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
+@@ -174,6 +174,44 @@ describe("KimiMainTurnRenderer", () => {
+     ]);
+   });
+ 
++  test("renders a turn whose start only the prompt receipt announced", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      userPrompt(2, "继续", start),
++      textPart(2, "PROMPT_ONLY_TURN", start + 500),
++      line({ type: "turn.ended", agentId: "main", turnId: 2, reason: "completed", time: start + 600 }),
++    ]);
++
++    expect(events[0]?.type).toBe("turn_started");
++    expect(timelineTexts(events)).toEqual(["PROMPT_ONLY_TURN"]);
++    expect(events.at(-1)?.type).toBe("turn_completed");
++  });
++
++  test("opens one turn when both boundary records name it", () => {
++    const { renderer, events } = createHarness();
++    const start = ATTACHED_AT + 1_000;
++
++    renderer.consume([
++      turnStarted(3, start),
++      userPrompt(3, "hi", start + 5),
++      textPart(3, "ONCE", start + 500),
++      turnEnded(3, start + 600),
++      line({
++        type: "turn.ended",
++        agentId: "main",
++        turnId: 3,
++        reason: "completed",
++        time: start + 601,
++      }),
++    ]);
++
++    expect(events.filter((event) => event.type === "turn_started")).toHaveLength(1);
++    expect(events.filter((event) => event.type === "turn_completed")).toHaveLength(1);
++    expect(timelineTexts(events)).toEqual(["ONCE"]);
++  });
++
+   test("shows a call Kimi displays as a command as a shell command", () => {
+     const { renderer, events } = createHarness();
+     const start = ATTACHED_AT + 1_000;
+diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
+index 9e57643..40b8a27 100644
+--- a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
++++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
+@@ -267,11 +267,16 @@ export class KimiMainTurnRenderer {
+   /** A prompt is over at its prompt-level `turn.ended`, or at `prompt.completed` for a user prompt. */
+   private onPromptEnded(record: Record<string, unknown>): void {
+     if (record.type === "turn.ended") {
+-      const prompt =
+-        typeof record.turnId === "number" ? this.prompts.get(record.turnId) : undefined;
++      const turnId = typeof record.turnId === "number" ? record.turnId : null;
++      const prompt = turnId !== null ? this.prompts.get(turnId) : undefined;
+       if (prompt) {
+         prompt.ended = true;
+       }
++      // Current Kimi logs end the turn only here, with no `agent.turn.ended`,
++      // so the turn being rendered is closed by this record too.
++      if (this.current !== null && (turnId === null || this.current.turnId === turnId)) {
++        this.finishCurrentTurn(readString(record.reason) === "cancelled" ? "aborted" : "done");
++      }
+       return;
+     }
+     const promptId = readString(record.promptId);
+@@ -286,11 +291,25 @@ export class KimiMainTurnRenderer {
+   }
+ 
+   private onTurnStarted(record: Record<string, unknown>, time: number | null): void {
++    const turnId = typeof record.turnId === "number" ? record.turnId : -1;
++    this.beginTurn(turnId, time);
++  }
++
++  /**
++   * Opens the turn `turnId`. Kimi announces a turn twice in older logs — an
++   * `agent.turn.started` record and the turn's own `turn.prompt` — and only
++   * once, at the prompt receipt, in the logs its current version writes; the id
++   * makes the second announcement a no-op instead of a second turn.
++   */
++  private beginTurn(turnId: number, time: number | null): void {
++    const current = this.current;
++    if (current !== null && current.turnId === turnId) {
++      return;
++    }
+     // A turn that never logged its end is over once the next one starts.
+-    if (this.current) {
++    if (current !== null) {
+       this.finishCurrentTurn("done");
+     }
+-    const turnId = typeof record.turnId === "number" ? record.turnId : -1;
+     if (time === null || time < this.renderFrom) {
+       this.current = {
+         turnId,
+@@ -387,6 +406,9 @@ export class KimiMainTurnRenderer {
+       time: at,
+       ended: false,
+     });
++    // Kimi's current log names the turn's start with this receipt and writes no
++    // `agent.turn.started`, so the turn the prompt belongs to is opened here.
++    this.beginTurn(record.turnId, at);
+     // Only the latest few matter: a submission is matched within seconds.
+     if (this.prompts.size > 64) {
+       const oldest = this.prompts.keys().next().value;
+diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
+index df59917..5a738c6 100644
+--- a/packages/server/src/server/agent/providers/kimi/native-bridge.ts
++++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
+@@ -183,6 +183,11 @@ export class KimiNativeBridge {
+     return this.renderer.findSubmittedPrompt(submission.sentAt, submission.text) !== null;
+   }
+ 
++  /** True when the runtime logged an inbound prompt receipt after the submission. */
++  acceptedPromptSinceSubmission(): boolean {
++    return this.promptBaseline !== null && this.log.getAcceptedPromptCount() > this.promptBaseline;
++  }
++
+   /**
+    * True when Kimi recorded a compaction at or after the prompt was submitted.
+    *
+@@ -235,9 +240,20 @@ export class KimiNativeBridge {
+         // own end record has not been read yet.
+         submission.outcome = "completed";
+         return "completed";
++      } else if (this.log.hasUnreadBacklog()) {
++        // The log has records this timeout has not folded in yet, so "idle" is
++        // the state of the log, not of the runtime. The grace period only ever
++        // counts observed idleness; a lagging tail restarts it.
++        idleSince = null;
+       } else {
+         idleSince ??= Date.now();
+         if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
++          // A prompt receipt landed without being matchable to this submission:
++          // the runtime ran something of ours, so it did not drop the prompt.
++          if (this.acceptedPromptSinceSubmission()) {
++            submission.outcome = "completed";
++            return "completed";
++          }
+           submission.outcome = "not_accepted";
+           return "not_accepted";
+         }
+diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
+index 1c30449..38af58b 100644
+--- a/packages/server/src/server/agent/providers/kimi/session-log.test.ts
++++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
+@@ -1521,6 +1521,84 @@ describe("KimiSessionLog", () => {
+     await waitFor(() => !log.isTurnInProgress());
+   });
+ 
++  test("a turn announced only by its prompt receipt still counts as in progress", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${JSON.stringify({
++        type: "turn.prompt",
++        agentId: "main",
++        origin: { kind: "user" },
++        promptId: "msg_x",
++        turnId: 3,
++        prompt: "hi",
++        time: SUBAGENT_TIME,
++      })}\n`,
++    );
++
++    const log = createLog(home);
++    expect(log.isTurnInProgress()).toBe(false);
++    log.start();
++    await waitFor(() => log.isTurnInProgress());
++
++    appendFileSync(
++      file,
++      `${JSON.stringify({
++        type: "turn.ended",
++        agentId: "main",
++        turnId: 3,
++        reason: "completed",
++        time: SUBAGENT_TIME + 1_000,
++      })}\n`,
++    );
++    await waitFor(() => !log.isTurnInProgress());
++  });
++
++  test("a turn named by both boundary records counts once", async () => {
++    const { home, file } = createSessionHome(SESSION_ID);
++    appendFileSync(
++      file,
++      `${JSON.stringify({
++        type: "turn.prompt",
++        agentId: "main",
++        origin: { kind: "user" },
++        promptId: "msg_y",
++        turnId: 4,
++        prompt: "hi",
++        time: SUBAGENT_TIME,
++      })}\n${JSON.stringify({
++        type: "agent.turn.started",
++        agentId: "main",
++        turnId: 4,
++        time: SUBAGENT_TIME - 5,
++      })}\n`,
++    );
++
++    const log = createLog(home);
++    log.start();
++    await waitFor(() => log.isTurnInProgress());
++
++    appendFileSync(
++      file,
++      `${JSON.stringify({
++        type: "agent.turn.ended",
++        agentId: "main",
++        turnId: 4,
++        time: SUBAGENT_TIME + 1_000,
++      })}\n${JSON.stringify({
++        type: "turn.ended",
++        agentId: "main",
++        turnId: 4,
++        reason: "completed",
++        time: SUBAGENT_TIME + 1_005,
++      })}\n`,
++    );
++    await waitFor(() => !log.isTurnInProgress());
++    await delay(80);
++
++    expect(log.isTurnInProgress()).toBe(false);
++  });
++
+   test("counts user prompt receipts without counting context injections", async () => {
+     const { home, file } = createSessionHome(SESSION_ID);
+     appendFileSync(file, `${userPromptLine("hi")}\n${injectionLine("reminder")}\n`);
+diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
+index 8bc6adf..a4d37a3 100644
+--- a/packages/server/src/server/agent/providers/kimi/session-log.ts
++++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
+@@ -199,10 +199,16 @@ export interface KimiSessionLogState {
+   /** Subagents of the session, in spawn order. */
+   subagents: KimiSubagentRecord[];
+   backgroundTasks: KimiBackgroundTaskRecord[];
+-  /** Count of `agent.turn.started` records seen. */
++  /** Count of turn starts seen, from either boundary record. */
+   turnGeneration: number;
+   /** Highest turn known to be over. Starts at -1 so no boundary is assumed before one is seen. */
+   settledThroughTurn: number;
++  /**
++   * Highest Kimi turn id a boundary named, or -1. A turn is announced by both an
++   * `agent.turn.*` record and its `turn.prompt`/`turn.ended` pair in logs that
++   * carry both, so the id is what keeps one turn from counting twice.
++   */
++  lastTurnId: number;
+   /**
+    * Count of main-agent `turn.prompt` receipts from verified inbound origins.
+    * Context messages and turn boundaries also arise from ongoing work, so they
+@@ -221,6 +227,7 @@ export const EMPTY_KIMI_SESSION_LOG_STATE: KimiSessionLogState = Object.freeze({
+   backgroundTasks: [],
+   turnGeneration: 0,
+   settledThroughTurn: -1,
++  lastTurnId: -1,
+   acceptedPromptCount: 0,
+ });
+ 
+@@ -289,6 +296,7 @@ interface KimiLogDraft {
+   goalCachedInputTokens: number | null;
+   turnGeneration: number;
+   settledThroughTurn: number;
++  lastTurnId: number;
+   acceptedPromptCount: number;
+   readonly subagents: Map<string, KimiSubagentRecord>;
+   readonly backgroundTasks: Map<string, KimiBackgroundTaskRecord>;
+@@ -309,6 +317,7 @@ function createKimiLogDraft(previous: KimiSessionLogState): KimiLogDraft {
+     goalCachedInputTokens: previous.goalCachedInputTokens,
+     turnGeneration: previous.turnGeneration,
+     settledThroughTurn: previous.settledThroughTurn,
++    lastTurnId: previous.lastTurnId,
+     acceptedPromptCount: previous.acceptedPromptCount,
+     subagents,
+     backgroundTasks,
+@@ -326,6 +335,7 @@ function finishKimiLogDraft(draft: KimiLogDraft): KimiSessionLogState {
+     backgroundTasks: [...draft.backgroundTasks.values()],
+     turnGeneration: draft.turnGeneration,
+     settledThroughTurn: draft.settledThroughTurn,
++    lastTurnId: draft.lastTurnId,
+     acceptedPromptCount: draft.acceptedPromptCount,
+   };
+ }
+@@ -355,15 +365,13 @@ function applyKimiLogEntry(draft: KimiLogDraft, entry: Record<string, unknown>):
+       draft.modelAlias = readModelAlias(entry) ?? draft.modelAlias;
+       break;
+     case "agent.turn.started":
+-      draft.turnGeneration += 1;
+-      // A new turn proves every earlier one is over.
+-      draft.settledThroughTurn = Math.max(draft.settledThroughTurn, draft.turnGeneration - 1);
+-      demoteSettledSubagents(draft.subagents, draft.settledThroughTurn);
++      noteTurnStart(draft, entry);
+       break;
+     case "agent.turn.ended":
+-      // A turn ending proves its own turn is over.
+-      draft.settledThroughTurn = Math.max(draft.settledThroughTurn, draft.turnGeneration);
+-      demoteSettledSubagents(draft.subagents, draft.settledThroughTurn);
++      noteTurnEnd(draft, entry);
++      break;
++    case "turn.ended":
++      noteTurnEnd(draft, entry);
+       break;
+     case "subagent.spawned":
+       applySubagentSpawn(draft.subagents, entry, draft.turnGeneration);
+@@ -383,6 +391,10 @@ function applyKimiLogEntry(draft: KimiLogDraft, entry: Record<string, unknown>):
+     case "turn.prompt":
+       if (isInboundPrompt(entry)) {
+         draft.acceptedPromptCount += 1;
++        // Kimi 2.6 writes the turn's own prompt receipt and no `agent.turn.*`
++        // record, so this receipt is the only evidence the turn exists. Logs
++        // that carry both are kept from counting the turn twice by its id.
++        noteTurnStart(draft, entry);
+       }
+       break;
+     default:
+@@ -391,6 +403,47 @@ function applyKimiLogEntry(draft: KimiLogDraft, entry: Record<string, unknown>):
+   }
+ }
+ 
++/**
++ * A turn boundary. Kimi 2.6 opens a turn with the prompt receipt and closes it
++ * with `turn.ended`, and writes no `agent.turn.*` record at all; older logs
++ * carry both pairs. Either way the id decides whether this is one turn seen
++ * twice, and a boundary without an id counts on its own.
++ */
++function noteTurnStart(draft: KimiLogDraft, entry: Record<string, unknown>): void {
++  if (entry.agentId !== undefined && entry.agentId !== "main") {
++    return;
++  }
++  const turnId = readNumber(entry.turnId);
++  if (turnId !== undefined) {
++    if (turnId <= draft.lastTurnId) {
++      return;
++    }
++    draft.lastTurnId = turnId;
++  }
++  draft.turnGeneration += 1;
++  // A new turn proves every earlier one is over.
++  draft.settledThroughTurn = Math.max(draft.settledThroughTurn, draft.turnGeneration - 1);
++  demoteSettledSubagents(draft.subagents, draft.settledThroughTurn);
++}
++
++/**
++ * A turn ending proves its own turn is over. An end whose start was never seen
++ * — a replay that began mid-turn — still has to count as one turn, or its id
++ * would outrank the counter and later turns would settle immediately.
++ */
++function noteTurnEnd(draft: KimiLogDraft, entry: Record<string, unknown>): void {
++  if (entry.agentId !== undefined && entry.agentId !== "main") {
++    return;
++  }
++  const turnId = readNumber(entry.turnId);
++  if (turnId !== undefined && turnId > draft.lastTurnId) {
++    draft.lastTurnId = turnId;
++    draft.turnGeneration += 1;
++  }
++  draft.settledThroughTurn = Math.max(draft.settledThroughTurn, draft.turnGeneration);
++  demoteSettledSubagents(draft.subagents, draft.settledThroughTurn);
++}
++
+ /** The alias a `profile.bind` or `llm.request` record binds, when it names one. */
+ function readModelAlias(entry: Record<string, unknown>): string | undefined {
+   const alias = readString(entry.modelAlias);
+@@ -798,7 +851,10 @@ export class KimiSessionLog {
+   private backgroundTasks: KimiBackgroundTaskRecord[] = [];
+   private turnGeneration = 0;
+   private settledThroughTurn = -1;
++  private lastTurnId = -1;
+   private acceptedPromptCount = 0;
++  /** Bytes the last read left unread: the derived state is behind the file. */
++  private backlogBytes = 0;
+   /** Value signature of the last goal considered; null means "nothing considered yet". */
+   private goalSignature: string | null = null;
+   private goalBucket = -1;
+@@ -887,6 +943,17 @@ export class KimiSessionLog {
+     return this.settledThroughTurn >= 0 && this.turnGeneration > this.settledThroughTurn;
+   }
+ 
++  /**
++   * True while the tail has bytes it has not folded into the state yet.
++   *
++   * Everything above is derived from what has been read, so a lagging tail
++   * reports the state of the log as it was, not as it is. Readers that would
++   * draw a conclusion from "no turn in progress" must treat this as unknown.
++   */
++  hasUnreadBacklog(): boolean {
++    return this.backlogBytes > 0 || this.pending.length > 0;
++  }
++
+   /**
+    * Prompts the runtime has accepted into the session so far. Snapshot this
+    * before sending a prompt and compare afterwards: an unchanged count means the
+@@ -983,6 +1050,7 @@ export class KimiSessionLog {
+     if (this.stopped) {
+       return;
+     }
++    this.backlogBytes = read.backlogBytes;
+     this.notifyTick();
+     this.publishGoal();
+     await this.publishUsage();
+@@ -1150,6 +1218,7 @@ export class KimiSessionLog {
+     this.backgroundTasks = [];
+     this.turnGeneration = 0;
+     this.settledThroughTurn = -1;
++    this.lastTurnId = -1;
+     this.acceptedPromptCount = 0;
+     this.subagentTailers.clear();
+     this.subagentSignatures.clear();
+@@ -1181,6 +1250,7 @@ export class KimiSessionLog {
+         backgroundTasks: this.backgroundTasks,
+         turnGeneration: this.turnGeneration,
+         settledThroughTurn: this.settledThroughTurn,
++        lastTurnId: this.lastTurnId,
+         acceptedPromptCount: this.acceptedPromptCount,
+       });
+       this.goal = next.goal;
+@@ -1192,6 +1262,7 @@ export class KimiSessionLog {
+       this.backgroundTasks = next.backgroundTasks;
+       this.turnGeneration = next.turnGeneration;
+       this.settledThroughTurn = next.settledThroughTurn;
++      this.lastTurnId = next.lastTurnId;
+       this.acceptedPromptCount = next.acceptedPromptCount;
+     }
+   }
