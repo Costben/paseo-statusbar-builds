@@ -195,7 +195,7 @@ index 9e57643..40b8a27 100644
      if (this.prompts.size > 64) {
        const oldest = this.prompts.keys().next().value;
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-index df59917..7e763f9 100644
+index df59917..631a625 100644
 --- a/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -183,6 +183,11 @@ export class KimiNativeBridge {
@@ -210,7 +210,7 @@ index df59917..7e763f9 100644
    /**
     * True when Kimi recorded a compaction at or after the prompt was submitted.
     *
-@@ -218,18 +223,39 @@ export class KimiNativeBridge {
+@@ -218,18 +223,48 @@ export class KimiNativeBridge {
        return "completed";
      }
      let idleSince: number | null = null;
@@ -234,6 +234,15 @@ index df59917..7e763f9 100644
          return "completed";
        }
 -      if (this.log.isTurnInProgress()) {
++      // A receipt means the runtime took the prompt, so it was not dropped; once
++      // nothing of Kimi's is running, there is nothing left to wait for. The
++      // receipt need not name this submission: a prompt steered into a turn
++      // already running is folded into that turn's own receipt and never gets
++      // one of its own.
++      if (!this.log.isTurnInProgress() && this.acceptedPromptSinceSubmission()) {
++        submission.outcome = "completed";
++        return "completed";
++      }
 +      if (this.log.hasUnreadBacklog()) {
 +        // The log has records this wait has not folded in yet, so its state is
 +        // the log's, not the runtime's. A lagging tail restarts the grace.
@@ -251,7 +260,7 @@ index df59917..7e763f9 100644
        } else if (prompt) {
          // Logged and no longer running: its turn is over even if the prompt's
          // own end record has not been read yet.
-@@ -238,6 +264,12 @@ export class KimiNativeBridge {
+@@ -238,6 +273,12 @@ export class KimiNativeBridge {
        } else {
          idleSince ??= Date.now();
          if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
