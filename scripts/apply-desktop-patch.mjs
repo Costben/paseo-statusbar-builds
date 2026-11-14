@@ -208,6 +208,21 @@ const PATCHES = [
       needle: "function extractACPQuestionPrompts(",
     },
   },
+  {
+    // Replace the obsolete `agy` stream-json builtin plugin with first-class
+    // `agy acp` support: 9 base models with per-model thinking levels (plus
+    // legacy compound model ID compatibility), all 5 modes including virtual
+    // `full-access` auto-approval, `_meta.antigravity.systemPrompt.append`,
+    // `usage_update` context window tracking, and `elicitation/create` mapped
+    // to QuestionFormCard.
+    name: "antigravity-acp",
+    file: "paseo-antigravity-acp.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/antigravity-acp-agent.ts",
+      needle: "export class AntigravityACPAgentClient extends ACPAgentClient {",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -782,6 +797,16 @@ const MARKERS = [
     label: "ACP AskUserQuestion _meta.questions maps to QuestionFormCard",
     path: "packages/server/src/server/agent/providers/acp-agent.ts",
     needle: "function resolveACPQuestionAnswers(",
+  },
+  {
+    label: "Antigravity built-in ACP provider registered",
+    path: "packages/server/src/server/agent/provider-registry.ts",
+    needle: "antigravity: (logger, runtimeSettings) =>",
+  },
+  {
+    label: "Antigravity elicitation/create maps to QuestionFormCard",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "export function parseACPElicitationRequest(",
   },
 ];
 

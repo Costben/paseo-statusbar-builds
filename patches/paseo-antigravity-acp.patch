@@ -1,0 +1,1839 @@
+diff --git a/packages/protocol/src/provider-config.ts b/packages/protocol/src/provider-config.ts
+index 60c01f7..0f46edd 100644
+--- a/packages/protocol/src/provider-config.ts
++++ b/packages/protocol/src/provider-config.ts
+@@ -67,7 +67,15 @@ export const ProviderOverrideSchema = z.object({
+   order: z.number().optional(),
+ });
+ 
+-const BUILTIN_PROVIDER_IDS = ["claude", "codex", "copilot", "opencode", "pi", "omp"] as const;
++const BUILTIN_PROVIDER_IDS = [
++  "claude",
++  "codex",
++  "copilot",
++  "opencode",
++  "pi",
++  "omp",
++  "antigravity",
++] as const;
+ const PROVIDER_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+ 
+ export const ProviderOverridesSchema = z
+diff --git a/packages/protocol/src/provider-manifest.ts b/packages/protocol/src/provider-manifest.ts
+index 82d0978..93949bc 100644
+--- a/packages/protocol/src/provider-manifest.ts
++++ b/packages/protocol/src/provider-manifest.ts
+@@ -167,6 +167,45 @@ export const OMP_MODES: AgentProviderModeDefinition[] = [
+   },
+ ];
+ 
++export const ANTIGRAVITY_MODES: AgentProviderModeDefinition[] = [
++  {
++    id: "plan",
++    label: "Plan",
++    description: "Read-only planning mode; asks permission before leaving plan mode",
++    icon: "ShieldEllipsis",
++    colorTier: "planning",
++  },
++  {
++    id: "default",
++    label: "Ask",
++    description: "Ask before running tool calls or edits",
++    icon: "Shield",
++    colorTier: "safe",
++  },
++  {
++    id: "accept-edits",
++    label: "Accept Edits",
++    description: "Automatically approve file edits while asking for shell commands",
++    icon: "ShieldPlus",
++    colorTier: "moderate",
++  },
++  {
++    id: "auto",
++    label: "Auto",
++    description: "Model decides when to auto-approve or ask permission",
++    icon: "ShieldCheck",
++    colorTier: "moderate",
++  },
++  {
++    id: "full-access",
++    label: "Full Access",
++    description: "Skip all permission prompts",
++    icon: "ShieldOff",
++    colorTier: "dangerous",
++    isUnattended: true,
++  },
++];
++
+ const MOCK_LOAD_TEST_MODES: AgentProviderModeDefinition[] = [
+   {
+     id: "load-test",
+@@ -255,6 +294,15 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
+     defaultModeId: "full",
+     modes: OMP_MODES,
+   },
++  {
++    id: "antigravity",
++    label: "Antigravity",
++    description:
++      "Google Antigravity CLI via Agent Client Protocol with planning, diffing, thinking levels, and session resume",
++    enabledByDefault: true,
++    defaultModeId: "default",
++    modes: ANTIGRAVITY_MODES,
++  },
+ ];
+ 
+ export const DEV_AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
+diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
+index 24438f9..4701dee 100644
+--- a/packages/server/src/server/agent/provider-registry.test.ts
++++ b/packages/server/src/server/agent/provider-registry.test.ts
+@@ -33,6 +33,7 @@ const mockState = vi.hoisted(() => {
+       claude: [] as ConstructorEntry[],
+       codex: [] as ConstructorEntry[],
+       copilot: [] as ConstructorEntry[],
++      antigravity: [] as ConstructorEntry[],
+       cursor: [] as Array<{
+         command: string[];
+         env?: Record<string, string>;
+@@ -61,6 +62,7 @@ const mockState = vi.hoisted(() => {
+       this.constructorArgs.claude = [];
+       this.constructorArgs.codex = [];
+       this.constructorArgs.copilot = [];
++      this.constructorArgs.antigravity = [];
+       this.constructorArgs.cursor = [];
+       this.constructorArgs.trae = [];
+       this.constructorArgs.kimi = [];
+@@ -467,6 +469,47 @@ vi.mock("./providers/trae-acp-agent.js", () => ({
+   },
+ }));
+ 
++vi.mock("./providers/antigravity-acp-agent.js", () => ({
++  AntigravityACPAgentClient: class AntigravityACPAgentClient {
++    readonly capabilities = {
++      supportsStreaming: true,
++      supportsSessionPersistence: true,
++      supportsDynamicModes: true,
++      supportsMcpServers: true,
++      supportsReasoningStream: true,
++      supportsToolInvocations: true,
++    };
++    readonly provider = "antigravity";
++    readonly runtimeSettings?: unknown;
++
++    constructor(options: { runtimeSettings?: unknown }) {
++      this.runtimeSettings = options.runtimeSettings;
++      mockState.constructorArgs.antigravity.push({
++        runtimeSettings: options.runtimeSettings,
++      });
++    }
++
++    async createSession(): Promise<never> {
++      throw new Error("not implemented");
++    }
++
++    async resumeSession(): Promise<never> {
++      throw new Error("not implemented");
++    }
++
++    async fetchCatalog(): Promise<ProviderCatalog> {
++      return {
++        models: mockState.runtimeModels.get(this.provider) ?? [],
++        modes: [],
++      };
++    }
++
++    async isAvailable(): Promise<boolean> {
++      return true;
++    }
++  },
++}));
++
+ vi.mock("./providers/kimi-acp-agent.js", () => ({
+   KimiACPAgentClient: class KimiACPAgentClient {
+     readonly capabilities = {
+diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
+index 9d8f111..b5f29ae 100644
+--- a/packages/server/src/server/agent/provider-registry.ts
++++ b/packages/server/src/server/agent/provider-registry.ts
+@@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
+ import { CodexAppServerAgentClient } from "./providers/codex-app-server-agent.js";
+ import { CopilotACPAgentClient } from "./providers/copilot-acp-agent.js";
+ import { CursorACPAgentClient } from "./providers/cursor-acp-agent.js";
++import { AntigravityACPAgentClient } from "./providers/antigravity-acp-agent.js";
+ import { createDshProviderHooks } from "./providers/dsh/provider-hooks.js";
+ import {
+   ACP_AGENT_PRESET_FEATURE_OPTION,
+@@ -238,6 +239,11 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
+       runtimeSettings,
+       runtime: options?.ompRuntime,
+     }),
++  antigravity: (logger, runtimeSettings) =>
++    new AntigravityACPAgentClient({
++      logger,
++      runtimeSettings,
++    }),
+   mock: (logger) => new MockLoadTestAgentClient(logger),
+   "mock-slow": () => new MockSlowProviderClient(),
+ };
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index 387625f..67e2ebd 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -28,11 +28,14 @@ import {
+   type SpawnedACPProcess,
+   type SessionStateResponse,
+   buildACPClientCapabilities,
++  buildACPElicitationContent,
+   createLoggedNdJsonStream,
+   deriveControlsFromACP,
+   deriveModelDefinitionsFromACP,
+   deriveModesFromACP,
+   mapACPUsage,
++  mergeACPClientCapabilities,
++  parseACPElicitationRequest,
+   resolveACPModeSelection,
+   resolveACPModelSelection,
+   summarizeACPRequestError,
+@@ -7639,4 +7642,176 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+       outcome: { outcome: "selected", optionId: "q0_skip" },
+     });
+   });
++
++  test("maps elicitation/create schema with _other fields to QuestionFormCard and encodes accept/decline", async () => {
++    const rawParams = {
++      sessionId: "session-1",
++      toolCallId: "call-elicit-1",
++      mode: "form",
++      message: "The agent has 2 questions.",
++      requestedSchema: {
++        type: "object",
++        properties: {
++          q1: {
++            type: "string",
++            title: "Pick one?",
++            oneOf: [
++              { const: "1", title: "Alpha" },
++              { const: "2", title: "Beta" },
++            ],
++          },
++          q1_other: {
++            type: "string",
++            title: "Other",
++            description: "Optional free-form answer to: Pick one?",
++          },
++          q2: {
++            type: "array",
++            title: "Pick tags?",
++            items: {
++              anyOf: [
++                { const: "1", title: "X" },
++                { const: "2", title: "Y" },
++              ],
++            },
++          },
++          q2_other: {
++            type: "string",
++            title: "Other",
++            description: "Optional free-form answer to: Pick tags?",
++          },
++        },
++      },
++    };
++
++    const parsed = parseACPElicitationRequest(rawParams);
++    expect(parsed?.fields).toHaveLength(2);
++    expect(
++      buildACPElicitationContent(parsed!.fields, {
++        "Question 1": "Alpha",
++        "Question 2": "X, Custom tag",
++      }),
++    ).toEqual({
++      q1: "1",
++      q2: ["1"],
++      q2_other: "Custom tag",
++    });
++
++    const session = createSessionWithConfig({ provider: "antigravity" });
++    const events: AgentStreamEvent[] = [];
++    const internals = asInternals<ACPSessionInternals>(session);
++    internals.sessionId = "session-1";
++    internals.activeForegroundTurnId = "turn-1";
++    session.subscribe((event) => events.push(event));
++
++    const acceptPromise = session.extMethod("elicitation/create", rawParams);
++    await Promise.resolve();
++
++    const pendingList = session.getPendingPermissions();
++    expect(pendingList).toHaveLength(1);
++    expect(pendingList[0]?.kind).toBe("question");
++    expect(pendingList[0]?.input).toEqual({
++      questions: [
++        {
++          question: "Pick one?",
++          header: "Question 1",
++          options: [{ label: "Alpha" }, { label: "Beta" }],
++          multiSelect: false,
++          allowOther: true,
++          allowEmpty: false,
++        },
++        {
++          question: "Pick tags?",
++          header: "Question 2",
++          options: [{ label: "X" }, { label: "Y" }],
++          multiSelect: true,
++          allowOther: true,
++          allowEmpty: false,
++        },
++      ],
++    });
++
++    await session.respondToPermission(pendingList[0]!.id, {
++      behavior: "allow",
++      updatedInput: {
++        answers: {
++          "Question 1": "Custom single",
++          "Question 2": "X, Y, Extra tag",
++        },
++      },
++    });
++    await expect(acceptPromise).resolves.toEqual({
++      action: "accept",
++      content: {
++        q1_other: "Custom single",
++        q2: ["1", "2"],
++        q2_other: "Extra tag",
++      },
++    });
++    expect(session.getPendingPermissions()).toEqual([]);
++
++    const declinePromise = session.extMethod("elicitation/create", rawParams);
++    await Promise.resolve();
++    const pendingDecline = session.getPendingPermissions();
++    expect(pendingDecline).toHaveLength(1);
++    await session.respondToPermission(pendingDecline[0]!.id, {
++      behavior: "deny",
++      message: "Dismissed by user",
++    });
++    await expect(declinePromise).resolves.toEqual({ action: "decline" });
++  });
++
++  test("auto-accepts permission requests in autoAcceptModeId while preserving elicitation questions", async () => {
++    const logger = createTestLogger();
++    const session = new ACPAgentSession(
++      {
++        provider: "antigravity",
++        cwd: "/tmp/paseo-acp-test",
++        modeId: "full-access",
++      },
++      {
++        provider: "antigravity",
++        logger,
++        defaultCommand: ["agy", "acp"],
++        defaultModes: [],
++        autoAcceptModeId: "full-access",
++        autoAcceptUnderlyingModeId: "default",
++        capabilities: {
++          supportsStreaming: true,
++          supportsSessionPersistence: true,
++          supportsDynamicModes: true,
++          supportsMcpServers: true,
++          supportsReasoningStream: true,
++          supportsToolInvocations: true,
++        },
++      },
++    );
++    const internals = asInternals<ACPSessionInternals>(session);
++    internals.sessionId = "session-1";
++    internals.currentMode = "full-access";
++
++    await expect(
++      session.requestPermission({
++        sessionId: "session-1",
++        toolCall: { toolCallId: "tc-1", title: "Write file" },
++        options: [
++          { optionId: "allow", name: "Allow", kind: "allow_once" },
++          { optionId: "deny", name: "Deny", kind: "reject_once" },
++        ],
++      }),
++    ).resolves.toEqual({
++      outcome: { outcome: "selected", optionId: "allow" },
++    });
++
++    expect(
++      mergeACPClientCapabilities(
++        { elicitation: { form: {} } },
++        { fs: { readTextFile: true }, terminal: true },
++      ),
++    ).toEqual({
++      elicitation: { form: {} },
++      fs: { readTextFile: true },
++      terminal: true,
++    });
++  });
+ });
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index e7068eb..fcc49d0 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -20,11 +20,12 @@ import type {
+ import {
+   ClientSideConnection,
+   PROTOCOL_VERSION,
++  RequestError,
+   type AgentCapabilities as ACPAgentCapabilities,
+   type Error as ACPError,
+   type AnyMessage,
+   type Client as ACPClient,
+-  type ClientCapabilities as ACPClientCapabilities,
++  type ClientCapabilities as SDKClientCapabilities,
+   type ConfigOptionUpdate,
+   type ContentBlock,
+   type CreateTerminalRequest,
+@@ -329,6 +330,13 @@ function acpSessionListRequest(cursor: string | null | undefined, cwd: string |
+   };
+ }
+ 
++export type ACPClientCapabilities = SDKClientCapabilities & {
++  elicitation?: {
++    form?: Record<string, unknown>;
++    [key: string]: unknown;
++  };
++};
++
+ const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
+   fs: {
+     readTextFile: false,
+@@ -339,6 +347,36 @@ const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
+ 
+ export type ACPClientCapabilityMeta = Record<string, unknown>;
+ 
++export function mergeACPClientCapabilities(
++  base?: ACPClientCapabilities,
++  override?: ACPClientCapabilities,
++): ACPClientCapabilities | undefined {
++  if (!base) {
++    return override;
++  }
++  if (!override) {
++    return base;
++  }
++  return {
++    ...base,
++    ...override,
++    fs:
++      base.fs || override.fs
++        ? {
++            ...base.fs,
++            ...override.fs,
++          }
++        : undefined,
++    elicitation:
++      base.elicitation || override.elicitation
++        ? {
++            ...base.elicitation,
++            ...override.elicitation,
++          }
++        : undefined,
++  };
++}
++
+ export function buildACPClientCapabilities(
+   meta?: ACPClientCapabilityMeta,
+   override?: ACPClientCapabilities,
+@@ -702,6 +740,24 @@ export interface ACPProviderHooks {
+   } | null;
+ }
+ 
++export type ACPSessionMetaBuilder = (
++  config: AgentSessionConfig,
++) => Record<string, unknown> | undefined;
++
++export interface ACPConfiguredSelectionContext {
++  model?: string;
++  thinkingOptionId?: string;
++  availableModels: AvailableACPModel[] | null;
++  configOptions: SessionConfigOption[];
++}
++
++export type ACPConfiguredSelectionResolver = (
++  context: ACPConfiguredSelectionContext,
++) => {
++  model?: string;
++  thinkingOptionId?: string;
++};
++
+ interface ACPAgentClientOptions {
+   provider: string;
+   // Provider id usage sources match a session against; ACP sessions without one report no usage.
+@@ -717,6 +773,10 @@ interface ACPAgentClientOptions {
+   configFeatureOptions?: ACPConfigFeatureOption[];
+   clientCapabilities?: ACPClientCapabilities;
+   clientCapabilityMeta?: ACPClientCapabilityMeta;
++  sessionMeta?: ACPSessionMetaBuilder;
++  configuredSelectionResolver?: ACPConfiguredSelectionResolver;
++  autoAcceptModeId?: string;
++  autoAcceptUnderlyingModeId?: string;
+   modeIdTransformer?: (modeId: string) => string | null;
+   toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
+   providerModeWriter?: (
+@@ -762,6 +822,10 @@ interface ACPAgentSessionOptions {
+   configFeatureOptions?: ACPConfigFeatureOption[];
+   clientCapabilities?: ACPClientCapabilities;
+   clientCapabilityMeta?: ACPClientCapabilityMeta;
++  sessionMeta?: ACPSessionMetaBuilder;
++  configuredSelectionResolver?: ACPConfiguredSelectionResolver;
++  autoAcceptModeId?: string;
++  autoAcceptUnderlyingModeId?: string;
+   modeIdTransformer?: (modeId: string) => string | null;
+   toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
+   providerModeWriter?: (
+@@ -906,6 +970,32 @@ interface PendingPermission {
+   toolCallId: string;
+ }
+ 
++interface ACPElicitationOption {
++  constValue: string;
++  label: string;
++  description?: string;
++}
++
++interface ACPElicitationField {
++  key: string;
++  otherKey?: string;
++  question: string;
++  header: string;
++  multiSelect: boolean;
++  allowOther: boolean;
++  allowEmpty: boolean;
++  options: ACPElicitationOption[];
++}
++
++interface PendingElicitation {
++  request: AgentPermissionRequest;
++  fields: ACPElicitationField[];
++  resolve: (response: Record<string, unknown>) => void;
++  reject: (error: Error) => void;
++  turnId: string | null;
++  toolCallId: string;
++}
++
+ interface PendingUserMessage {
+   text: string;
+   messageId?: string;
+@@ -1215,6 +1305,10 @@ export class ACPAgentClient implements AgentClient {
+   private readonly configFeatureOptions: ACPConfigFeatureOption[];
+   private readonly clientCapabilities?: ACPClientCapabilities;
+   private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
++  private readonly sessionMeta?: ACPSessionMetaBuilder;
++  private readonly configuredSelectionResolver?: ACPConfiguredSelectionResolver;
++  private readonly autoAcceptModeId?: string;
++  private readonly autoAcceptUnderlyingModeId?: string;
+   private readonly modeIdTransformer?: (modeId: string) => string | null;
+   private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
+   private readonly providerModeWriter?: (
+@@ -1265,6 +1359,10 @@ export class ACPAgentClient implements AgentClient {
+     this.configFeatureOptions = options.configFeatureOptions ?? [];
+     this.clientCapabilities = options.clientCapabilities;
+     this.clientCapabilityMeta = options.clientCapabilityMeta;
++    this.sessionMeta = options.sessionMeta;
++    this.configuredSelectionResolver = options.configuredSelectionResolver;
++    this.autoAcceptModeId = options.autoAcceptModeId;
++    this.autoAcceptUnderlyingModeId = options.autoAcceptUnderlyingModeId;
+     this.modeIdTransformer = options.modeIdTransformer;
+     this.toolSnapshotTransformer = options.toolSnapshotTransformer;
+     this.providerModeWriter = options.providerModeWriter;
+@@ -1301,8 +1399,15 @@ export class ACPAgentClient implements AgentClient {
+         sessionResponseTransformer: this.sessionResponseTransformer,
+         configOptionsTransformer: this.configOptionsTransformer,
+         configFeatureOptions: this.configFeatureOptions,
+-        clientCapabilities: providerOptions.clientCapabilities ?? this.clientCapabilities,
++        clientCapabilities: mergeACPClientCapabilities(
++          this.clientCapabilities,
++          providerOptions.clientCapabilities,
++        ),
+         clientCapabilityMeta: this.clientCapabilityMeta,
++        sessionMeta: this.sessionMeta,
++        configuredSelectionResolver: this.configuredSelectionResolver,
++        autoAcceptModeId: this.autoAcceptModeId,
++        autoAcceptUnderlyingModeId: this.autoAcceptUnderlyingModeId,
+         supportsAutoAccept: this.supportsAutoAccept,
+         modeIdTransformer: this.modeIdTransformer,
+         toolSnapshotTransformer: this.toolSnapshotTransformer,
+@@ -1361,8 +1466,15 @@ export class ACPAgentClient implements AgentClient {
+       sessionResponseTransformer: this.sessionResponseTransformer,
+       configOptionsTransformer: this.configOptionsTransformer,
+       configFeatureOptions: this.configFeatureOptions,
+-      clientCapabilities: providerOptions.clientCapabilities ?? this.clientCapabilities,
++      clientCapabilities: mergeACPClientCapabilities(
++        this.clientCapabilities,
++        providerOptions.clientCapabilities,
++      ),
+       clientCapabilityMeta: this.clientCapabilityMeta,
++      sessionMeta: this.sessionMeta,
++      configuredSelectionResolver: this.configuredSelectionResolver,
++      autoAcceptModeId: this.autoAcceptModeId,
++      autoAcceptUnderlyingModeId: this.autoAcceptUnderlyingModeId,
+       supportsAutoAccept: this.supportsAutoAccept,
+       modeIdTransformer: this.modeIdTransformer,
+       toolSnapshotTransformer: this.toolSnapshotTransformer,
+@@ -1907,7 +2019,7 @@ export class ACPAgentClient implements AgentClient {
+       const initialize = await this.initializeTransport(
+         transport,
+         options?.initializeTimeoutMs,
+-        configuredOptions.clientCapabilities,
++        mergeACPClientCapabilities(this.clientCapabilities, configuredOptions.clientCapabilities),
+       );
+       const initializedProbe: SpawnedACPProcess = {
+         ...probe,
+@@ -2022,6 +2134,12 @@ export class ACPAgentClient implements AgentClient {
+       async createTerminal() {
+         throw new Error("ACP model probe does not support terminal execution");
+       },
++      async extMethod(method: string): Promise<Record<string, unknown>> {
++        if (method === "elicitation/create") {
++          return { action: "decline" };
++        }
++        throw RequestError.methodNotFound(method);
++      },
+     };
+   }
+ 
+@@ -2238,6 +2356,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private readonly configuredModelIds: ReadonlySet<string>;
+   private readonly clientCapabilities?: ACPClientCapabilities;
+   private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
++  private readonly sessionMeta?: ACPSessionMetaBuilder;
++  private readonly configuredSelectionResolver?: ACPConfiguredSelectionResolver;
++  private readonly autoAcceptModeId?: string;
++  private readonly autoAcceptUnderlyingModeId?: string;
+   private readonly modeIdTransformer?: (modeId: string) => string | null;
+   private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
+   private readonly providerModeWriter?: (
+@@ -2258,6 +2380,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private readonly harnessEnvironment: Record<string, string>;
+   private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
+   private readonly pendingPermissions = new Map<string, PendingPermission>();
++  private readonly pendingElicitations = new Map<string, PendingElicitation>();
+   private pendingUserMessage: PendingUserMessage | null = null;
+   private submittedUserMessageTurnId: string | null = null;
+   private readonly toolCalls = new Map<string, ACPToolSnapshot>();
+@@ -2356,6 +2479,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.configuredModelIds = new Set(options.configuredModelIds);
+     this.clientCapabilities = options.clientCapabilities;
+     this.clientCapabilityMeta = options.clientCapabilityMeta;
++    this.sessionMeta = options.sessionMeta;
++    this.configuredSelectionResolver = options.configuredSelectionResolver;
++    this.autoAcceptModeId = options.autoAcceptModeId;
++    this.autoAcceptUnderlyingModeId = options.autoAcceptUnderlyingModeId;
+     this.modeIdTransformer = options.modeIdTransformer;
+     this.toolSnapshotTransformer = options.toolSnapshotTransformer;
+     this.providerModeWriter = options.providerModeWriter;
+@@ -2411,10 +2538,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
+       this.agentSteers = advertisesSteering(spawned.initialize);
+ 
++      const sessionMeta = this.sessionMeta?.(this.config);
+       const response = await this.runACPRequest(() =>
+         this.connection!.newSession({
+           cwd: this.config.cwd,
+           mcpServers: this.acpMcpServers(),
++          ...(sessionMeta ? { _meta: sessionMeta } : {}),
+         }),
+       );
+       this.sessionId = response.sessionId;
+@@ -2452,6 +2581,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       this.sessionId = handle.sessionId;
+       this.bootstrapThreadEventPending = true;
+ 
++      const sessionMeta = this.sessionMeta?.(this.config);
+       const sessionCapabilities = this.agentCapabilities?.sessionCapabilities;
+       if (this.agentCapabilities?.loadSession) {
+         this.replayingHistory = true;
+@@ -2460,6 +2590,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+             sessionId: handle.sessionId,
+             cwd: this.config.cwd,
+             mcpServers: this.acpMcpServers(),
++            ...(sessionMeta ? { _meta: sessionMeta } : {}),
+           }),
+         );
+         this.deliverTranslatedEvents(this.flushPendingUserMessage());
+@@ -2472,6 +2603,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+             sessionId: handle.sessionId,
+             cwd: this.config.cwd,
+             mcpServers: this.acpMcpServers(),
++            ...(sessionMeta ? { _meta: sessionMeta } : {}),
+           }),
+         );
+         this.applySessionState(response);
+@@ -3357,7 +3489,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return { model: this.currentModel };
+     }
+ 
+-    await this.setModelWithSelection({ modelId, selection: this.resolveModelSelection(modelId) });
++    const resolved = this.configuredSelectionResolver
++      ? this.configuredSelectionResolver({
++          model: modelId,
++          availableModels: this.availableModels,
++          configOptions: this.configOptions,
++        })
++      : { model: modelId };
++    const effectiveModelId = resolved.model ?? modelId;
++    await this.setModelWithSelection({
++      modelId: effectiveModelId,
++      selection: this.resolveModelSelection(effectiveModelId),
++    });
++    if (resolved.thinkingOptionId && resolved.thinkingOptionId !== this.thinkingOptionId) {
++      await this.setThinkingOption(resolved.thinkingOptionId);
++    }
+     return { model: this.currentModel };
+   }
+ 
+@@ -3667,13 +3813,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   getPendingPermissions(): AgentPermissionRequest[] {
+-    return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
++    return [
++      ...Array.from(this.pendingPermissions.values(), (entry) => entry.request),
++      ...Array.from(this.pendingElicitations.values(), (entry) => entry.request),
++    ];
+   }
+ 
+   async respondToPermission(
+     requestId: string,
+     response: AgentPermissionResponse,
+   ): Promise<AgentPermissionResult | void> {
++    const pendingElicitation = this.pendingElicitations.get(requestId);
++    if (pendingElicitation) {
++      return await this.respondToElicitation(requestId, pendingElicitation, response);
++    }
++
+     const pending = this.pendingPermissions.get(requestId);
+     if (!pending) {
+       throw new Error(`No pending permission request with id '${requestId}'`);
+@@ -3881,8 +4035,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+ 
+   async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+     const isQuestionRequest = extractACPQuestionPrompts(params) !== null;
++    const isAutoAcceptMode =
++      this.autoAcceptModeId !== undefined && this.currentMode === this.autoAcceptModeId;
+     const canAutoAccept =
+-      isACPAutoAcceptEnabled(this.config) &&
++      (isACPAutoAcceptEnabled(this.config) || isAutoAcceptMode) &&
+       !isACPChooserRequest(params.options) &&
+       !isQuestionRequest;
+     if (canAutoAccept) {
+@@ -3928,6 +4084,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     return promise;
+   }
+ 
++  async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
++    if (method === "elicitation/create") {
++      return await this.handleElicitationCreate(params);
++    }
++    throw RequestError.methodNotFound(method);
++  }
++
++  private async handleElicitationCreate(
++    params: Record<string, unknown>,
++  ): Promise<Record<string, unknown>> {
++    const parsed = parseACPElicitationRequest(params);
++    if (!parsed || parsed.fields.length === 0) {
++      return { action: "decline" };
++    }
++
++    const requestId = randomUUID();
++    const request = buildACPElicitationPermissionRequest(this.provider, requestId, parsed);
++    const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
++      this.pendingElicitations.set(requestId, {
++        request,
++        fields: parsed.fields,
++        resolve,
++        reject,
++        turnId: this.activeForegroundTurnId,
++        toolCallId: parsed.toolCallId,
++      });
++    });
++
++    this.pushEvent({
++      type: "permission_requested",
++      provider: this.provider,
++      request,
++      turnId: this.activeForegroundTurnId ?? undefined,
++    });
++    return promise;
++  }
++
++  private async respondToElicitation(
++    requestId: string,
++    pending: PendingElicitation,
++    response: AgentPermissionResponse,
++  ): Promise<AgentPermissionResult | void> {
++    this.pendingElicitations.delete(requestId);
++    const rawAnswers = response.behavior === "allow" ? readQuestionFormAnswers(response.updatedInput) : null;
++    if (response.behavior === "allow" && rawAnswers) {
++      pending.resolve({
++        action: "accept",
++        content: buildACPElicitationContent(pending.fields, rawAnswers),
++      });
++    } else {
++      pending.resolve({ action: "decline" });
++    }
++
++    this.pushEvent({
++      type: "permission_resolved",
++      provider: this.provider,
++      requestId,
++      resolution: response,
++      turnId: pending.turnId ?? undefined,
++    });
++
++    if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
++      await this.connection.cancel({ sessionId: this.sessionId });
++    }
++
++    if (pending.turnId !== null && pending.turnId !== this.activeForegroundTurnId) {
++      const prompt = buildLatePermissionAnswer(
++        {
++          request: pending.request,
++          options: [],
++          resolve: () => undefined,
++          reject: () => undefined,
++          turnId: pending.turnId,
++          toolCallId: pending.toolCallId,
++        },
++        response,
++        null,
++      );
++      if (prompt !== null) {
++        return { followUpPrompt: prompt };
++      }
++    }
++  }
++
+   async sessionUpdate(params: SessionNotification): Promise<void> {
+     this.logger.trace(
+       {
+@@ -4364,7 +4604,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       const selection = this.resolveModeSelection(configuredModeId);
+       await this.setModeWithSelection({ modeId: configuredModeId, selection });
+     }
+-    const configuredModelId = this.config.model;
++    const resolvedSelection = this.configuredSelectionResolver
++      ? this.configuredSelectionResolver({
++          model: this.config.model,
++          thinkingOptionId: this.config.thinkingOptionId,
++          availableModels: this.availableModels,
++          configOptions: this.configOptions,
++        })
++      : {
++          model: this.config.model,
++          thinkingOptionId: this.config.thinkingOptionId,
++        };
++    const configuredModelId = resolvedSelection.model;
+     let switchedModel = false;
+     if (configuredModelId && configuredModelId !== this.currentModel) {
+       try {
+@@ -4383,8 +4634,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+         );
+       }
+     }
+-    if (this.config.thinkingOptionId && this.config.thinkingOptionId !== this.thinkingOptionId) {
+-      await this.setThinkingOption(this.config.thinkingOptionId);
++    const configuredThinkingOptionId = resolvedSelection.thinkingOptionId;
++    if (configuredThinkingOptionId && configuredThinkingOptionId !== this.thinkingOptionId) {
++      await this.setThinkingOption(configuredThinkingOptionId);
+     }
+     const configuredFeatureValues = this.config.providerOptions ?? {};
+     for (const featureOption of this.configFeatureOptions) {
+@@ -4699,7 +4951,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       });
+       // Copilot config updates name real modes; Hermes config values are a separate policy namespace.
+       if (configMode && modes.availableModes.some((mode) => mode.id === configMode.currentValue)) {
+-        currentModeId = configMode.currentValue;
++        const keepAutoAcceptMode =
++          this.autoAcceptModeId !== undefined &&
++          this.currentMode === this.autoAcceptModeId &&
++          (this.autoAcceptUnderlyingModeId === undefined ||
++            configMode.currentValue === this.autoAcceptUnderlyingModeId);
++        currentModeId = keepAutoAcceptMode ? this.autoAcceptModeId! : configMode.currentValue;
+       }
+       modes = { ...modes, currentModeId };
+     }
+@@ -5163,7 +5420,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   private cancelPendingPermissions(
+-    matches: (pending: PendingPermission) => boolean = () => true,
++    matches: (pending: { turnId: string | null; toolCallId: string }) => boolean = () => true,
+   ): void {
+     for (const [requestId, pending] of this.pendingPermissions) {
+       if (!matches(pending)) continue;
+@@ -5177,6 +5434,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+         turnId: pending.turnId ?? undefined,
+       });
+     }
++    for (const [requestId, pending] of this.pendingElicitations) {
++      if (!matches(pending)) continue;
++      this.pendingElicitations.delete(requestId);
++      pending.resolve({ action: "cancel" });
++      this.pushEvent({
++        type: "permission_resolved",
++        provider: this.provider,
++        requestId,
++        resolution: { behavior: "deny", message: "Permission request canceled" },
++        turnId: pending.turnId ?? undefined,
++      });
++    }
+   }
+ 
+   private emitBootstrapThreadEvent(): void {
+@@ -6233,3 +6502,284 @@ async function terminateChildProcess(
+     child.stderr.destroy();
+   }
+ }
++
++interface ParsedACPElicitation {
++  toolCallId: string;
++  message: string;
++  fields: ACPElicitationField[];
++}
++
++function readElicitationChoiceList(rawList: unknown): ACPElicitationOption[] {
++  if (!Array.isArray(rawList)) {
++    return [];
++  }
++  const options: ACPElicitationOption[] = [];
++  for (const item of rawList) {
++    if (typeof item === "string") {
++      options.push({ constValue: item, label: item });
++      continue;
++    }
++    const record = readRecord(item);
++    if (!record) {
++      continue;
++    }
++    const constValue =
++      typeof record["const"] === "string"
++        ? record["const"]
++        : typeof record["const"] === "number"
++          ? String(record["const"])
++          : undefined;
++    const title = typeof record["title"] === "string" ? record["title"] : undefined;
++    const description =
++      typeof record["description"] === "string" ? record["description"] : undefined;
++    if (constValue !== undefined && title) {
++      options.push({
++        constValue,
++        label: title,
++        ...(description !== undefined ? { description } : {}),
++      });
++    } else if (title) {
++      options.push({
++        constValue: title,
++        label: title,
++        ...(description !== undefined ? { description } : {}),
++      });
++    }
++  }
++  return options;
++}
++
++function extractElicitationFieldOptions(prop: Record<string, unknown>): {
++  multiSelect: boolean;
++  options: ACPElicitationOption[];
++} {
++  if (prop["type"] === "array") {
++    const items = readRecord(prop["items"]);
++    if (items) {
++      const fromAnyOf = readElicitationChoiceList(items["anyOf"]);
++      if (fromAnyOf.length > 0) {
++        return { multiSelect: true, options: fromAnyOf };
++      }
++      const fromOneOf = readElicitationChoiceList(items["oneOf"]);
++      if (fromOneOf.length > 0) {
++        return { multiSelect: true, options: fromOneOf };
++      }
++      const fromEnum = readElicitationChoiceList(items["enum"]);
++      if (fromEnum.length > 0) {
++        return { multiSelect: true, options: fromEnum };
++      }
++    }
++    return { multiSelect: true, options: [] };
++  }
++
++  const fromOneOf = readElicitationChoiceList(prop["oneOf"]);
++  if (fromOneOf.length > 0) {
++    return { multiSelect: false, options: fromOneOf };
++  }
++  const fromAnyOf = readElicitationChoiceList(prop["anyOf"]);
++  if (fromAnyOf.length > 0) {
++    return { multiSelect: false, options: fromAnyOf };
++  }
++  const fromEnum = readElicitationChoiceList(prop["enum"]);
++  if (fromEnum.length > 0) {
++    return { multiSelect: false, options: fromEnum };
++  }
++  return { multiSelect: false, options: [] };
++}
++
++function isPlainStringProperty(prop: Record<string, unknown> | undefined): boolean {
++  if (!prop || prop["type"] !== "string") {
++    return false;
++  }
++  return !("oneOf" in prop) && !("anyOf" in prop) && !("enum" in prop);
++}
++
++export function parseACPElicitationRequest(
++  params: Record<string, unknown>,
++): ParsedACPElicitation | null {
++  const mode = typeof params["mode"] === "string" ? params["mode"] : "form";
++  if (mode !== "form") {
++    return null;
++  }
++  const schema = readRecord(params["requestedSchema"]);
++  const properties = readRecord(schema?.["properties"]);
++  if (!properties) {
++    return null;
++  }
++
++  const requiredKeys = new Set<string>(
++    Array.isArray(schema?.["required"])
++      ? schema["required"].filter((entry): entry is string => typeof entry === "string")
++      : [],
++  );
++  const consumedKeys = new Set<string>();
++  const entries = Object.entries(properties);
++
++  const rawFields: Array<Omit<ACPElicitationField, "header">> = [];
++  for (const [key, rawProp] of entries) {
++    if (consumedKeys.has(key)) {
++      continue;
++    }
++    const prop = readRecord(rawProp);
++    if (!prop) {
++      continue;
++    }
++
++    const otherKeyCandidate = `${key}_other`;
++    const otherProp = readRecord(properties[otherKeyCandidate]);
++    const hasPairedOther = isPlainStringProperty(otherProp);
++    if (hasPairedOther) {
++      consumedKeys.add(otherKeyCandidate);
++    }
++
++    const { multiSelect, options } = extractElicitationFieldOptions(prop);
++    const question =
++      (typeof prop["title"] === "string" && prop["title"].trim()) ||
++      (typeof prop["description"] === "string" && prop["description"].trim()) ||
++      key;
++
++    rawFields.push({
++      key,
++      ...(hasPairedOther ? { otherKey: otherKeyCandidate } : {}),
++      question,
++      multiSelect,
++      allowOther: hasPairedOther || options.length === 0,
++      allowEmpty: options.length === 0 && !requiredKeys.has(key),
++      options,
++    });
++  }
++
++  const fields: ACPElicitationField[] = rawFields.map((field, index) => ({
++    ...field,
++    header: rawFields.length === 1 ? "Question" : `Question ${index + 1}`,
++  }));
++
++  const toolCallId =
++    typeof params["toolCallId"] === "string" && params["toolCallId"].trim().length > 0
++      ? params["toolCallId"]
++      : randomUUID();
++  const message =
++    typeof params["message"] === "string" && params["message"].trim().length > 0
++      ? params["message"].trim()
++      : "Question";
++
++  return {
++    toolCallId,
++    message,
++    fields,
++  };
++}
++
++function buildACPElicitationPermissionRequest(
++  provider: string,
++  requestId: string,
++  parsed: ParsedACPElicitation,
++): AgentPermissionRequest {
++  const questionPrompts = parsed.fields.map((field) => ({
++    question: field.question,
++    header: field.header,
++    options: field.options.map((option) => ({
++      label: option.label,
++      ...(option.description !== undefined ? { description: option.description } : {}),
++    })),
++    multiSelect: field.multiSelect,
++    allowOther: field.allowOther,
++    allowEmpty: field.allowEmpty,
++  }));
++
++  return {
++    id: requestId,
++    provider,
++    name: "ask_question",
++    kind: "question",
++    title: parsed.message,
++    detail: {
++      type: "plain_text",
++      label: parsed.message,
++      text: questionPrompts.map((item) => item.question).join("\n"),
++      icon: "wrench",
++    },
++    input: { questions: questionPrompts },
++    actions: [
++      { id: "accept", label: "Submit", behavior: "allow" },
++      { id: "decline", label: "Dismiss", behavior: "deny" },
++    ],
++    metadata: {
++      toolCallId: parsed.toolCallId,
++      questions: questionPrompts,
++    },
++  };
++}
++
++function splitMultiSelectElicitationAnswer(
++  rawAnswer: string,
++  options: ACPElicitationOption[],
++): { matchedConsts: string[]; otherText: string | null } {
++  const sortedOptions = [...options].sort((a, b) => b.label.length - a.label.length);
++  const matchedConsts: string[] = [];
++  let remaining = rawAnswer.trim();
++
++  while (remaining.length > 0) {
++    let matched: ACPElicitationOption | undefined;
++    for (const option of sortedOptions) {
++      if (remaining === option.label || remaining.startsWith(`${option.label}, `)) {
++        matched = option;
++        break;
++      }
++    }
++    if (!matched) {
++      break;
++    }
++    matchedConsts.push(matched.constValue);
++    remaining = remaining.slice(matched.label.length).replace(/^,\s*/, "");
++  }
++
++  return {
++    matchedConsts,
++    otherText: remaining.length > 0 ? remaining : null,
++  };
++}
++
++export function buildACPElicitationContent(
++  fields: ACPElicitationField[],
++  rawAnswers: Record<string, string>,
++): Record<string, unknown> {
++  const content: Record<string, unknown> = {};
++  for (const field of fields) {
++    const rawAnswer = rawAnswers[field.question] ?? rawAnswers[field.header];
++    if (typeof rawAnswer !== "string") {
++      continue;
++    }
++    const trimmed = rawAnswer.trim();
++    if (!trimmed) {
++      continue;
++    }
++    if (field.options.length === 0) {
++      content[field.key] = trimmed;
++      continue;
++    }
++    if (!field.multiSelect) {
++      const matched = field.options.find((option) => option.label === trimmed);
++      if (matched) {
++        content[field.key] = matched.constValue;
++      } else if (field.otherKey) {
++        content[field.otherKey] = trimmed;
++      } else {
++        content[field.key] = trimmed;
++      }
++      continue;
++    }
++    const { matchedConsts, otherText } = splitMultiSelectElicitationAnswer(trimmed, field.options);
++    if (matchedConsts.length > 0) {
++      content[field.key] = matchedConsts;
++    }
++    if (otherText) {
++      if (field.otherKey) {
++        content[field.otherKey] = otherText;
++      } else if (matchedConsts.length === 0) {
++        content[field.key] = [otherText];
++      }
++    }
++  }
++  return content;
++}
+diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
+new file mode 100644
+index 0000000..377dfd0
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
+@@ -0,0 +1,301 @@
++import { describe, expect, test, vi } from "vitest";
++import type { SessionConfigOption } from "@agentclientprotocol/sdk";
++
++import { createTestLogger } from "../../../test-utils/test-logger.js";
++import {
++  ANTIGRAVITY_DEFAULT_MODE_ID,
++  ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++  AntigravityACPAgentClient,
++  buildAntigravitySessionMeta,
++  resolveAntigravityCatalogModels,
++  resolveAntigravityConfiguredSelection,
++  resolveAntigravityDefaultCommand,
++  transformAntigravityConfigOptions,
++  transformAntigravitySessionResponse,
++  writeAntigravityProviderMode,
++} from "./antigravity-acp-agent.js";
++import {
++  deriveModelDefinitionsFromACP,
++  type ACPCatalogModelResolverContext,
++  type ACPProviderModeWriterContext,
++  type SessionStateResponse,
++} from "./acp-agent.js";
++
++function createAntigravityConfigOptions(
++  currentModel = "gemini-4-hydrogen",
++  thoughtLevels: string[] = ["low", "medium", "high", "xhigh"],
++): SessionConfigOption[] {
++  const options: SessionConfigOption[] = [
++    {
++      id: "model",
++      name: "Model",
++      category: "model",
++      type: "select",
++      currentValue: currentModel,
++      options: [
++        { value: "gemini-4-hydrogen", name: "Gemini 4 Hydrogen" },
++        { value: "gemini-4-carbon", name: "Gemini 4 Carbon" },
++        { value: "gemini-pro-orchestrator", name: "Gemini Pro Orchestrator" },
++        { value: "claude-opus-5-5", name: "Claude Opus 5.5" },
++      ],
++    },
++    {
++      id: "mode",
++      name: "Mode",
++      category: "mode",
++      type: "select",
++      currentValue: "default",
++      options: [
++        { value: "default", name: "Ask" },
++        { value: "accept-edits", name: "Accept Edits" },
++        { value: "auto", name: "Auto" },
++        { value: "plan", name: "Plan" },
++      ],
++    },
++  ];
++  if (thoughtLevels.length > 0) {
++    options.push({
++      id: "thought_level",
++      name: "Thinking Level",
++      category: "thought_level",
++      type: "select",
++      currentValue: "high",
++      options: thoughtLevels.map((value) => ({
++        value,
++        name: value === "xhigh" ? "Extra" : value[0]!.toUpperCase() + value.slice(1),
++      })),
++    });
++  }
++  return options;
++}
++
++describe("AntigravityACPAgentClient", () => {
++  test("advertises elicitation.form client capability and host catalog cache key", () => {
++    const client = new AntigravityACPAgentClient({ logger: createTestLogger() });
++    expect(client.provider).toBe("antigravity");
++    expect(client.getCatalogCacheKey()).toBe("host");
++    expect(client.capabilities).toMatchObject({
++      supportsStreaming: true,
++      supportsSessionPersistence: true,
++      supportsSessionListing: true,
++      supportsDynamicModes: true,
++      supportsMcpServers: true,
++      supportsReasoningStream: true,
++      supportsToolInvocations: true,
++    });
++  });
++
++  test("resolves launch command without duplicating acp argument", () => {
++    expect(resolveAntigravityDefaultCommand()).toEqual(["agy", "acp"]);
++    expect(
++      resolveAntigravityDefaultCommand({
++        command: { mode: "replace", argv: ["/usr/local/bin/agy"] },
++      }),
++    ).toEqual(["agy", "acp"]);
++    expect(
++      resolveAntigravityDefaultCommand({
++        command: { mode: "replace", argv: ["/usr/local/bin/agy", "acp"] },
++      }),
++    ).toEqual(["/usr/local/bin/agy"]);
++  });
++
++  test("builds _meta.antigravity.systemPrompt.append from prompt settings", () => {
++    expect(
++      buildAntigravitySessionMeta({
++        provider: "antigravity",
++        cwd: "/tmp/project",
++      }),
++    ).toBeUndefined();
++
++    expect(
++      buildAntigravitySessionMeta({
++        provider: "antigravity",
++        cwd: "/tmp/project",
++        systemPrompt: "User rule",
++        daemonAppendSystemPrompt: "Daemon appendix",
++      }),
++    ).toEqual({
++      antigravity: {
++        systemPrompt: {
++          append: "User rule\n\nDaemon appendix",
++        },
++      },
++    });
++  });
++
++  test("transforms session responses to drop compound models and append full-access mode", () => {
++    const response: SessionStateResponse = {
++      sessionId: "sess-1",
++      models: {
++        currentModelId: "gemini-4-hydrogen-high",
++        availableModels: [
++          { modelId: "gemini-4-hydrogen-low", name: "Hydrogen Low" },
++          { modelId: "gemini-4-hydrogen-high", name: "Hydrogen High" },
++        ],
++      },
++      modes: {
++        currentModeId: "default",
++        availableModes: [
++          { id: "default", name: "Ask" },
++          { id: "accept-edits", name: "Accept Edits" },
++          { id: "auto", name: "Auto" },
++          { id: "plan", name: "Plan" },
++        ],
++      },
++      configOptions: createAntigravityConfigOptions(),
++    };
++
++    const transformed = transformAntigravitySessionResponse(response);
++    expect(transformed.models).toBeUndefined();
++    expect(transformed.modes?.availableModes.map((m) => m.id)).toEqual([
++      "default",
++      "accept-edits",
++      "auto",
++      "plan",
++      ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++    ]);
++
++    const derivedModels = deriveModelDefinitionsFromACP(
++      "antigravity",
++      transformed.models,
++      transformed.configOptions,
++    );
++    expect(derivedModels.map((m) => m.id)).toEqual([
++      "gemini-4-hydrogen",
++      "gemini-4-carbon",
++      "gemini-pro-orchestrator",
++      "claude-opus-5-5",
++    ]);
++
++    const transformedConfig = transformAntigravityConfigOptions(createAntigravityConfigOptions());
++    const modeOption = transformedConfig.find((option) => option.category === "mode");
++    expect(modeOption?.type).toBe("select");
++    if (modeOption?.type === "select") {
++      expect(modeOption.options.map((opt) => ("value" in opt ? opt.value : ""))).toContain(
++        ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++      );
++    }
++  });
++
++  test("resolves per-model thinking options and legacy compound aliases during catalog probe", async () => {
++    const baseOptions = createAntigravityConfigOptions();
++    const initialModels = deriveModelDefinitionsFromACP("antigravity", undefined, baseOptions);
++    const setSessionConfigOption = vi.fn(async ({ value }: { value: string }) => {
++      const thoughtLevels =
++        value === "gemini-4-hydrogen"
++          ? ["low", "medium", "high", "xhigh"]
++          : value === "gemini-pro-orchestrator"
++            ? []
++            : ["low", "medium", "high"];
++      return {
++        configOptions: createAntigravityConfigOptions(value, thoughtLevels),
++      };
++    });
++
++    const context: ACPCatalogModelResolverContext = {
++      connection: {
++        setSessionConfigOption,
++        extMethod: vi.fn(),
++      },
++      sessionId: "sess-probe",
++      models: initialModels,
++      configOptions: baseOptions,
++      runRequest: (fn) => fn(),
++      transformConfigOptions: transformAntigravityConfigOptions,
++      logger: createTestLogger(),
++      provider: "antigravity",
++    };
++
++    const catalog = await resolveAntigravityCatalogModels(context);
++    const hydrogen = catalog.find((m) => m.id === "gemini-4-hydrogen");
++    expect(hydrogen?.thinkingOptions?.map((o) => o.id)).toEqual(["low", "medium", "high", "xhigh"]);
++    expect(hydrogen?.aliases).toEqual([
++      "gemini-4-hydrogen-low",
++      "gemini-4-hydrogen-medium",
++      "gemini-4-hydrogen-high",
++      "gemini-4-hydrogen-xhigh",
++    ]);
++
++    const orchestrator = catalog.find((m) => m.id === "gemini-pro-orchestrator");
++    expect(orchestrator?.thinkingOptions).toBeUndefined();
++    expect(orchestrator?.aliases).toBeUndefined();
++
++    const claude = catalog.find((m) => m.id === "claude-opus-5-5");
++    expect(claude?.thinkingOptions?.map((o) => o.id)).toEqual(["low", "medium", "high"]);
++  });
++
++  test("splits legacy compound model IDs back into base model + thought_level", () => {
++    const configOptions = createAntigravityConfigOptions();
++    expect(
++      resolveAntigravityConfiguredSelection({
++        model: "gemini-4-hydrogen-high",
++        availableModels: null,
++        configOptions,
++      }),
++    ).toEqual({
++      model: "gemini-4-hydrogen",
++      thinkingOptionId: "high",
++    });
++
++    expect(
++      resolveAntigravityConfiguredSelection({
++        model: "gemini-4-hydrogen-xhigh",
++        thinkingOptionId: "low",
++        availableModels: null,
++        configOptions,
++      }),
++    ).toEqual({
++      model: "gemini-4-hydrogen",
++      thinkingOptionId: "low",
++    });
++
++    expect(
++      resolveAntigravityConfiguredSelection({
++        model: "claude-opus-5-5",
++        availableModels: null,
++        configOptions,
++      }),
++    ).toEqual({
++      model: "claude-opus-5-5",
++      thinkingOptionId: undefined,
++    });
++  });
++
++  test("switches full-access mode cleanly via default underlying ACP mode", async () => {
++    const setSessionMode = vi.fn(async () => ({}));
++    const baseContext: ACPProviderModeWriterContext = {
++      connection: {
++        setSessionMode,
++        setSessionConfigOption: vi.fn(),
++        extMethod: vi.fn(),
++      } as unknown as ACPProviderModeWriterContext["connection"],
++      sessionId: "sess-1",
++      requestedModeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++      currentModeId: "plan",
++      selection: {
++        availableMode: null,
++        configOption: null,
++        configChoice: null,
++        hasAvailableModes: true,
++      },
++      configOptions: [],
++      logger: createTestLogger(),
++    };
++
++    const result = await writeAntigravityProviderMode(baseContext);
++    expect(setSessionMode).toHaveBeenCalledWith({
++      sessionId: "sess-1",
++      modeId: ANTIGRAVITY_DEFAULT_MODE_ID,
++    });
++    expect(result).toEqual({
++      handled: true,
++      currentModeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++    });
++
++    const passthrough = await writeAntigravityProviderMode({
++      ...baseContext,
++      requestedModeId: "plan",
++    });
++    expect(passthrough).toEqual({ handled: false });
++  });
++});
+diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
+new file mode 100644
+index 0000000..98ac07e
+--- /dev/null
++++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
+@@ -0,0 +1,337 @@
++import { ANTIGRAVITY_MODES } from "@getpaseo/protocol/provider-manifest";
++import type { SessionConfigOption } from "@agentclientprotocol/sdk";
++import type { Logger } from "pino";
++
++import type {
++  AgentCapabilityFlags,
++  AgentMode,
++  AgentModelDefinition,
++  AgentSessionConfig,
++} from "../agent-sdk-types.js";
++import {
++  checkProviderLaunchAvailable,
++  resolveProviderLaunch,
++  type ProviderRuntimeSettings,
++} from "../provider-launch-config.js";
++import {
++  ACPAgentClient,
++  type ACPCatalogModelResolverContext,
++  type ACPConfiguredSelectionContext,
++  type ACPProviderModeWriteResult,
++  type ACPProviderModeWriterContext,
++  type SessionStateResponse,
++  DEFAULT_ACP_CAPABILITIES,
++  deriveSelectorOptions,
++  findSelectConfigOption,
++} from "./acp-agent.js";
++import {
++  buildBinaryDiagnosticRows,
++  buildCommandResolutionDiagnosticRows,
++  formatProviderDiagnostic,
++  formatProviderDiagnosticError,
++  toDiagnosticErrorMessage,
++} from "./diagnostic-utils.js";
++
++const ANTIGRAVITY_CAPABILITIES: AgentCapabilityFlags = {
++  ...DEFAULT_ACP_CAPABILITIES,
++};
++
++export const ANTIGRAVITY_DEFAULT_MODE_ID = "default";
++export const ANTIGRAVITY_FULL_ACCESS_MODE_ID = "full-access";
++
++const FULL_ACCESS_MODE_DESCRIPTION = "Skip all permission prompts";
++const LEGACY_THINKING_SUFFIX_PATTERN = /^(.*)-(low|medium|high|xhigh)$/;
++
++type SelectConfigOption = Extract<SessionConfigOption, { type: "select" }>;
++
++interface AntigravityACPAgentClientOptions {
++  logger: Logger;
++  runtimeSettings?: ProviderRuntimeSettings;
++}
++
++export function resolveAntigravityDefaultCommand(
++  runtimeSettings?: ProviderRuntimeSettings,
++): [string, ...string[]] {
++  if (
++    runtimeSettings?.command?.mode === "replace" &&
++    runtimeSettings.command.argv.length > 0 &&
++    runtimeSettings.command.argv.includes("acp")
++  ) {
++    return [runtimeSettings.command.argv[0]];
++  }
++  return ["agy", "acp"];
++}
++
++export function buildAntigravitySessionMeta(
++  config: AgentSessionConfig,
++): Record<string, unknown> | undefined {
++  const sections = [config.systemPrompt, config.daemonAppendSystemPrompt]
++    .map((entry) => entry?.trim())
++    .filter((entry): entry is string => Boolean(entry && entry.length > 0));
++  if (sections.length === 0) {
++    return undefined;
++  }
++  return {
++    antigravity: {
++      systemPrompt: {
++        append: sections.join("\n\n"),
++      },
++    },
++  };
++}
++
++export function transformAntigravitySessionResponse(
++  response: SessionStateResponse,
++): SessionStateResponse {
++  // Drop compound `models.availableModels` so Paseo derives the 9 base models
++  // from `configOptions[category="model"]` paired with per-model `thought_level`.
++  const { models: _models, ...withoutCompoundModels } = response;
++  if (!withoutCompoundModels.modes) {
++    return withoutCompoundModels;
++  }
++
++  const availableModes = withoutCompoundModels.modes.availableModes ?? [];
++  const hasFullAccess = availableModes.some((mode) => mode.id === ANTIGRAVITY_FULL_ACCESS_MODE_ID);
++  return {
++    ...withoutCompoundModels,
++    modes: {
++      ...withoutCompoundModels.modes,
++      availableModes: hasFullAccess
++        ? availableModes
++        : [
++            ...availableModes,
++            {
++              id: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++              name: "Full Access",
++              description: FULL_ACCESS_MODE_DESCRIPTION,
++            },
++          ],
++    },
++  };
++}
++
++export function transformAntigravityConfigOptions(
++  configOptions: SessionConfigOption[],
++): SessionConfigOption[] {
++  return configOptions.map((option) => {
++    if (option.type !== "select" || option.category !== "mode") {
++      return option;
++    }
++    const flattened = flattenModeSelectOptions(option.options);
++    if (flattened.some((choice) => choice.value === ANTIGRAVITY_FULL_ACCESS_MODE_ID)) {
++      return option;
++    }
++    return {
++      ...option,
++      options: [
++        ...flattened,
++        {
++          value: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++          name: "Full Access",
++          description: FULL_ACCESS_MODE_DESCRIPTION,
++        },
++      ],
++    };
++  });
++}
++
++function flattenModeSelectOptions(
++  options: SelectConfigOption["options"],
++): Array<{ value: string; name: string; description?: string | null }> {
++  const flattened: Array<{ value: string; name: string; description?: string | null }> = [];
++  for (const option of options) {
++    if ("value" in option) {
++      flattened.push(option);
++      continue;
++    }
++    flattened.push(...option.options);
++  }
++  return flattened;
++}
++
++export async function writeAntigravityProviderMode(
++  context: ACPProviderModeWriterContext,
++): Promise<ACPProviderModeWriteResult> {
++  if (context.requestedModeId !== ANTIGRAVITY_FULL_ACCESS_MODE_ID) {
++    return { handled: false };
++  }
++  // `agy acp` does not have a native `full-access` session mode; park the ACP
++  // runtime in `default` (instead of `plan` which refuses edits) while Paseo
++  // auto-accepts permission prompts for this mode.
++  await context.connection.setSessionMode({
++    sessionId: context.sessionId,
++    modeId: ANTIGRAVITY_DEFAULT_MODE_ID,
++  });
++  return {
++    handled: true,
++    currentModeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++  };
++}
++
++export function resolveAntigravityConfiguredSelection(
++  context: ACPConfiguredSelectionContext,
++): { model?: string; thinkingOptionId?: string } {
++  if (!context.model) {
++    return { model: context.model, thinkingOptionId: context.thinkingOptionId };
++  }
++  const baseModels = new Set(deriveSelectorOptions(context.configOptions, "model").map((m) => m.id));
++  if (baseModels.has(context.model)) {
++    return { model: context.model, thinkingOptionId: context.thinkingOptionId };
++  }
++  const match = LEGACY_THINKING_SUFFIX_PATTERN.exec(context.model);
++  if (match) {
++    const [, baseModelId, effort] = match;
++    if (baseModelId && baseModels.has(baseModelId)) {
++      return {
++        model: baseModelId,
++        thinkingOptionId: context.thinkingOptionId ?? effort,
++      };
++    }
++  }
++  return { model: context.model, thinkingOptionId: context.thinkingOptionId };
++}
++
++export async function resolveAntigravityCatalogModels({
++  connection,
++  sessionId,
++  models,
++  configOptions,
++  runRequest,
++  transformConfigOptions,
++  logger,
++  provider,
++}: ACPCatalogModelResolverContext): Promise<AgentModelDefinition[]> {
++  if (models.length === 0) {
++    return models;
++  }
++  const modelOption = findSelectConfigOption({ configOptions, category: "model" });
++  if (!modelOption) {
++    return models;
++  }
++
++  const resolved: AgentModelDefinition[] = [];
++  for (const model of models) {
++    try {
++      const response = await runRequest(() =>
++        connection.setSessionConfigOption({
++          sessionId,
++          configId: modelOption.id,
++          value: model.id,
++        }),
++      );
++      const modelConfigOptions = transformConfigOptions(response.configOptions ?? []);
++      const thinkingOptions = deriveSelectorOptions(modelConfigOptions, "thought_level");
++      const aliases =
++        thinkingOptions.length > 0
++          ? thinkingOptions.map((option) => `${model.id}-${option.id}`)
++          : undefined;
++      resolved.push({
++        ...model,
++        aliases,
++        thinkingOptions: thinkingOptions.length > 0 ? thinkingOptions : undefined,
++        defaultThinkingOptionId:
++          thinkingOptions.find((option) => option.isDefault)?.id ?? undefined,
++      });
++    } catch (error) {
++      const errorMessage = toDiagnosticErrorMessage(error);
++      if (model.isDefault) {
++        logger.warn(
++          { modelId: model.id, error: errorMessage },
++          `${provider} catalog probe could not refresh thinking options for current model "${model.id}"; keeping session options`,
++        );
++        const aliases =
++          model.thinkingOptions && model.thinkingOptions.length > 0
++            ? model.thinkingOptions.map((option) => `${model.id}-${option.id}`)
++            : undefined;
++        resolved.push({ ...model, aliases });
++        continue;
++      }
++      logger.warn(
++        { modelId: model.id, error: errorMessage },
++        `${provider} catalog probe could not resolve thinking options for model "${model.id}"; omitting thinking options`,
++      );
++      resolved.push({
++        ...model,
++        thinkingOptions: undefined,
++        defaultThinkingOptionId: undefined,
++      });
++    }
++  }
++  return resolved;
++}
++
++const ANTIGRAVITY_FALLBACK_MODES: AgentMode[] = ANTIGRAVITY_MODES.map(
++  ({ id, label, description, icon, colorTier, isUnattended }) => ({
++    id,
++    label,
++    description,
++    icon,
++    colorTier,
++    isUnattended,
++  }),
++);
++
++export class AntigravityACPAgentClient extends ACPAgentClient {
++  constructor(options: AntigravityACPAgentClientOptions) {
++    super({
++      provider: "antigravity",
++      usageProvider: "antigravity",
++      logger: options.logger,
++      runtimeSettings: options.runtimeSettings,
++      defaultCommand: resolveAntigravityDefaultCommand(options.runtimeSettings),
++      defaultModes: ANTIGRAVITY_FALLBACK_MODES,
++      capabilities: ANTIGRAVITY_CAPABILITIES,
++      clientCapabilities: {
++        elicitation: { form: {} },
++      },
++      sessionMeta: buildAntigravitySessionMeta,
++      sessionResponseTransformer: transformAntigravitySessionResponse,
++      configOptionsTransformer: transformAntigravityConfigOptions,
++      providerModeWriter: writeAntigravityProviderMode,
++      catalogModelResolver: resolveAntigravityCatalogModels,
++      configuredSelectionResolver: resolveAntigravityConfiguredSelection,
++      autoAcceptModeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++      autoAcceptUnderlyingModeId: ANTIGRAVITY_DEFAULT_MODE_ID,
++      waitForInitialCommands: true,
++      catalogCacheKey: "host",
++      supportsAutoAccept: false,
++    });
++  }
++
++  override async isAvailable(): Promise<boolean> {
++    try {
++      const launch = await resolveProviderLaunch({
++        commandConfig: this.runtimeSettings?.command,
++        defaultBinary: "agy",
++      });
++      return (await checkProviderLaunchAvailable(launch)).available;
++    } catch {
++      return false;
++    }
++  }
++
++  async getDiagnostic(): Promise<{ diagnostic: string }> {
++    try {
++      const launch = await resolveProviderLaunch({
++        commandConfig: this.runtimeSettings?.command,
++        defaultBinary: "agy",
++      });
++      const availability = await checkProviderLaunchAvailable(launch);
++      const probeRows = availability.available ? await this.buildACPProbeDiagnosticRows() : [];
++
++      return {
++        diagnostic: formatProviderDiagnostic("Antigravity", [
++          ...(await buildCommandResolutionDiagnosticRows(launch, {
++            knownBinaryNames: ["agy"],
++          })),
++          ...(await buildBinaryDiagnosticRows(launch, availability)),
++          ...probeRows,
++        ]),
++      };
++    } catch (error) {
++      return {
++        diagnostic: formatProviderDiagnosticError("Antigravity", error),
++      };
++    }
++  }
++}
+diff --git a/packages/server/src/server/plugins/builtin/index.ts b/packages/server/src/server/plugins/builtin/index.ts
+index d51f6ee..ca80c95 100644
+--- a/packages/server/src/server/plugins/builtin/index.ts
++++ b/packages/server/src/server/plugins/builtin/index.ts
+@@ -3,7 +3,6 @@ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+ 
+ export const builtinPlugins = [
+-  "antigravity-provider",
+   "claude-usage-source",
+   "codex-usage-source",
+   "copilot-usage-source",
