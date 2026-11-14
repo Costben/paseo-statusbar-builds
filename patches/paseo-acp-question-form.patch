@@ -151,7 +151,7 @@ index db2aedf..387625f 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 27bfb5e..797aae3 100644
+index 27bfb5e..e7068eb 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -3679,6 +3679,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
@@ -206,8 +206,8 @@ index 27bfb5e..797aae3 100644
      // instead of letting it disappear.
      if (pending.turnId !== null && pending.turnId !== this.activeForegroundTurnId) {
 -      const prompt = buildLatePermissionAnswer(pending, response, selectedOption);
-+      const effectiveResponse =
-+        questionAnswers !== null
++      const effectiveResponse: AgentPermissionResponse =
++        questionAnswers !== null && response.behavior === "allow"
 +          ? {
 +              ...response,
 +              updatedInput: { ...response.updatedInput, answers: questionAnswers },
