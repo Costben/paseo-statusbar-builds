@@ -195,7 +195,7 @@ index 9e57643..40b8a27 100644
      if (this.prompts.size > 64) {
        const oldest = this.prompts.keys().next().value;
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-index df59917..631a625 100644
+index df59917..dd69669 100644
 --- a/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -183,6 +183,11 @@ export class KimiNativeBridge {
@@ -210,7 +210,7 @@ index df59917..631a625 100644
    /**
     * True when Kimi recorded a compaction at or after the prompt was submitted.
     *
-@@ -218,18 +223,48 @@ export class KimiNativeBridge {
+@@ -218,18 +223,54 @@ export class KimiNativeBridge {
        return "completed";
      }
      let idleSince: number | null = null;
@@ -249,18 +249,24 @@ index df59917..631a625 100644
          idleSince = null;
 +      } else if (this.log.isTurnInProgress()) {
 +        // A turn is open: Kimi is working on something, ours or the one ours is
-+        // queued behind. Hold while it writes, but a turn that never ends must
-+        // not hold this one forever — the prompt did run, so it is settled, not
-+        // rejected, once the log has been silent for the whole grace period.
-+        idleSince ??= Date.now();
-+        if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
-+          submission.outcome = "completed";
-+          return "completed";
++        // queued behind. With no receipt for this prompt nothing proves Kimi
++        // took it, and a queued prompt must not be reported as dropped, so the
++        // wait holds for as long as that turn runs. Once a receipt has landed
++        // the prompt did run, so a turn that never ends settles this one after
++        // the grace instead of holding it forever.
++        if (!this.acceptedPromptSinceSubmission()) {
++          idleSince = null;
++        } else {
++          idleSince ??= Date.now();
++          if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
++            submission.outcome = "completed";
++            return "completed";
++          }
 +        }
        } else if (prompt) {
          // Logged and no longer running: its turn is over even if the prompt's
          // own end record has not been read yet.
-@@ -238,6 +273,12 @@ export class KimiNativeBridge {
+@@ -238,6 +279,12 @@ export class KimiNativeBridge {
        } else {
          idleSince ??= Date.now();
          if (Date.now() - idleSince >= this.submissionIdleGraceMs) {
