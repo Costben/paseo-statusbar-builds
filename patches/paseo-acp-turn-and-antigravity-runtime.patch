@@ -1,0 +1,2626 @@
+diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
+index ae79fc6..8bb7a76 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
+@@ -7830,4 +7830,103 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+       terminal: true,
+     });
+   });
++
++  test("promptTurnTakeoverSteer lets a second prompt take over without premature turn completion", async () => {
++    const logger = createTestLogger();
++    let resolveFirst!: (val: PromptResponse) => void;
++    let resolveSecond!: (val: PromptResponse) => void;
++    const prompt = vi
++      .fn<() => Promise<PromptResponse>>()
++      .mockImplementationOnce(
++        () =>
++          new Promise<PromptResponse>((resolve) => {
++            resolveFirst = resolve;
++          }),
++      )
++      .mockImplementationOnce(
++        () =>
++          new Promise<PromptResponse>((resolve) => {
++            resolveSecond = resolve;
++          }),
++      );
++
++    const onSteered = vi.fn();
++    const session = createSessionWithConfig(
++      { provider: "antigravity" },
++      logger,
++      { promptTurnTakeoverSteer: true },
++      { onForegroundTurnSteered: onSteered },
++    );
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = {
++      prompt,
++      cancel: vi.fn(async () => {}),
++      signal: new AbortController().signal,
++    };
++
++    const events: AgentStreamEvent[] = [];
++    session.subscribe((e) => events.push(e));
++
++    await session.startTurn("first prompt");
++    const steerResult = await session.steerActiveTurn?.("steer takeover");
++    expect(steerResult).toEqual({ status: "accepted" });
++    expect(onSteered).toHaveBeenCalledTimes(1);
++    expect(prompt).toHaveBeenCalledTimes(2);
++
++    resolveFirst({ stopReason: "end_turn" });
++    await new Promise((r) => setTimeout(r, 20));
++    expect(events.filter((e) => e.type === "turn_completed")).toHaveLength(0);
++
++    resolveSecond({ stopReason: "end_turn" });
++    await new Promise((r) => setTimeout(r, 20));
++    expect(events.filter((e) => e.type === "turn_completed")).toHaveLength(1);
++  });
++
++  test("maybeOpenAutonomousTurn skips events that already carry an explicit turnId or duplicate trailing output", () => {
++    const logger = createTestLogger();
++    const session = createSessionWithConfig({ provider: "kimi" }, logger);
++    const internals = asInternals<
++      ACPSessionInternals & { pushProviderEvent(event: AgentStreamEvent): void }
++    >(session);
++    internals.sessionId = "session-1";
++
++    const events: AgentStreamEvent[] = [];
++    session.subscribe((e) => events.push(e));
++
++    internals.pushProviderEvent({
++      type: "turn_started",
++      provider: "kimi",
++      turnId: "kimi-turn-1",
++    });
++    internals.pushProviderEvent({
++      type: "timeline",
++      provider: "kimi",
++      turnId: "kimi-turn-1",
++      item: { type: "assistant_message", text: "Completed everything cleanly." },
++    });
++    internals.pushProviderEvent({
++      type: "turn_completed",
++      provider: "kimi",
++      turnId: "kimi-turn-1",
++    });
++
++    // An explicit turnId event arriving while idle must NOT wrap another auto-* turn around it.
++    internals.pushProviderEvent({
++      type: "timeline",
++      provider: "kimi",
++      turnId: "kimi-turn-2",
++      item: { type: "assistant_message", text: "Follow-up turn" },
++    });
++    // A duplicate trailing replay without turnId must also be suppressed.
++    internals.pushProviderEvent({
++      type: "timeline",
++      provider: "kimi",
++      item: { type: "assistant_message", text: "Completed everything cleanly." },
++    });
++
++    const autoTurnStarts = events.filter(
++      (e) => e.type === "turn_started" && e.turnId?.startsWith("auto-"),
++    );
++    expect(autoTurnStarts).toHaveLength(0);
++  });
+ });
+diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
+index f5dfe99..fb84c6c 100644
+--- a/packages/server/src/server/agent/providers/acp-agent.ts
++++ b/packages/server/src/server/agent/providers/acp-agent.ts
+@@ -601,6 +601,14 @@ export interface ACPProviderHookContext {
+   isForegroundTurnActive?: () => boolean;
+   /** When the ACP stream last delivered agent output to this session, or null. */
+   lastStreamedContentAt?: () => number | null;
++  /** PID of the spawned ACP child process, when available. */
++  childPid?: () => number | null;
++  /** Re-dispatch or open a continuation turn after a transient recoverable error (e.g. OAuth 401 refresh). */
++  retryActiveOrOpenTurn?: (
++    prompt: AgentPromptInput,
++    reason: string,
++    adoptTurnId?: string,
++  ) => Promise<boolean>;
+ }
+ 
+ /**
+@@ -683,6 +691,11 @@ export interface ACPProviderHooks {
+    * as it will be sent. Not called for a prompt queued through steering.
+    */
+   onForegroundTurnStarting?(ctx: ACPProviderHookContext, prompt: AgentPromptInput): void;
++  /**
++   * Called when a mid-turn steer is taking over the active foreground turn via
++   * prompt replacement (when `promptTurnTakeoverSteer` is enabled).
++   */
++  onForegroundTurnSteered?(ctx: ACPProviderHookContext, prompt: AgentPromptInput): void;
+   /**
+    * Checked once the turn hold has settled, before the turn is reported. A
+    * provider that knows the prompt never ran returns the failure to report even
+@@ -744,6 +757,17 @@ export interface ACPProviderHooks {
+    * when no foreground turn is active.
+    */
+   canStopRuntime?(ctx: ACPProviderHookContext): boolean;
++  /**
++   * Called when an active foreground prompt RPC fails with an error before timing
++   * out. Return true when the hook has handled recovery (e.g. scheduled retry).
++   */
++  recoverFromPromptError?(
++    ctx: ACPProviderHookContext & {
++      turnId: string;
++      error: unknown;
++      signal?: AbortSignal;
++    },
++  ): Promise<boolean>;
+ }
+ 
+ export type ACPSessionMetaBuilder = (
+@@ -1385,6 +1409,10 @@ export class ACPAgentClient implements AgentClient {
+     this.now = options.now ?? Date.now;
+   }
+ 
++  protected resolveSessionDefaultCommand(_config: AgentSessionConfig): [string, ...string[]] {
++    return this.defaultCommand;
++  }
++
+   async createSession(
+     config: AgentSessionConfig,
+     launchContext?: AgentLaunchContext,
+@@ -1399,7 +1427,7 @@ export class ACPAgentClient implements AgentClient {
+         usageProvider: this.usageProvider,
+         logger: this.logger,
+         runtimeSettings: this.runtimeSettings,
+-        defaultCommand: this.defaultCommand,
++        defaultCommand: this.resolveSessionDefaultCommand({ ...config, provider: this.provider }),
+         defaultModes: this.defaultModes,
+         modelTransformer: this.modelTransformer,
+         sessionResponseTransformer: this.sessionResponseTransformer,
+@@ -1466,7 +1494,7 @@ export class ACPAgentClient implements AgentClient {
+       usageProvider: this.usageProvider,
+       logger: this.logger,
+       runtimeSettings: this.runtimeSettings,
+-      defaultCommand: this.defaultCommand,
++      defaultCommand: this.resolveSessionDefaultCommand(mergedConfig),
+       defaultModes: this.defaultModes,
+       modelTransformer: this.modelTransformer,
+       sessionResponseTransformer: this.sessionResponseTransformer,
+@@ -2440,6 +2468,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private providerSessionCleanup: (() => void) | null = null;
+   private currentTurnUsage: AgentUsage | undefined;
+   private activeForegroundTurnId: string | null = null;
++  /** Latest prompt/steer sequence within the active foreground turn so yielded RPCs exit quietly. */
++  private activeTurnLatestPromptSeq = 0;
++  /** Count of in-flight `sendQueuedPrompt` requests to prevent concurrent prompt collisions. */
++  private pendingQueuedPrompts = 0;
++  /** Timestamp when the last turn finished, used to suppress trailing autonomous false-positives. */
++  private lastTurnCompletedAt = 0;
++  /** Trailing assistant message text of the last completed turn to detect late duplicate replays. */
++  private lastCompletedTurnAssistantText = "";
++  /** Accumulated assistant message text in the currently active turn. */
++  private currentTurnAssistantText = "";
+   /**
+    * A turn the provider opened on its own. ACP carries no prompt request for it,
+    * so Paseo never receives a `turn_started` and the session stays "completed"
+@@ -2519,6 +2557,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (options.providerHooks?.acceptsQueuedPrompts) {
+       this.steerActiveTurn = (prompt, steerOptions) =>
+         this.steerIntoProviderQueue(prompt, steerOptions);
++    } else if (options.capabilities.promptTurnTakeoverSteer === true) {
++      this.steerActiveTurn = (prompt, steerOptions) =>
++        this.steerByPromptTakeover(prompt, steerOptions);
+     }
+   }
+ 
+@@ -2675,6 +2716,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       emit: (event) => this.pushProviderEvent(event),
+       isForegroundTurnActive: () => this.activeForegroundTurnId !== null,
+       lastStreamedContentAt: () => this.lastStreamedContentAt,
++      childPid: () => this.child?.pid ?? null,
++      retryActiveOrOpenTurn: (prompt, reason, adoptTurnId) =>
++        this.retryTurnAfterTransientProviderError(prompt, reason, adoptTurnId),
+     };
+   }
+ 
+@@ -2688,6 +2732,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+    * reply Kimi narrates next to it is dropped.
+    */
+   private pushProviderEvent(event: AgentStreamEvent): void {
++    if (
++      event.type === "turn_started" &&
++      event.turnId &&
++      this.autonomousTurn !== null &&
++      event.turnId !== this.autonomousTurn.id
++    ) {
++      this.closeAutonomousTurn("superseded");
++    }
+     if (
+       event.type === "turn_completed" &&
+       event.turnId === undefined &&
+@@ -2740,13 +2792,132 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return { status: "unavailable" };
+     }
+     // Anything already held goes first, so a steer never overtakes it.
+-    if (this.activeForegroundTurnId !== null || this.heldQueuedPrompts.length > 0) {
++    if (
++      this.activeForegroundTurnId !== null ||
++      this.heldQueuedPrompts.length > 0 ||
++      this.pendingQueuedPrompts > 0
++    ) {
+       this.heldQueuedPrompts.push({ prompt, options });
+       return { status: "accepted" };
+     }
+     return this.sendQueuedPrompt(prompt, options);
+   }
+ 
++  /**
++   * Mid-turn steer for providers (such as Antigravity `agy acp`) where sending a
++   * second `session/prompt` yields the earlier prompt RPC with `end_turn` while
++   * continuing tool execution and streaming under the new prompt request.
++   */
++  private async steerByPromptTakeover(
++    prompt: AgentPromptInput,
++    options?: SteerActiveTurnOptions,
++  ): Promise<SteerResult> {
++    if (this.closed || !this.connection || !this.sessionId || this.connection.signal.aborted) {
++      return { status: "unavailable" };
++    }
++    if (this.activeForegroundTurnId !== null) {
++      const turnId = this.activeForegroundTurnId;
++      const outgoing = this.applyProviderPromptTransform(prompt);
++      const messageId = options?.clientMessageId ?? randomUUID();
++      const promptSeq = ++this.activeTurnLatestPromptSeq;
++      this.submittedUserMessageTurnId = turnId;
++      this.fallbackAssistantMessageId = null;
++      if (!options?.clientMessageId) {
++        this.emitSubmittedUserMessage(outgoing, messageId, turnId);
++      }
++      this.logger.info(
++        { agentId: this.agentId, provider: this.provider, turnId, promptSeq },
++        "provider.acp.prompt_takeover_steer",
++      );
++      this.notifyForegroundTurnSteered(outgoing);
++      this.dispatchForegroundPromptRpc(outgoing, messageId, turnId, promptSeq);
++      return { status: "accepted" };
++    }
++    try {
++      await this.beginTurn(
++        prompt,
++        { clientMessageId: options?.clientMessageId },
++        !options?.clientMessageId,
++      );
++      return { status: "accepted" };
++    } catch (error) {
++      this.logger.warn(
++        { agentId: this.agentId, provider: this.provider, err: error },
++        "provider.acp.takeover_steer_begin_failed",
++      );
++      return { status: "unavailable" };
++    }
++  }
++
++  private async retryTurnAfterTransientProviderError(
++    prompt: AgentPromptInput,
++    reason: string,
++    adoptTurnId?: string,
++  ): Promise<boolean> {
++    if (this.closed || !this.connection || !this.sessionId || this.connection.signal.aborted) {
++      return false;
++    }
++    if (this.activeForegroundTurnId !== null) {
++      if (this.turnAbort?.signal.aborted) {
++        return false;
++      }
++      const turnId = this.activeForegroundTurnId;
++      const outgoing = this.applyProviderPromptTransform(prompt);
++      const messageId = randomUUID();
++      const promptSeq = ++this.activeTurnLatestPromptSeq;
++      this.submittedUserMessageTurnId = turnId;
++      this.fallbackAssistantMessageId = null;
++      this.logger.warn(
++        { agentId: this.agentId, provider: this.provider, turnId, promptSeq, reason },
++        "provider.acp.transient_auth_turn_retry",
++      );
++      this.notifyForegroundTurnSteered(outgoing);
++      this.dispatchForegroundPromptRpc(outgoing, messageId, turnId, promptSeq);
++      return true;
++    }
++    if (adoptTurnId) {
++      if (this.autonomousTurn) {
++        this.closeAutonomousTurn("superseded");
++      }
++      this.deliverTranslatedEvents(this.flushPendingUserMessage());
++      const turnId = adoptTurnId;
++      const messageId = randomUUID();
++      const outgoing = this.applyProviderPromptTransform(prompt);
++      const promptSeq = (this.activeTurnLatestPromptSeq = 1);
++      this.activeForegroundTurnId = turnId;
++      this.turnAbort = new AbortController();
++      this.currentTurnSawTimeline = false;
++      this.currentTurnIsContinuation = true;
++      this.currentTurnUpdateCount = 0;
++      this.currentTurnMismatchedUpdateCount = 0;
++      this.currentTurnStartedAt = Date.now();
++      this.currentTurnAssistantText = "";
++      this.fallbackAssistantMessageId = null;
++      this.submittedUserMessageTurnId = turnId;
++      this.logger.warn(
++        { agentId: this.agentId, provider: this.provider, turnId, reason },
++        "provider.acp.transient_auth_wakeup_adopted",
++      );
++      this.notifyForegroundTurnStarting(outgoing);
++      this.dispatchForegroundPromptRpc(outgoing, messageId, turnId, promptSeq);
++      return true;
++    }
++    try {
++      this.logger.warn(
++        { agentId: this.agentId, provider: this.provider, reason },
++        "provider.acp.transient_auth_wakeup_continuation",
++      );
++      await this.beginTurn(prompt, undefined, false, true);
++      return true;
++    } catch (error) {
++      this.logger.warn(
++        { agentId: this.agentId, provider: this.provider, reason, err: error },
++        "provider.acp.transient_auth_wakeup_continuation_failed",
++      );
++      return false;
++    }
++  }
++
+   /**
+    * Inject a message into the turn Paseo's own prompt is driving. False when the
+    * agent left it `unconsumed` (no turn of the client's was live by the time it
+@@ -2797,6 +2968,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+     const outgoing = this.applyProviderPromptTransform(prompt);
+     const messageId = options.clientMessageId ?? randomUUID();
++    this.pendingQueuedPrompts += 1;
+     void (async () => {
+       try {
+         const response = await connection.prompt({
+@@ -2821,6 +2993,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+             }),
+           );
+         }
++      } finally {
++        this.pendingQueuedPrompts = Math.max(0, this.pendingQueuedPrompts - 1);
++        if (
++          this.pendingQueuedPrompts === 0 &&
++          this.heldQueuedPrompts.length > 0 &&
++          this.activeForegroundTurnId === null
++        ) {
++          this.releaseHeldQueuedPrompt();
++        }
+       }
+     })();
+     return { status: "accepted" };
+@@ -3095,6 +3276,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
++  /** Tell the provider a mid-turn steer is taking over the active foreground turn. */
++  private notifyForegroundTurnSteered(prompt: AgentPromptInput): void {
++    const hooks = this.providerHooks;
++    if (!hooks?.onForegroundTurnSteered) {
++      return;
++    }
++    const ctx = this.providerHookContext();
++    if (!ctx) {
++      return;
++    }
++    try {
++      hooks.onForegroundTurnSteered(ctx, prompt);
++    } catch (error) {
++      this.logger.warn({ err: error }, "ACP provider hook onForegroundTurnSteered failed");
++    }
++  }
++
+   /**
+    * The failure to report for a turn that produced no timeline output, carrying
+    * the provider's explanation when it has one.
+@@ -3184,13 +3382,38 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       this.closeAutonomousTurn("superseded");
+     }
+     if (this.activeForegroundTurnId) {
+-      throw new Error("A foreground turn is already active");
++      const startedFor = this.currentTurnStartedAt
++        ? Date.now() - this.currentTurnStartedAt
++        : Number.POSITIVE_INFINITY;
++      const idleFor = this.lastStreamedContentAt
++        ? Date.now() - this.lastStreamedContentAt
++        : Number.POSITIVE_INFINITY;
++      if (startedFor > 90_000 && idleFor > 90_000) {
++        const staleTurnId = this.activeForegroundTurnId;
++        this.logger.warn(
++          {
++            agentId: this.agentId,
++            provider: this.provider,
++            turnId: staleTurnId,
++            idleFor,
++            reason: "stale",
++          },
++          "provider.acp.stale_foreground_turn_force_closed",
++        );
++        this.pushEvent({ type: "turn_completed", provider: this.provider, turnId: staleTurnId });
++        this.activeForegroundTurnId = null;
++        this.turnAbort = null;
++        this.heldQueuedPrompts.length = 0;
++      } else {
++        throw new Error("A foreground turn is already active");
++      }
+     }
+ 
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     const turnId = randomUUID();
+     const messageId = options?.clientMessageId ?? randomUUID();
+     const outgoing = this.applyProviderPromptTransform(prompt);
++    const promptSeq = (this.activeTurnLatestPromptSeq = 1);
+     this.activeForegroundTurnId = turnId;
+     this.turnAbort = new AbortController();
+     this.currentTurnSawTimeline = false;
+@@ -3198,37 +3421,97 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.currentTurnUpdateCount = 0;
+     this.currentTurnMismatchedUpdateCount = 0;
+     this.currentTurnStartedAt = Date.now();
++    this.currentTurnAssistantText = "";
+     this.fallbackAssistantMessageId = null;
+     this.submittedUserMessageTurnId = null;
+     this.emitBootstrapThreadEvent();
+     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+     if (announceUserMessage) {
+       this.emitSubmittedUserMessage(outgoing, messageId, turnId, options?.clientMessageId);
++    } else if (this.capabilities["promptTurnTakeoverSteer"] === true) {
++      this.submittedUserMessageTurnId = turnId;
+     }
+     this.notifyForegroundTurnStarting(outgoing);
++    this.dispatchForegroundPromptRpc(outgoing, messageId, turnId, promptSeq);
+ 
++    return { turnId };
++  }
++
++  private dispatchForegroundPromptRpc(
++    outgoing: AgentPromptInput,
++    messageId: string,
++    turnId: string,
++    promptSeq: number,
++  ): void {
+     const connection = this.connection;
+     const child = this.child;
++    const sessionId = this.sessionId;
++    if (!connection || !sessionId) {
++      return;
++    }
+     const failOnDisconnect = () => void this.failDisconnectedTurn(turnId, child);
+     connection.signal?.addEventListener("abort", failOnDisconnect, { once: true });
+     void connection
+       .prompt({
+-        sessionId: this.sessionId,
++        sessionId,
+         messageId,
+         prompt: toACPContentBlocks(outgoing),
+       })
+       .then(async (response) => {
++        if (turnId !== this.activeForegroundTurnId) {
++          this.logger.warn(
++            {
++              agentId: this.agentId,
++              provider: this.provider,
++              turnId,
++              activeTurnId: this.activeForegroundTurnId ?? undefined,
++              stopReason: response.stopReason,
++            },
++            "provider.acp.stale_prompt_response",
++          );
++          return;
++        }
++        this.currentTurnUsage = mapACPUsage(response.usage) ?? this.currentTurnUsage;
++        if (promptSeq !== this.activeTurnLatestPromptSeq) {
++          this.logger.debug(
++            {
++              agentId: this.agentId,
++              provider: this.provider,
++              turnId,
++              promptSeq,
++              latestPromptSeq: this.activeTurnLatestPromptSeq,
++              stopReason: response.stopReason,
++            },
++            "provider.acp.prompt_yielded_to_steer",
++          );
++          return;
++        }
+         await this.holdTurnWhileProviderWorks();
++        if (turnId !== this.activeForegroundTurnId || promptSeq !== this.activeTurnLatestPromptSeq) {
++          this.logger.debug(
++            {
++              agentId: this.agentId,
++              provider: this.provider,
++              turnId,
++              promptSeq,
++              latestPromptSeq: this.activeTurnLatestPromptSeq,
++            },
++            "provider.acp.prompt_hold_superseded_by_steer",
++          );
++          return;
++        }
+         await this.handlePromptResponse(response, turnId);
+         return;
+       })
+-      .catch((error) => {
+-        if (turnId !== this.activeForegroundTurnId) {
++      .catch(async (error: unknown) => {
++        if (turnId !== this.activeForegroundTurnId || promptSeq !== this.activeTurnLatestPromptSeq) {
+           this.logger.warn(
+             {
+               agentId: this.agentId,
+               provider: this.provider,
+               turnId,
++              promptSeq,
++              latestPromptSeq: this.activeTurnLatestPromptSeq,
+               activeTurnId: this.activeForegroundTurnId ?? undefined,
+               err: error,
+             },
+@@ -3236,6 +3519,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+           );
+           return;
+         }
++        if (!this.turnAbort?.signal.aborted && this.providerHooks?.recoverFromPromptError) {
++          const ctx = this.providerHookContext();
++          if (ctx) {
++            try {
++              const recovered = await this.providerHooks.recoverFromPromptError({
++                ...ctx,
++                turnId,
++                error,
++                ...(this.turnAbort?.signal ? { signal: this.turnAbort.signal } : {}),
++              });
++              if (
++                recovered === true ||
++                turnId !== this.activeForegroundTurnId ||
++                promptSeq !== this.activeTurnLatestPromptSeq
++              ) {
++                return;
++              }
++            } catch (hookErr) {
++              this.logger.warn({ err: hookErr }, "ACP provider hook recoverFromPromptError failed");
++            }
++          }
++        }
+         const summary = summarizeACPRequestError(error);
+         this.finishTurn({
+           type: "turn_failed",
+@@ -3247,8 +3552,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+         });
+       })
+       .finally(() => connection.signal?.removeEventListener("abort", failOnDisconnect));
+-
+-    return { turnId };
+   }
+ 
+   // The SDK aborts the connection without rejecting the pending prompt, and before the child's
+@@ -5312,7 +5615,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   private pushEvent(event: AgentStreamEvent): void {
++    if (event.type === "turn_started") {
++      this.currentTurnAssistantText = "";
++    }
+     this.maybeOpenAutonomousTurn(event);
++    if (
++      event.type === "timeline" &&
++      event.item.type === "assistant_message" &&
++      typeof event.item.text === "string" &&
++      (this.activeForegroundTurnId !== null || getAgentStreamEventTurnId(event) !== undefined)
++    ) {
++      const nextText = this.currentTurnAssistantText + event.item.text;
++      this.currentTurnAssistantText = nextText.length > 8000 ? nextText.slice(-8000) : nextText;
++    } else if (
++      event.type === "turn_completed" ||
++      event.type === "turn_failed" ||
++      event.type === "turn_canceled"
++    ) {
++      this.lastTurnCompletedAt = Date.now();
++      if (this.currentTurnAssistantText.trim().length > 0) {
++        this.lastCompletedTurnAssistantText = this.currentTurnAssistantText;
++      }
++      this.currentTurnAssistantText = "";
++    }
+     this.logger.trace(
+       {
+         agentId: this.agentId,
+@@ -5350,9 +5675,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     if (this.closed) {
+       return;
+     }
++    const eventTurnId = getAgentStreamEventTurnId(event);
+     if (this.autonomousTurn) {
+-      // 每个事件都重置静默计时，否则阈值就成了「从开局算起的硬上限」。
+-      this.armAutonomousIdle();
++      // 只有属于当前 auto-* 回合（或未带 turnId）的事件才续期静默计时，
++      // 避免 provider 自管回合（例如 kimi-turn-*）误续期 auto-*。
++      if (eventTurnId === undefined || eventTurnId === this.autonomousTurn.id) {
++        this.armAutonomousIdle();
++      }
+       return;
+     }
+     if (this.activeForegroundTurnId) {
+@@ -5365,6 +5694,37 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     ) {
+       return;
+     }
++    // 事件本身已携带明确 turnId（例如 KimiMainTurnRenderer 的 kimi-turn-*），
++    // 说明 provider 已自行建立回合边界，绝不能再套一层 auto-*。
++    if (eventTurnId !== undefined) {
++      return;
++    }
++    // 回合刚结束时的尾随事件，或与上一回合最终消息内容重复的回放，不该凭空开一个新回合。
++    const sinceMs = this.lastTurnCompletedAt ? Date.now() - this.lastTurnCompletedAt : -1;
++    const isDuplicateFinal = this.isDuplicateTrailingTimelineItem(event.item, sinceMs);
++    if ((this.lastTurnCompletedAt && sinceMs < 8_000) || isDuplicateFinal) {
++      this.logger.warn(
++        {
++          agentId: this.agentId,
++          provider: this.provider,
++          sinceMs,
++          isDuplicateFinal,
++          itemType: event.item.type,
++        },
++        "provider.acp.autonomous_turn_suppressed",
++      );
++      return;
++    }
++    this.logger.warn(
++      {
++        agentId: this.agentId,
++        provider: this.provider,
++        lastTurnCompletedAt: this.lastTurnCompletedAt,
++        sinceMs,
++        itemType: event.item.type,
++      },
++      "provider.acp.autonomous_turn_opened",
++    );
+     const turnId = `auto-${Date.now().toString(36)}-${this.autonomousOrdinal++}`;
+     this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
+     this.activeForegroundTurnId = turnId;
+@@ -5372,6 +5732,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.armAutonomousIdle();
+   }
+ 
++  /** 判断无 turnId 的 assistant_message 是否只是上一回合最终回复的迟到重复回放。 */
++  private isDuplicateTrailingTimelineItem(item: AgentTimelineItem, sinceMs: number): boolean {
++    if (item.type !== "assistant_message" || typeof item.text !== "string") {
++      return false;
++    }
++    const chunk = item.text.trim();
++    const prev = this.lastCompletedTurnAssistantText.trim();
++    if (!chunk || !prev) {
++      return false;
++    }
++    if (chunk.length >= 16) {
++      return prev === chunk || prev.endsWith(chunk) || prev.includes(chunk);
++    }
++    return sinceMs >= 0 && sinceMs < 30_000 && prev === chunk;
++  }
++
+   /** 静默收尾：没有新事件就认为这一轮结束了。 */
+   private armAutonomousIdle(): void {
+     if (this.autonomousIdleTimer) {
+@@ -5442,12 +5818,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private finishTurn(
+     event: Extract<AgentStreamEvent, { type: "turn_completed" | "turn_failed" | "turn_canceled" }>,
+   ): void {
++    this.lastTurnCompletedAt = Date.now();
+     this.deliverTranslatedEvents(this.flushPendingUserMessage());
+     // Failed and canceled turns clear every request in the manager. Answer the
+     // same set here so an outside-turn request cannot keep the provider blocked.
+     this.cancelPendingPermissions(
+       (pending) => event.type !== "turn_completed" || pending.turnId === event.turnId,
+     );
++    if (this.activeForegroundTurnId === event.turnId) {
++      this.activeTurnLatestPromptSeq = 0;
++    }
+     this.activeForegroundTurnId = null;
+     this.turnAbort = null;
+     this.fallbackAssistantMessageId = null;
+diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
+index c8203c7..c93178b 100644
+--- a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
++++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
+@@ -5,11 +5,13 @@ import { createTestLogger } from "../../../test-utils/test-logger.js";
+ import {
+   ANTIGRAVITY_DEFAULT_MODE_ID,
+   ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++  ANTIGRAVITY_SKIP_PERMISSIONS_FLAG,
+   AntigravityACPAgentClient,
+   buildAntigravitySessionMeta,
+   resolveAntigravityCatalogModels,
+   resolveAntigravityConfiguredSelection,
+   resolveAntigravityDefaultCommand,
++  shouldSkipAntigravityPermissions,
+   transformAntigravityConfigOptions,
+   transformAntigravitySessionResponse,
+   writeAntigravityProviderMode,
+@@ -298,4 +300,48 @@ describe("AntigravityACPAgentClient", () => {
+     });
+     expect(passthrough).toEqual({ handled: false });
+   });
++
++  test("adds --dangerously-skip-permissions for full-access/auto_accept and advertises promptTurnTakeoverSteer", () => {
++    expect(shouldSkipAntigravityPermissions({ modeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID })).toBe(true);
++    expect(
++      shouldSkipAntigravityPermissions({
++        modeId: ANTIGRAVITY_DEFAULT_MODE_ID,
++        providerOptions: { auto_accept: true },
++      }),
++    ).toBe(true);
++    expect(shouldSkipAntigravityPermissions({ modeId: ANTIGRAVITY_DEFAULT_MODE_ID })).toBe(false);
++
++    expect(
++      resolveAntigravityDefaultCommand(undefined, { skipPermissions: true }),
++    ).toEqual(["agy", "acp", ANTIGRAVITY_SKIP_PERMISSIONS_FLAG]);
++    expect(
++      resolveAntigravityDefaultCommand(
++        { command: { mode: "append", args: [ANTIGRAVITY_SKIP_PERMISSIONS_FLAG] } },
++        { skipPermissions: true },
++      ),
++    ).toEqual(["agy", "acp"]);
++    expect(
++      resolveAntigravityDefaultCommand(
++        { command: { mode: "replace", argv: ["/usr/local/bin/agy", "acp"] } },
++        { skipPermissions: true },
++      ),
++    ).toEqual(["/usr/local/bin/agy", ANTIGRAVITY_SKIP_PERMISSIONS_FLAG]);
++
++    const client = new AntigravityACPAgentClient({ logger: createTestLogger() }) as unknown as {
++      capabilities: { promptTurnTakeoverSteer?: boolean };
++      resolveSessionDefaultCommand: (config: {
++        provider: string;
++        cwd: string;
++        modeId?: string;
++      }) => [string, ...string[]];
++    };
++    expect(client.capabilities.promptTurnTakeoverSteer).toBe(true);
++    expect(
++      client.resolveSessionDefaultCommand({
++        provider: "antigravity",
++        cwd: "/tmp/test",
++        modeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
++      }),
++    ).toEqual(["agy", "acp", ANTIGRAVITY_SKIP_PERMISSIONS_FLAG]);
++  });
+ });
+diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
+index b1e06f3..57d6d60 100644
+--- a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
++++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
+@@ -35,10 +35,21 @@ import { createAntigravityProviderHooks } from "./antigravity/native-bridge.js";
+ 
+ const ANTIGRAVITY_CAPABILITIES: AgentCapabilityFlags = {
+   ...DEFAULT_ACP_CAPABILITIES,
++  promptTurnTakeoverSteer: true,
+ };
+ 
+ export const ANTIGRAVITY_DEFAULT_MODE_ID = "default";
+ export const ANTIGRAVITY_FULL_ACCESS_MODE_ID = "full-access";
++export const ANTIGRAVITY_SKIP_PERMISSIONS_FLAG = "--dangerously-skip-permissions";
++
++export function shouldSkipAntigravityPermissions(
++  config?: Pick<AgentSessionConfig, "modeId" | "providerOptions">,
++): boolean {
++  return (
++    config?.modeId === ANTIGRAVITY_FULL_ACCESS_MODE_ID ||
++    config?.providerOptions?.["auto_accept"] === true
++  );
++}
+ 
+ const FULL_ACCESS_MODE_DESCRIPTION = "Skip all permission prompts";
+ const LEGACY_THINKING_SUFFIX_PATTERN = /^(.*)-(low|medium|high|xhigh)$/;
+@@ -52,15 +63,34 @@ interface AntigravityACPAgentClientOptions {
+ 
+ export function resolveAntigravityDefaultCommand(
+   runtimeSettings?: ProviderRuntimeSettings,
++  options?: { skipPermissions?: boolean },
+ ): [string, ...string[]] {
++  const skipPermissions = options?.skipPermissions === true;
+   if (
+     runtimeSettings?.command?.mode === "replace" &&
+     runtimeSettings.command.argv.length > 0 &&
+     runtimeSettings.command.argv.includes("acp")
+   ) {
+-    return [runtimeSettings.command.argv[0]];
++    const base: [string, ...string[]] = [runtimeSettings.command.argv[0]];
++    if (
++      skipPermissions &&
++      !runtimeSettings.command.argv.includes(ANTIGRAVITY_SKIP_PERMISSIONS_FLAG)
++    ) {
++      base.push(ANTIGRAVITY_SKIP_PERMISSIONS_FLAG);
++    }
++    return base;
+   }
+-  return ["agy", "acp"];
++  const base: [string, ...string[]] = ["agy", "acp"];
++  if (
++    skipPermissions &&
++    !(
++      runtimeSettings?.command?.mode === "append" &&
++      runtimeSettings.command.args?.includes(ANTIGRAVITY_SKIP_PERMISSIONS_FLAG)
++    )
++  ) {
++    base.push(ANTIGRAVITY_SKIP_PERMISSIONS_FLAG);
++  }
++  return base;
+ }
+ 
+ export function buildAntigravitySessionMeta(
+@@ -300,6 +330,12 @@ export class AntigravityACPAgentClient extends ACPAgentClient {
+     });
+   }
+ 
++  protected override resolveSessionDefaultCommand(config: AgentSessionConfig): [string, ...string[]] {
++    return resolveAntigravityDefaultCommand(this.runtimeSettings, {
++      skipPermissions: shouldSkipAntigravityPermissions(config),
++    });
++  }
++
+   override async isAvailable(): Promise<boolean> {
+     try {
+       const launch = await resolveProviderLaunch({
+diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
+index 93d6925..154130c 100644
+--- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
++++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
+@@ -9,9 +9,13 @@ import type { AgentStreamEvent } from "../../agent-sdk-types.js";
+ import type { ACPProviderHookContext } from "../acp-agent.js";
+ import { createAntigravityProviderHooks } from "./native-bridge.js";
+ import {
++  isManageTaskNotRunningError,
+   parseBackgroundTaskSpawn,
++  parseManageTaskListIds,
++  parseManageTaskStatusResult,
+   parseSubagentSpawn,
+   parseSystemMessageSenders,
++  readAntigravityNumberArg,
+   unwrapAntigravityArgString,
+ } from "./transcript-log.js";
+ 
+@@ -600,6 +604,7 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+       expect(harness.events.findLast((event) => event.type === "turn_completed")).toEqual({
+         type: "turn_completed",
+         provider: "antigravity",
++        turnId: expect.stringMatching(/^agy-wakeup-/),
+       });
+       expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
+         type: "background_work",
+@@ -610,4 +615,317 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+       sessionHandle?.onClose?.();
+     }
+   });
++
++  test("parses schedule durations and manage_task status/list/error outputs", () => {
++    expect(readAntigravityNumberArg("3")).toBe(3);
++    expect(readAntigravityNumberArg('"120"')).toBe(120);
++    expect(readAntigravityNumberArg(5)).toBe(5);
++    expect(readAntigravityNumberArg("abc")).toBeNull();
++
++    expect(isManageTaskNotRunningError("task is not running")).toBe(true);
++    expect(isManageTaskNotRunningError("Still running")).toBe(false);
++
++    expect(
++      parseManageTaskStatusResult("Task: sess-1/task-9\nStatus: COMPLETED\nExitCode: 0"),
++    ).toEqual({
++      taskId: "sess-1/task-9",
++      status: "COMPLETED",
++    });
++
++    expect(parseManageTaskListIds("No background tasks are currently running.")).toEqual([]);
++    expect(
++      parseManageTaskListIds(
++        'You have 1 background task(s) currently running:\n[{"taskId":"sess-1/task-2"}]',
++      ),
++    ).toEqual(["sess-1/task-2"]);
++  });
++
++  test("clears TimerCondition schedule entry silently when target task completes", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "start shell and schedule");
++
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 1,
++          source: "MODEL",
++          type: "PLANNER_RESPONSE",
++          status: "DONE",
++          tool_calls: [
++            {
++              name: "run_command",
++              args: { CommandLine: "sleep 4", WaitMsBeforeAsync: "500" },
++            },
++            {
++              name: "schedule",
++              args: {
++                DurationSeconds: '"120"',
++                Prompt: "Wait for task-1 completion",
++                TimerCondition: "11111111-2222-4333-8444-555555555555/task-1",
++              },
++            },
++          ],
++        })}\n`,
++      );
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 2,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "RUNNING",
++          content:
++            "Command is still running in the background with task ID: 11111111-2222-4333-8444-555555555555/task-1.",
++        })}\n`,
++      );
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 3,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "RUNNING",
++          content:
++            "Scheduled task started with task ID: 11111111-2222-4333-8444-555555555555/task-2.",
++        })}\n`,
++      );
++
++      await expect
++        .poll(() =>
++          harness.events.filter((e) => e.type === "background_work").at(-1),
++        )
++        .toMatchObject({
++          type: "background_work",
++          items: [
++            { id: "11111111-2222-4333-8444-555555555555/task-1", kind: "shell" },
++            { id: "11111111-2222-4333-8444-555555555555/task-2", kind: "other" },
++          ],
++        });
++      expect(harness.hooks.canStopRuntime?.(harness.ctx)).toBe(false);
++
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 4,
++          source: "SYSTEM",
++          type: "SYSTEM_MESSAGE",
++          status: "DONE",
++          content:
++            "[Message] sender=11111111-2222-4333-8444-555555555555/task-1 content=Command finished.",
++        })}\n`,
++      );
++
++      await expect
++        .poll(() => harness.events.filter((e) => e.type === "background_work").at(-1))
++        .toEqual({
++          type: "background_work",
++          provider: "antigravity",
++          items: [],
++        });
++      expect(harness.hooks.canStopRuntime?.(harness.ctx)).toBe(true);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("reconciles manage_task status, send_input error, and list outputs", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "run");
++
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 1,
++          source: "MODEL",
++          type: "PLANNER_RESPONSE",
++          status: "DONE",
++          tool_calls: [
++            { name: "run_command", args: { CommandLine: "echo a" } },
++            { name: "run_command", args: { CommandLine: "echo b" } },
++            { name: "run_command", args: { CommandLine: "echo c" } },
++          ],
++        })}\n${JSON.stringify({
++          step_index: 2,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "RUNNING",
++          content: "Task ID: sess/task-1.",
++        })}\n${JSON.stringify({
++          step_index: 3,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "RUNNING",
++          content: "Task ID: sess/task-2.",
++        })}\n${JSON.stringify({
++          step_index: 4,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "RUNNING",
++          content: "Task ID: sess/task-3.",
++        })}\n`,
++      );
++
++      await expect
++        .poll(() => {
++          const last = harness.events.filter((e) => e.type === "background_work").at(-1);
++          return last?.type === "background_work" ? last.items?.length ?? 0 : 0;
++        })
++        .toBe(3);
++
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 5,
++          source: "MODEL",
++          type: "PLANNER_RESPONSE",
++          status: "DONE",
++          tool_calls: [
++            { name: "manage_task", args: { Action: "status", TaskId: "sess/task-1" } },
++            { name: "manage_task", args: { Action: "send_input", TaskId: "sess/task-2" } },
++            { name: "manage_task", args: { Action: "list" } },
++          ],
++        })}\n${JSON.stringify({
++          step_index: 6,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "DONE",
++          content: "Task: sess/task-1\nStatus: COMPLETED",
++        })}\n${JSON.stringify({
++          step_index: 7,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "ERROR",
++          content: "task is not running",
++        })}\n${JSON.stringify({
++          step_index: 8,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "DONE",
++          content: "No background tasks are currently running.",
++        })}\n`,
++      );
++
++      await expect
++        .poll(() => harness.events.filter((e) => e.type === "background_work").at(-1))
++        .toEqual({
++          type: "background_work",
++          provider: "antigravity",
++          items: [],
++        });
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("releases active turn hold immediately when steered", async () => {
++    const harness = createHarness();
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "start long shell");
++      appendFileSync(
++        harness.transcriptPath,
++        `${JSON.stringify({
++          step_index: 1,
++          source: "MODEL",
++          type: "PLANNER_RESPONSE",
++          status: "DONE",
++          tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 60" } }],
++        })}\n${JSON.stringify({
++          step_index: 2,
++          source: "MODEL",
++          type: "GENERIC",
++          status: "RUNNING",
++          content: "Task ID: sess/task-99.",
++        })}\n`,
++      );
++
++      await expect.poll(() => harness.hooks.canStopRuntime?.(harness.ctx)).toBe(false);
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      expect(holdPromise).toBeInstanceOf(Promise);
++
++      let resolved = false;
++      void holdPromise?.then(() => {
++        resolved = true;
++      });
++      await new Promise((r) => setTimeout(r, 40));
++      expect(resolved).toBe(false);
++
++      harness.hooks.onForegroundTurnSteered?.(harness.ctx, "new instruction");
++      await expect(holdPromise).resolves.toBeUndefined();
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("detects OAuth 401 refresh boundary in acp-server log and triggers continuation", async () => {
++    const antigravityHome = createTempAntigravityHome();
++    const sessionId = "22222222-3333-4444-8555-666666666666";
++    const transcriptPath = getTranscriptPath(antigravityHome, sessionId);
++    const logDir = path.join(antigravityHome, "log");
++    mkdirSync(path.dirname(transcriptPath), { recursive: true });
++    mkdirSync(logDir, { recursive: true });
++    const serverLogPath = path.join(logDir, "acp-server-4242.log");
++    writeFileSync(serverLogPath, "acp server started\n", "utf8");
++    writeFileSync(transcriptPath, "", "utf8");
++
++    const retryCalls: Array<{ reason: string; adoptTurnId?: string }> = [];
++    const hooks = createAntigravityProviderHooks({
++      antigravityHome,
++      pollIntervalMs: 20,
++      heldPollIntervalMs: 10,
++      postSettleWaitMs: 50,
++      authRefreshMinGraceMs: 10,
++      authRefreshWaitMs: 400,
++      authLogFlushGraceMs: 10,
++    });
++    const ctx: ACPProviderHookContext = {
++      acpSessionId: sessionId,
++      provider: "antigravity",
++      logger: createTestLogger(),
++      emit: () => {},
++      isForegroundTurnActive: () => true,
++      lastStreamedContentAt: () => null,
++      childPid: () => 4242,
++      retryActiveOrOpenTurn: async (_prompt, reason, adoptTurnId) => {
++        retryCalls.push({ reason, adoptTurnId });
++        return true;
++      },
++    };
++    const handle = hooks.onSessionReady?.(ctx);
++    try {
++      hooks.onForegroundTurnStarting?.(ctx, "long job");
++      appendFileSync(
++        serverLogPath,
++        [
++          "agent executor error: generating and executing: UNAUTHENTICATED (code 401)",
++          "token refreshed, new expiry=2026-11-15T12:41:18Z",
++          "",
++        ].join("\n"),
++      );
++
++      const recovered = await hooks.recoverFromPromptError?.({
++        ...ctx,
++        turnId: "turn-1",
++        error: new Error("UNAUTHENTICATED (code 401)"),
++        signal: new AbortController().signal,
++      });
++      expect(recovered).toBe(true);
++      expect(retryCalls).toHaveLength(1);
++      expect(retryCalls[0]?.reason).toBe("direct_prompt_error_401");
++      expect(hooks.verifyTurnOutcome?.(ctx)).toBeNull();
++    } finally {
++      handle?.onClose?.();
++    }
++  });
+ });
+diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
+index dbd750b..405607c 100644
+--- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
++++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
+@@ -1,3 +1,7 @@
++import { randomUUID } from "node:crypto";
++import { readdirSync, readFileSync, statSync } from "node:fs";
++import { open, readdir, stat } from "node:fs/promises";
++import path from "node:path";
+ import { setTimeout as delay } from "node:timers/promises";
+ 
+ import type { Logger } from "pino";
+@@ -8,16 +12,25 @@ import type {
+   AgentTimelineItem,
+ } from "../../agent-sdk-types.js";
+ import type { AgentBackgroundWorkInput } from "../../background-work/index.js";
+-import { extractPromptText, type ACPProviderHookContext, type ACPProviderHooks } from "../acp-agent.js";
++import {
++  extractPromptText,
++  type ACPProviderHookContext,
++  type ACPProviderHooks,
++} from "../acp-agent.js";
+ import {
+   AntigravityTranscriptLog,
+   buildAntigravityRunningToolItem,
+   buildAntigravitySettledToolItem,
+   computeCheckpointPreTokens,
+   isAntigravityTruthyArg,
++  isManageTaskNotRunningError,
+   parseBackgroundTaskSpawn,
++  parseManageTaskListIds,
++  parseManageTaskStatusResult,
+   parseSubagentSpawn,
+   parseSystemMessageSenders,
++  readAntigravityNumberArg,
++  resolveAntigravityHome,
+   unwrapAntigravityArgString,
+   unwrapAntigravityStringArrayArg,
+   type AntigravityToolCallEntry,
+@@ -26,12 +39,30 @@ import {
+ 
+ export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
+ export const HELD_ANTIGRAVITY_POLL_INTERVAL_MS = 250;
+-export const ANTIGRAVITY_TURN_HOLD_TIMEOUT_MS = 15 * 60 * 1000;
++export const ANTIGRAVITY_TURN_HOLD_TIMEOUT_MS = 60 * 60 * 1000;
++export const SCHEDULE_EXPIRY_GRACE_MS = 15_000;
++export const DEFAULT_MAX_AUTH_EXPIRY_RETRIES = 2;
++export const ANTIGRAVITY_AUTH_RECOVERY_PROMPT =
++  "<paseo-system>\nPrevious model request was interrupted by a transient OAuth access-token refresh boundary (HTTP 401); token refresh has completed. Continue seamlessly from where you left off without repeating completed steps.\n</paseo-system>";
++
+ const STREAM_FLUSH_GRACE_MS = 1_500;
+ /** How long a foreground `/compact` turn waits for the checkpoint it will write. */
+ const COMPACT_CHECKPOINT_WAIT_MS = 60_000;
+-const DEFAULT_POST_SETTLE_WAIT_MS = 3_000;
+-const DEFAULT_POST_SETTLE_TOOL_WAIT_MS = 15_000;
++const DEFAULT_POST_SETTLE_WAIT_MS = 90_000;
++const DEFAULT_POST_SETTLE_TOOL_WAIT_MS = 180_000;
++const AUTH_EXECUTOR_401_RE =
++  /agent executor error:\s*generating and executing:\s*UNAUTHENTICATED \(code 401\)/i;
++const AUTH_TOKEN_REFRESHED_RE = /\btoken refreshed,\s*new expiry=/i;
++const AUTH_FATAL_LOGIN_RE =
++  /\binvalid_grant\b|refresh token.*expired|You are not logged into Antigravity/i;
++const AUTH_401_DEDUPE_MS = 1_500;
++const PRE_REFRESH_WINDOW_MS = 90_000;
++const DEFAULT_AUTH_REFRESH_MIN_GRACE_MS = 1_200;
++const DEFAULT_AUTH_REFRESH_WAIT_MS = 6_000;
++const DEFAULT_AUTH_LOG_FLUSH_GRACE_MS = 120;
++const SERVER_LOG_READ_CHUNK_BYTES = 256 * 1024;
++const UNRECOVERABLE_AUTH_401_MESSAGE =
++  "Antigravity OAuth access token expired (HTTP 401) and automatic continuation failed; please check `agy` login status or send '继续' to retry.";
+ 
+ interface TrackedBackgroundEntry {
+   id: string;
+@@ -39,6 +70,8 @@ interface TrackedBackgroundEntry {
+   blocking: boolean;
+   description: string | null;
+   command?: string;
++  timerCondition?: string;
++  expiresAtMs?: number;
+ }
+ 
+ interface PendingStepToolEntry {
+@@ -51,6 +84,12 @@ interface RenderedCallRef {
+   callId: string;
+ }
+ 
++interface RemoveTrackedTaskSettleOptions {
++  render: boolean;
++  failed?: boolean;
++  output?: string | null;
++}
++
+ export interface AntigravityNativeBridgeOptions {
+   sessionId: string;
+   antigravityHome?: string;
+@@ -59,11 +98,22 @@ export interface AntigravityNativeBridgeOptions {
+   emit: (event: AgentStreamEvent) => void;
+   isForegroundTurnActive?: () => boolean;
+   lastStreamedContentAt?: () => number | null;
++  childPid?: (() => number | null) | number | null;
++  serverLogPath?: string;
++  onTransientAuthRecovery?: (
++    prompt: string,
++    reason: string,
++    adoptTurnId?: string,
++  ) => Promise<boolean> | boolean;
+   pollIntervalMs?: number;
+   heldPollIntervalMs?: number;
+   postSettleWaitMs?: number;
+   postSettleToolWaitMs?: number;
+   streamFlushGraceMs?: number;
++  maxAuthExpiryRetries?: number;
++  authRefreshMinGraceMs?: number;
++  authRefreshWaitMs?: number;
++  authLogFlushGraceMs?: number;
+   now?: () => number;
+ }
+ 
+@@ -75,24 +125,42 @@ export interface AntigravityProviderHooksOptions {
+   postSettleWaitMs?: number;
+   postSettleToolWaitMs?: number;
+   streamFlushGraceMs?: number;
++  maxAuthExpiryRetries?: number;
++  authRefreshMinGraceMs?: number;
++  authRefreshWaitMs?: number;
++  authLogFlushGraceMs?: number;
+ }
+ 
+ /**
+  * Bridges Antigravity's on-disk `transcript.jsonl` to Paseo stream events:
+  *
+- * 1. Background `run_command` tasks (`task-<N>`) and `invoke_subagent` children
+- *    often keep running after `agy acp` returns `end_turn`, and their later
+- *    wakeup turns are written only to `transcript.jsonl` (0 bytes on ACP stdio).
+- *    The bridge exposes live `background_work`, holds the foreground turn until
+- *    non-daemon background work settles, renders unstreamed wakeup turns into
+- *    the held foreground turn (or opens an autonomous turn if woken up later),
+- *    and blocks idle runtime reaper collection while blocking work is active.
++ * 1. Background `run_command` tasks (`task-<N>`), `schedule` timers, and
++ *    `invoke_subagent` children often keep running after `agy acp` returns
++ *    `end_turn`, and their later wakeup turns are written only to
++ *    `transcript.jsonl` (0 bytes on ACP stdio). The bridge exposes live
++ *    `background_work`, holds the foreground turn until non-daemon background
++ *    work settles, renders unstreamed wakeup turns into the held foreground
++ *    turn (or opens an explicit `agy-wakeup-*` turn if woken up later), and
++ *    blocks idle runtime reaper collection while blocking work is active.
+  * 2. `/compact` and auto-compaction write `SYSTEM/CHECKPOINT` to `transcript.jsonl`
+  *    while ACP emits only `usage_update` + `end_turn`. The bridge emits a
+  *    native `compaction` timeline marker (`manual` or `auto`).
++ * 3. Detects `acp-server-*.log` OAuth 401 refresh boundary exits and schedules
++ *    transparent continuation once token refresh settles.
+  */
+ export class AntigravityNativeBridge {
+   private readonly log: AntigravityTranscriptLog;
++  private readonly sessionId: string;
++  private readonly logger: Logger;
++  private readonly antigravityHome: string;
++  private readonly getChildPid: () => number | null;
++  private readonly onTransientAuthRecovery:
++    | ((prompt: string, reason: string, adoptTurnId?: string) => Promise<boolean> | boolean)
++    | null;
++  private readonly maxAuthExpiryRetries: number;
++  private readonly authRefreshMinGraceMs: number;
++  private readonly authRefreshWaitMs: number;
++  private readonly authLogFlushGraceMs: number;
+   private readonly provider: AgentProvider;
+   private readonly emit: (event: AgentStreamEvent) => void;
+   private readonly isForegroundTurnActive: () => boolean;
+@@ -114,11 +182,14 @@ export class AntigravityNativeBridge {
+   private lastForegroundEndedAt: number | null = null;
+ 
+   private inTurnHold = false;
++  private steeredOutOfHold = false;
+   private holdEpochSawWakeup = false;
+   private awaitingPostSettleResponse = false;
+   private postSettleFinalPlannerSeen = false;
+   private postSettleDeadline: number | null = null;
+   private idleWakeupActive = false;
++  private idleWakeupTurnId: string | null = null;
++  private idleWakeupTimer: ReturnType<typeof setTimeout> | null = null;
+ 
+   private readonly pendingStepTools: PendingStepToolEntry[] = [];
+   private readonly trackedTasks = new Map<string, TrackedBackgroundEntry>();
+@@ -128,7 +199,32 @@ export class AntigravityNativeBridge {
+   private emittedAnyBackgroundWork = false;
+   private syntheticCallOrdinal = 0;
+ 
++  private resolvedServerLogPath: string | null;
++  private serverLogInitialized = false;
++  private serverLogOffset = 0;
++  private serverLogReading: Promise<void> | null = null;
++  private lastTokenRefreshedAt: number | null = null;
++  private lastAuth401DetectedAt: number | null = null;
++  private pendingAuth401At: number | null = null;
++  private authExpiryRetryCount = 0;
++  private fatalAuthFailureSeen = false;
++  private unrecoverableAuthError: string | null = null;
++  private recoveringAutonomousAuth401 = false;
++  private lastTranscriptStepNeedsModelFollowup = false;
++
+   constructor(options: AntigravityNativeBridgeOptions) {
++    this.sessionId = options.sessionId;
++    this.logger = options.logger;
++    this.antigravityHome = resolveAntigravityHome(options.antigravityHome);
++    this.getChildPid =
++      typeof options.childPid === "function" ? options.childPid : () => options.childPid ?? null;
++    this.resolvedServerLogPath = options.serverLogPath ?? null;
++    this.onTransientAuthRecovery = options.onTransientAuthRecovery ?? null;
++    this.maxAuthExpiryRetries = options.maxAuthExpiryRetries ?? DEFAULT_MAX_AUTH_EXPIRY_RETRIES;
++    this.authRefreshMinGraceMs =
++      options.authRefreshMinGraceMs ?? DEFAULT_AUTH_REFRESH_MIN_GRACE_MS;
++    this.authRefreshWaitMs = options.authRefreshWaitMs ?? DEFAULT_AUTH_REFRESH_WAIT_MS;
++    this.authLogFlushGraceMs = options.authLogFlushGraceMs ?? DEFAULT_AUTH_LOG_FLUSH_GRACE_MS;
+     this.provider = options.provider;
+     this.emit = options.emit;
+     this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
+@@ -152,6 +248,7 @@ export class AntigravityNativeBridge {
+       return;
+     }
+     this.started = true;
++    this.initializeServerLogBaselineSync();
+     this.log.start();
+     this.scheduleNextPoll();
+   }
+@@ -165,6 +262,7 @@ export class AntigravityNativeBridge {
+       clearTimeout(this.pollTimer);
+       this.pollTimer = null;
+     }
++    this.closeIdleWakeupTurn();
+     this.log.stop();
+     this.trackedTasks.clear();
+     this.trackedSubagents.clear();
+@@ -181,16 +279,60 @@ export class AntigravityNativeBridge {
+       return;
+     }
+     await this.log.pollNow();
++    this.pruneExpiredTrackedTasks();
++    await this.pollServerLog();
++    if (
++      !this.stopped &&
++      !this.inTurnHold &&
++      !this.isForegroundTurnActive() &&
++      this.pendingAuth401At !== null &&
++      (this.idleWakeupActive || this.idleWakeupTurnId !== null) &&
++      !this.recoveringAutonomousAuth401
++    ) {
++      await this.recoverAutonomousWakeupAuth401();
++    }
+   }
+ 
+   markPromptSubmitted(promptText: string | null): void {
++    const isRecovery = isAuthRecoveryPrompt(promptText);
+     this.pendingManualCompact = promptText !== null && isCompactSlashCommand(promptText);
+-    this.idleWakeupActive = false;
++    if (!isRecovery) {
++      this.closeIdleWakeupTurn();
++      this.authExpiryRetryCount = 0;
++      this.fatalAuthFailureSeen = false;
++      this.unrecoverableAuthError = null;
++      this.pendingAuth401At = null;
++      this.lastAuth401DetectedAt = null;
++    }
++    this.lastTranscriptStepNeedsModelFollowup = true;
+     this.awaitingPostSettleResponse = false;
+     this.postSettleFinalPlannerSeen = false;
+     this.postSettleDeadline = null;
+   }
+ 
++  markSteerSubmitted(promptText: string | null): void {
++    const isRecovery = isAuthRecoveryPrompt(promptText);
++    this.pendingManualCompact = promptText !== null && isCompactSlashCommand(promptText);
++    this.awaitingPostSettleResponse = false;
++    this.postSettleFinalPlannerSeen = false;
++    this.postSettleDeadline = null;
++    if (!isRecovery) {
++      this.authExpiryRetryCount = 0;
++      this.fatalAuthFailureSeen = false;
++      this.unrecoverableAuthError = null;
++      this.pendingAuth401At = null;
++      this.lastAuth401DetectedAt = null;
++    }
++    this.lastTranscriptStepNeedsModelFollowup = true;
++    if (this.inTurnHold) {
++      this.holdEpochSawWakeup = false;
++      this.steeredOutOfHold = true;
++      this.wakeHoldLoop();
++    } else if (!isRecovery) {
++      this.closeIdleWakeupTurn();
++    }
++  }
++
+   hasBlockingBackgroundWork(): boolean {
+     for (const entry of this.trackedTasks.values()) {
+       if (entry.blocking) {
+@@ -241,25 +383,53 @@ export class AntigravityNativeBridge {
+     await this.pollNow();
+     await this.awaitCompactCheckpoint(signal);
+     if (!this.hasBlockingBackgroundWork()) {
++      if (
++        this.pendingAuth401At === null &&
++        this.lastTranscriptStepNeedsModelFollowup &&
++        this.authLogFlushGraceMs > 0
++      ) {
++        await this.waitHoldStep(this.authLogFlushGraceMs, signal);
++        await this.pollServerLog();
++      }
++      if (this.pendingAuth401At !== null) {
++        await this.tryRecoverPendingAuth401(signal, "foreground_end_turn");
++        this.lastForegroundEndedAt = this.now();
++        return;
++      }
+       this.lastForegroundEndedAt = this.now();
+       return;
+     }
+ 
+     const deadline = this.now() + timeoutMs;
++    this.closeIdleWakeupTurn();
++    this.steeredOutOfHold = false;
+     this.inTurnHold = true;
+     this.holdEpochSawWakeup = false;
+     this.awaitingPostSettleResponse = false;
+     this.postSettleFinalPlannerSeen = false;
+     this.postSettleDeadline = null;
+ 
+-    const onAbort = (): void => {
++    const onAbort = () => {
+       this.wakeHoldLoop();
+     };
+     signal?.addEventListener("abort", onAbort, { once: true });
+ 
+     try {
+       while (!this.stopped && !signal?.aborted) {
++        if (this.steeredOutOfHold) {
++          break;
++        }
+         await this.pollNow();
++        if (this.steeredOutOfHold) {
++          break;
++        }
++
++        if (this.pendingAuth401At !== null && !this.hasBlockingBackgroundWork()) {
++          const outcome = await this.tryRecoverPendingAuth401(signal, "hold_wakeup_401");
++          if (outcome === "dispatched" || outcome === "exhausted" || outcome === "aborted") {
++            break;
++          }
++        }
+ 
+         if (this.hasBlockingBackgroundWork()) {
+           this.awaitingPostSettleResponse = false;
+@@ -275,16 +445,21 @@ export class AntigravityNativeBridge {
+         if (nowMs >= deadline) {
+           break;
+         }
++
+         const nextWaitCap = Math.min(this.heldPollIntervalMs, Math.max(1, deadline - nowMs));
+         const waitMs =
+           this.postSettleDeadline !== null
+             ? Math.min(nextWaitCap, Math.max(1, this.postSettleDeadline - nowMs))
+             : nextWaitCap;
+         await this.waitHoldStep(waitMs, signal);
++        if (this.steeredOutOfHold) {
++          break;
++        }
+       }
+     } finally {
+       signal?.removeEventListener("abort", onAbort);
+       this.inTurnHold = false;
++      this.steeredOutOfHold = false;
+       this.holdEpochSawWakeup = false;
+       this.awaitingPostSettleResponse = false;
+       this.postSettleFinalPlannerSeen = false;
+@@ -323,7 +498,7 @@ export class AntigravityNativeBridge {
+     }
+     await new Promise<void>((resolve) => {
+       let settled = false;
+-      const done = (): void => {
++      const done = () => {
+         if (settled) {
+           return;
+         }
+@@ -346,9 +521,12 @@ export class AntigravityNativeBridge {
+   private handleRecord(record: AntigravityTranscriptRecord): void {
+     if (record.source === "USER_EXPLICIT" && record.type === "USER_INPUT") {
+       this.pendingStepTools.length = 0;
+-      this.lastUserInputText = record.content;
++      this.lastTranscriptStepNeedsModelFollowup = true;
++      if (!isAuthRecoveryPrompt(record.content)) {
++        this.lastUserInputText = record.content;
++      }
+       if (!this.inTurnHold) {
+-        this.idleWakeupActive = false;
++        this.closeIdleWakeupTurn();
+       }
+       return;
+     }
+@@ -359,7 +537,8 @@ export class AntigravityNativeBridge {
+         !manualFromPrompt &&
+         this.lastUserInputText !== null &&
+         isCompactSlashCommand(this.lastUserInputText);
+-      const trigger: "manual" | "auto" = manualFromPrompt || manualFromTranscript ? "manual" : "auto";
++      const trigger: "manual" | "auto" =
++        manualFromPrompt || manualFromTranscript ? "manual" : "auto";
+       this.pendingManualCompact = false;
+       if (manualFromTranscript) {
+         this.lastUserInputText = null;
+@@ -415,6 +594,11 @@ export class AntigravityNativeBridge {
+ 
+     const renderThisStep = this.shouldRenderCurrentStep();
+     const hasToolCalls = record.toolCalls.length > 0;
++    this.authExpiryRetryCount = 0;
++    this.fatalAuthFailureSeen = false;
++    this.unrecoverableAuthError = null;
++    this.pendingAuth401At = null;
++    this.lastTranscriptStepNeedsModelFollowup = hasToolCalls;
+ 
+     if (renderThisStep && record.thinking && record.thinking.trim().length > 0) {
+       this.emitTimelineItem({
+@@ -424,7 +608,10 @@ export class AntigravityNativeBridge {
+     }
+ 
+     for (let idx = 0; idx < record.toolCalls.length; idx++) {
+-      const call = record.toolCalls[idx]!;
++      const call = record.toolCalls[idx];
++      if (!call) {
++        continue;
++      }
+       let renderedCallId: string | null = null;
+       if (renderThisStep) {
+         renderedCallId = `agy-step-${record.stepIndex ?? this.syntheticCallOrdinal++}-tc-${idx}`;
+@@ -448,19 +635,22 @@ export class AntigravityNativeBridge {
+           this.postSettleFinalPlannerSeen = true;
+           this.wakeHoldLoop();
+         }
+-      } else if (
+-        !this.inTurnHold &&
+-        this.idleWakeupActive &&
+-        !hasToolCalls &&
+-        !this.hasBlockingBackgroundWork()
+-      ) {
+-        this.idleWakeupActive = false;
+-        this.emit({ type: "turn_completed", provider: this.provider });
++      } else if (!this.inTurnHold && this.idleWakeupActive) {
++        if (hasToolCalls) {
++          this.armIdleWakeupTimer(this.postSettleToolWaitMs);
++        } else if (!this.hasBlockingBackgroundWork()) {
++          this.closeIdleWakeupTurn();
++        } else {
++          this.clearIdleWakeupTimer();
++        }
+       }
+     }
+   }
+ 
+   private handleGenericToolResult(record: AntigravityTranscriptRecord): void {
++    if (record.status !== "RUNNING") {
++      this.lastTranscriptStepNeedsModelFollowup = true;
++    }
+     const stepTool = this.pendingStepTools.shift() ?? null;
+     const call = stepTool?.call ?? null;
+     const renderedCallId = stepTool?.renderedCallId ?? null;
+@@ -468,27 +658,63 @@ export class AntigravityNativeBridge {
+     if (record.status === "RUNNING") {
+       const taskSpawn = parseBackgroundTaskSpawn(record.content);
+       if (taskSpawn) {
+-        const isDaemon = call?.name === "run_command" && isAntigravityTruthyArg(call.args?.IsDaemon);
+-        const command =
+-          (call?.name === "run_command"
+-            ? unwrapAntigravityArgString(call.args?.CommandLine)
+-            : undefined) ?? (taskSpawn.taskDescription || undefined);
++        const isSchedule = call?.name === "schedule";
++        const isDaemon =
++          (call?.name === "run_command" || isSchedule) &&
++          isAntigravityTruthyArg(call.args?.IsDaemon);
++        const cronExpr = isSchedule
++          ? unwrapAntigravityArgString(call.args?.CronExpression)?.trim()
++          : undefined;
++        const durationSeconds = isSchedule
++          ? readAntigravityNumberArg(call.args?.DurationSeconds)
++          : null;
++        const rawTimerCondition = isSchedule
++          ? unwrapAntigravityArgString(call.args?.TimerCondition)?.trim()
++          : undefined;
++        const timerCondition =
++          rawTimerCondition && rawTimerCondition.toLowerCase() !== "never"
++            ? rawTimerCondition
++            : null;
++        const expiresAtMs =
++          isSchedule &&
++          !isDaemon &&
++          !cronExpr &&
++          durationSeconds !== null &&
++          durationSeconds >= 0
++            ? this.now() + durationSeconds * 1000 + SCHEDULE_EXPIRY_GRACE_MS
++            : null;
++        const command = isSchedule
++          ? undefined
++          : ((call?.name === "run_command"
++              ? unwrapAntigravityArgString(call.args?.CommandLine)
++              : undefined) ?? (taskSpawn.taskDescription || undefined));
+         const summary =
+           (call?.name === "run_command"
+             ? unwrapAntigravityArgString(call.args?.toolSummary)
+-            : undefined) ??
+-          (taskSpawn.taskDescription || (isDaemon ? "Background daemon" : "Background command"));
+-
++            : isSchedule
++              ? taskSpawn.taskDescription || unwrapAntigravityArgString(call.args?.Prompt)
++              : undefined) ??
++          (taskSpawn.taskDescription ||
++            (isDaemon
++              ? "Background daemon"
++              : isSchedule
++                ? "Scheduled timer"
++                : "Background command"));
+         this.trackedTasks.set(taskSpawn.taskId, {
+           id: taskSpawn.taskId,
+-          kind: isDaemon ? "monitor" : "shell",
++          kind: isDaemon ? "monitor" : isSchedule ? "other" : "shell",
+           blocking: !isDaemon,
+           description: summary,
+           ...(command ? { command } : {}),
++          ...(timerCondition ? { timerCondition } : {}),
++          ...(expiresAtMs !== null ? { expiresAtMs } : {}),
+         });
+         if (renderedCallId && call) {
+           this.backgroundToolCalls.set(taskSpawn.taskId, { call, callId: renderedCallId });
+         }
++        if (!this.inTurnHold && this.idleWakeupTurnId !== null && !isDaemon) {
++          this.clearIdleWakeupTimer();
++        }
+         this.emitBackgroundWorkIfChanged();
+         return;
+       }
+@@ -513,12 +739,52 @@ export class AntigravityNativeBridge {
+       backgroundChanged = true;
+     }
+ 
+-    if (record.status === "DONE" && call?.name === "manage_task") {
++    if (call?.name === "manage_task") {
+       const action = unwrapAntigravityArgString(call.args?.Action)?.toLowerCase();
+       const targetTaskId = unwrapAntigravityArgString(call.args?.TaskId);
+-      if (action === "kill" && targetTaskId && this.trackedTasks.delete(targetTaskId)) {
+-        this.backgroundToolCalls.delete(targetTaskId);
+-        backgroundChanged = true;
++      if (
++        action === "kill" &&
++        targetTaskId &&
++        (record.status === "DONE" || isManageTaskNotRunningError(record.content))
++      ) {
++        if (this.removeTrackedTaskMatching(targetTaskId)) {
++          backgroundChanged = true;
++        }
++      } else if (action === "status") {
++        const statusInfo = parseManageTaskStatusResult(record.content);
++        const resolvedId = statusInfo?.taskId ?? targetTaskId;
++        if (
++          resolvedId &&
++          ((statusInfo?.status && statusInfo.status !== "RUNNING") ||
++            isManageTaskNotRunningError(record.content))
++        ) {
++          if (this.removeTrackedTaskMatching(resolvedId)) {
++            backgroundChanged = true;
++          }
++        }
++      } else if (
++        action === "send_input" &&
++        targetTaskId &&
++        isManageTaskNotRunningError(record.content)
++      ) {
++        if (this.removeTrackedTaskMatching(targetTaskId)) {
++          backgroundChanged = true;
++        }
++      } else if (
++        action === "list" &&
++        record.status === "DONE" &&
++        !record.truncatedFields.includes("content")
++      ) {
++        const activeIds = parseManageTaskListIds(record.content);
++        if (activeIds !== null) {
++          for (const key of Array.from(this.trackedTasks.keys())) {
++            if (!activeIds.some((activeId) => matchesAntigravityTaskId(key, activeId))) {
++              this.trackedTasks.delete(key);
++              this.backgroundToolCalls.delete(key);
++              backgroundChanged = true;
++            }
++          }
++        }
+       }
+     }
+ 
+@@ -545,34 +811,68 @@ export class AntigravityNativeBridge {
+ 
+     if (renderedCallId && call) {
+       const failed = record.status === "ERROR" || record.status === "INVALID";
+-      this.emitTimelineItem(buildAntigravitySettledToolItem(call, renderedCallId, failed, record.content));
++      this.emitTimelineItem(
++        buildAntigravitySettledToolItem(call, renderedCallId, failed, record.content),
++      );
+     }
+ 
+     if (this.inTurnHold && this.awaitingPostSettleResponse && !this.hasBlockingBackgroundWork()) {
+-      this.postSettleDeadline = this.now() + this.postSettleWaitMs;
++      this.postSettleDeadline =
++        this.now() +
++        (this.pendingStepTools.length > 0 ? this.postSettleToolWaitMs : this.postSettleWaitMs);
++    } else if (!this.inTurnHold && this.idleWakeupTurnId !== null) {
++      if (this.hasBlockingBackgroundWork()) {
++        this.clearIdleWakeupTimer();
++      } else {
++        this.armIdleWakeupTimer(
++          this.pendingStepTools.length > 0 ? this.postSettleToolWaitMs : this.postSettleWaitMs,
++        );
++      }
+     }
+   }
+ 
+   private handleSystemMessage(record: AntigravityTranscriptRecord): void {
++    this.lastTranscriptStepNeedsModelFollowup = true;
+     const senders = parseSystemMessageSenders(record.content);
+     let backgroundChanged = false;
+-    const renderThisStep = this.shouldRenderCurrentStep() || this.inTurnHold || !this.isForegroundTurnActive();
++    const renderThisStep =
++      this.shouldRenderCurrentStep() || this.inTurnHold || !this.isForegroundTurnActive();
+ 
+     for (const sender of senders) {
+-      if (this.trackedTasks.delete(sender)) {
++      const canceledOrFailed = /\b(was canceled|failed)\b/i.test(record.content ?? "");
++      if (
++        this.removeTrackedTaskMatching(sender, {
++          render: renderThisStep,
++          failed: canceledOrFailed,
++          output: record.content,
++        })
++      ) {
+         backgroundChanged = true;
+       }
+       if (this.trackedSubagents.delete(sender)) {
+         backgroundChanged = true;
+       }
+-      const bgTool = this.backgroundToolCalls.get(sender);
+-      if (bgTool) {
+-        this.backgroundToolCalls.delete(sender);
+-        if (renderThisStep) {
+-          const canceledOrFailed = /\b(was canceled|failed)\b/i.test(record.content ?? "");
+-          this.emitTimelineItem(
+-            buildAntigravitySettledToolItem(bgTool.call, bgTool.callId, canceledOrFailed, record.content),
+-          );
++    }
++
++    if (senders.length > 0) {
++      for (const [taskId, entry] of Array.from(this.trackedTasks.entries())) {
++        const cond = entry.timerCondition;
++        if (!cond) {
++          continue;
++        }
++        const matched =
++          cond.toLowerCase() === "any" ||
++          senders.some((sender) => matchesAntigravityTaskId(cond, sender));
++        if (matched) {
++          if (
++            this.removeTrackedTaskMatching(taskId, {
++              render: renderThisStep,
++              failed: false,
++              output: "Timer cancelled early by matching message.",
++            })
++          ) {
++            backgroundChanged = true;
++          }
+         }
+       }
+     }
+@@ -598,6 +898,10 @@ export class AntigravityNativeBridge {
+ 
+     if (!this.isForegroundTurnActive()) {
+       this.idleWakeupActive = true;
++      if (senders.length > 0) {
++        this.ensureIdleWakeupTurn();
++        this.armIdleWakeupTimer(this.postSettleWaitMs);
++      }
+     }
+   }
+ 
+@@ -631,7 +935,73 @@ export class AntigravityNativeBridge {
+     return false;
+   }
+ 
++  private ensureIdleWakeupTurn(): string {
++    if (this.idleWakeupTurnId !== null) {
++      return this.idleWakeupTurnId;
++    }
++    const turnId = `agy-wakeup-${randomUUID()}`;
++    this.idleWakeupTurnId = turnId;
++    this.idleWakeupActive = true;
++    this.emit({
++      type: "turn_started",
++      provider: this.provider,
++      turnId,
++    });
++    return turnId;
++  }
++
++  private clearIdleWakeupTimer(): void {
++    if (this.idleWakeupTimer !== null) {
++      clearTimeout(this.idleWakeupTimer);
++      this.idleWakeupTimer = null;
++    }
++  }
++
++  private armIdleWakeupTimer(timeoutMs: number): void {
++    this.clearIdleWakeupTimer();
++    if (
++      this.stopped ||
++      this.idleWakeupTurnId === null ||
++      this.hasBlockingBackgroundWork() ||
++      this.recoveringAutonomousAuth401
++    ) {
++      return;
++    }
++    this.idleWakeupTimer = setTimeout(() => {
++      this.idleWakeupTimer = null;
++      this.closeIdleWakeupTurn();
++    }, timeoutMs);
++    this.idleWakeupTimer.unref?.();
++  }
++
++  private closeIdleWakeupTurn(): void {
++    this.clearIdleWakeupTimer();
++    this.idleWakeupActive = false;
++    const turnId = this.idleWakeupTurnId;
++    this.idleWakeupTurnId = null;
++    if (turnId !== null) {
++      this.emit({
++        type: "turn_completed",
++        provider: this.provider,
++        turnId,
++      });
++    }
++  }
++
+   private emitTimelineItem(item: AgentTimelineItem): void {
++    if (!this.inTurnHold && !this.isForegroundTurnActive()) {
++      const turnId = this.ensureIdleWakeupTurn();
++      this.emit({
++        type: "timeline",
++        provider: this.provider,
++        item,
++        turnId,
++      });
++      this.armIdleWakeupTimer(
++        this.pendingStepTools.length > 0 ? this.postSettleToolWaitMs : this.postSettleWaitMs,
++      );
++      return;
++    }
+     this.emit({
+       type: "timeline",
+       provider: this.provider,
+@@ -669,6 +1039,486 @@ export class AntigravityNativeBridge {
+       items,
+     });
+   }
++
++  private removeTrackedTaskMatching(
++    candidateId: string,
++    settleOptions?: RemoveTrackedTaskSettleOptions,
++  ): boolean {
++    let removed = false;
++    for (const key of Array.from(this.trackedTasks.keys())) {
++      if (!matchesAntigravityTaskId(key, candidateId)) {
++        continue;
++      }
++      this.trackedTasks.delete(key);
++      removed = true;
++      const bgTool = this.backgroundToolCalls.get(key);
++      if (bgTool) {
++        this.backgroundToolCalls.delete(key);
++        if (settleOptions?.render) {
++          this.emitTimelineItem(
++            buildAntigravitySettledToolItem(
++              bgTool.call,
++              bgTool.callId,
++              Boolean(settleOptions.failed),
++              settleOptions.output ?? null,
++            ),
++          );
++        }
++      }
++    }
++    return removed;
++  }
++
++  private pruneExpiredTrackedTasks(): void {
++    const nowMs = this.now();
++    let removed = false;
++    const render = this.shouldRenderCurrentStep();
++    for (const [key, entry] of Array.from(this.trackedTasks.entries())) {
++      if (typeof entry.expiresAtMs !== "number" || nowMs < entry.expiresAtMs) {
++        continue;
++      }
++      this.trackedTasks.delete(key);
++      removed = true;
++      const bgTool = this.backgroundToolCalls.get(key);
++      if (bgTool) {
++        this.backgroundToolCalls.delete(key);
++        if (render) {
++          this.emitTimelineItem(
++            buildAntigravitySettledToolItem(
++              bgTool.call,
++              bgTool.callId,
++              false,
++              "Scheduled timer elapsed.",
++            ),
++          );
++        }
++      }
++    }
++    if (!removed) {
++      return;
++    }
++    this.emitBackgroundWorkIfChanged();
++    if (!this.hasBlockingBackgroundWork()) {
++      if (this.inTurnHold) {
++        this.wakeHoldLoop();
++      } else if (this.idleWakeupTurnId !== null) {
++        this.armIdleWakeupTimer(this.postSettleWaitMs);
++      }
++    }
++  }
++
++  private initializeServerLogBaselineSync(): void {
++    const logPath = this.findServerLogPathSync();
++    if (!logPath) {
++      return;
++    }
++    this.resolvedServerLogPath = logPath;
++    try {
++      const stats = statSync(logPath);
++      const scanLen = Math.min(stats.size, 512 * 1024);
++      if (scanLen > 0) {
++        const tailText = readFileSync(logPath, "utf8").slice(-scanLen);
++        for (const line of tailText.split(/\r?\n/)) {
++          if (AUTH_TOKEN_REFRESHED_RE.test(line)) {
++            this.lastTokenRefreshedAt = this.now();
++          }
++        }
++      }
++      this.serverLogOffset = stats.size;
++      this.serverLogInitialized = true;
++    } catch {
++      // File may have vanished or not yet be readable; async poll will retry.
++    }
++  }
++
++  private findServerLogPathSync(): string | null {
++    if (this.resolvedServerLogPath) {
++      return this.resolvedServerLogPath;
++    }
++    const pid = this.getChildPid();
++    if (typeof pid !== "number" || pid <= 0) {
++      return null;
++    }
++    const logDir = path.join(this.antigravityHome, "log");
++    let entries: string[];
++    try {
++      entries = readdirSync(logDir);
++    } catch {
++      return null;
++    }
++    const suffix = `-${pid}.log`;
++    const candidates: Array<{ fullPath: string; mtimeMs: number }> = [];
++    for (const name of entries) {
++      if (!name.startsWith("acp-server-") || !name.endsWith(suffix)) {
++        continue;
++      }
++      const fullPath = path.join(logDir, name);
++      try {
++        candidates.push({ fullPath, mtimeMs: statSync(fullPath).mtimeMs });
++      } catch {
++        // Skip vanished file.
++      }
++    }
++    if (candidates.length === 0) {
++      return null;
++    }
++    candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
++    return candidates[0]?.fullPath ?? null;
++  }
++
++  private async resolveServerLogPath(): Promise<string | null> {
++    if (this.resolvedServerLogPath) {
++      return this.resolvedServerLogPath;
++    }
++    const logDir = path.join(this.antigravityHome, "log");
++    let entries: string[];
++    try {
++      entries = await readdir(logDir);
++    } catch {
++      return null;
++    }
++    const acpLogs = entries.filter(
++      (name) => name.startsWith("acp-server-") && name.endsWith(".log"),
++    );
++    if (acpLogs.length === 0) {
++      return null;
++    }
++    const pid = this.getChildPid();
++    if (typeof pid === "number" && pid > 0) {
++      const suffix = `-${pid}.log`;
++      const pidMatches: Array<{ fullPath: string; mtimeMs: number }> = [];
++      for (const name of acpLogs) {
++        if (!name.endsWith(suffix)) {
++          continue;
++        }
++        const fullPath = path.join(logDir, name);
++        try {
++          const stats = await stat(fullPath);
++          pidMatches.push({ fullPath, mtimeMs: stats.mtimeMs });
++        } catch {
++          // Skip vanished file.
++        }
++      }
++      if (pidMatches.length > 0) {
++        pidMatches.sort((a, b) => b.mtimeMs - a.mtimeMs);
++        const bestMatch = pidMatches[0];
++        if (bestMatch) {
++          this.resolvedServerLogPath = bestMatch.fullPath;
++          return this.resolvedServerLogPath;
++        }
++      }
++      return null;
++    }
++    if (!this.sessionId) {
++      return null;
++    }
++    const candidates: Array<{ fullPath: string; mtimeMs: number; size: number }> = [];
++    for (const name of acpLogs) {
++      const fullPath = path.join(logDir, name);
++      try {
++        const stats = await stat(fullPath);
++        candidates.push({ fullPath, mtimeMs: stats.mtimeMs, size: stats.size });
++      } catch {
++        // Skip vanished file.
++      }
++    }
++    candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
++    for (const candidate of candidates.slice(0, 5)) {
++      try {
++        const readLen = Math.min(candidate.size, SERVER_LOG_READ_CHUNK_BYTES);
++        if (readLen <= 0) {
++          continue;
++        }
++        const handle = await open(candidate.fullPath, "r");
++        try {
++          const buf = Buffer.allocUnsafe(readLen);
++          const { bytesRead } = await handle.read(
++            buf,
++            0,
++            readLen,
++            Math.max(0, candidate.size - readLen),
++          );
++          if (buf.subarray(0, bytesRead).toString("utf8").includes(this.sessionId)) {
++            this.resolvedServerLogPath = candidate.fullPath;
++            return this.resolvedServerLogPath;
++          }
++        } finally {
++          await handle.close();
++        }
++      } catch {
++        // Ignore transient read errors.
++      }
++    }
++    return null;
++  }
++
++  private async pollServerLog(): Promise<void> {
++    if (this.stopped) {
++      return;
++    }
++    if (this.serverLogReading) {
++      await this.serverLogReading;
++      return;
++    }
++    this.serverLogReading = this.drainServerLogLines().finally(() => {
++      this.serverLogReading = null;
++    });
++    await this.serverLogReading;
++  }
++
++  private async drainServerLogLines(): Promise<void> {
++    const logPath = await this.resolveServerLogPath();
++    if (!logPath || this.stopped) {
++      return;
++    }
++    let fileSize: number;
++    try {
++      const stats = await stat(logPath);
++      fileSize = stats.size;
++    } catch {
++      return;
++    }
++    if (!this.serverLogInitialized) {
++      this.serverLogOffset = 0;
++      this.serverLogInitialized = true;
++    }
++    if (fileSize < this.serverLogOffset) {
++      this.serverLogOffset = 0;
++    }
++    while (!this.stopped && this.serverLogOffset < fileSize) {
++      const bytesToRead = Math.min(SERVER_LOG_READ_CHUNK_BYTES, fileSize - this.serverLogOffset);
++      const buffer = Buffer.allocUnsafe(bytesToRead);
++      let bytesRead = 0;
++      try {
++        const handle = await open(logPath, "r");
++        try {
++          const result = await handle.read(buffer, 0, bytesToRead, this.serverLogOffset);
++          bytesRead = result.bytesRead;
++        } finally {
++          await handle.close();
++        }
++      } catch {
++        break;
++      }
++      if (bytesRead <= 0) {
++        break;
++      }
++      const slice = buffer.subarray(0, bytesRead);
++      const lastNewline = slice.lastIndexOf(0x0a);
++      if (lastNewline < 0) {
++        break;
++      }
++      this.serverLogOffset += lastNewline + 1;
++      const text = slice.subarray(0, lastNewline).toString("utf8");
++      this.consumeServerLogLines(text.split(/\r?\n/));
++    }
++  }
++
++  private consumeServerLogLines(lines: string[]): void {
++    for (const line of lines) {
++      if (!line) {
++        continue;
++      }
++      if (AUTH_TOKEN_REFRESHED_RE.test(line)) {
++        this.lastTokenRefreshedAt = this.now();
++        this.fatalAuthFailureSeen = false;
++        this.wakeHoldLoop();
++      }
++      if (AUTH_EXECUTOR_401_RE.test(line)) {
++        const nowMs = this.now();
++        if (
++          this.lastAuth401DetectedAt === null ||
++          nowMs - this.lastAuth401DetectedAt >= AUTH_401_DEDUPE_MS
++        ) {
++          this.lastAuth401DetectedAt = nowMs;
++          this.pendingAuth401At = nowMs;
++          this.wakeHoldLoop();
++        }
++      }
++      if (this.lastAuth401DetectedAt !== null && AUTH_FATAL_LOGIN_RE.test(line)) {
++        this.fatalAuthFailureSeen = true;
++        this.wakeHoldLoop();
++      }
++    }
++  }
++
++  private adoptIdleWakeupTurnForContinuation(): string | undefined {
++    this.clearIdleWakeupTimer();
++    this.idleWakeupActive = false;
++    const turnId = this.idleWakeupTurnId ?? undefined;
++    this.idleWakeupTurnId = null;
++    return turnId;
++  }
++
++  consumeUnrecoverableAuthError(): { code: string; error: string; diagnostic?: string } | null {
++    if (!this.unrecoverableAuthError) {
++      return null;
++    }
++    const error = this.unrecoverableAuthError;
++    this.unrecoverableAuthError = null;
++    return {
++      error,
++      code: "antigravity_oauth_401",
++      diagnostic: error,
++    };
++  }
++
++  private hasValidRefreshAround(errAt: number): boolean {
++    return (
++      this.lastTokenRefreshedAt !== null &&
++      this.lastTokenRefreshedAt >= errAt - PRE_REFRESH_WINDOW_MS
++    );
++  }
++
++  private async waitForTokenRefreshReady(errAt: number, signal?: AbortSignal): Promise<void> {
++    const preRefreshed = this.hasValidRefreshAround(errAt);
++    const minGrace = preRefreshed
++      ? Math.min(250, this.authRefreshMinGraceMs)
++      : this.authRefreshMinGraceMs;
++    const minDeadline = errAt + minGrace;
++    const maxDeadline = errAt + this.authRefreshWaitMs;
++    while (
++      !this.stopped &&
++      !signal?.aborted &&
++      !this.steeredOutOfHold &&
++      !this.fatalAuthFailureSeen
++    ) {
++      const nowMs = this.now();
++      if (nowMs >= minDeadline && this.hasValidRefreshAround(errAt)) {
++        return;
++      }
++      if (nowMs >= maxDeadline) {
++        return;
++      }
++      const remainingToMax = Math.max(1, maxDeadline - nowMs);
++      const targetBeforeRefresh =
++        nowMs < minDeadline ? Math.max(1, minDeadline - nowMs) : remainingToMax;
++      const stepMs = Math.min(
++        Math.min(this.heldPollIntervalMs, 100),
++        targetBeforeRefresh,
++        remainingToMax,
++      );
++      await this.waitHoldStep(stepMs, signal);
++      await this.pollServerLog();
++    }
++  }
++
++  private async tryRecoverPendingAuth401(
++    signal: AbortSignal | undefined,
++    source: string,
++  ): Promise<"none" | "aborted" | "unavailable" | "exhausted" | "dispatched"> {
++    const errAt = this.pendingAuth401At;
++    if (errAt === null) {
++      return "none";
++    }
++    this.pendingAuth401At = null;
++    if (this.stopped || signal?.aborted || this.steeredOutOfHold) {
++      return "aborted";
++    }
++    if (!this.onTransientAuthRecovery) {
++      return "unavailable";
++    }
++    if (this.fatalAuthFailureSeen || this.authExpiryRetryCount >= this.maxAuthExpiryRetries) {
++      this.unrecoverableAuthError = UNRECOVERABLE_AUTH_401_MESSAGE;
++      this.logger?.warn?.(
++        {
++          sessionId: this.sessionId,
++          source,
++          retries: this.authExpiryRetryCount,
++          fatalAuthFailureSeen: this.fatalAuthFailureSeen,
++        },
++        "antigravity.bridge.auth_401_exhausted",
++      );
++      return "exhausted";
++    }
++    await this.waitForTokenRefreshReady(errAt, signal);
++    if (this.stopped || signal?.aborted || this.steeredOutOfHold) {
++      return "aborted";
++    }
++    if (this.fatalAuthFailureSeen) {
++      this.unrecoverableAuthError = UNRECOVERABLE_AUTH_401_MESSAGE;
++      this.logger?.warn?.(
++        {
++          sessionId: this.sessionId,
++          source,
++          retries: this.authExpiryRetryCount,
++          fatalAuthFailureSeen: true,
++        },
++        "antigravity.bridge.auth_401_fatal_login",
++      );
++      return "exhausted";
++    }
++    this.authExpiryRetryCount += 1;
++    this.pendingAuth401At = null;
++    this.lastAuth401DetectedAt = null;
++    const adoptTurnId =
++      !this.inTurnHold && !this.isForegroundTurnActive()
++        ? this.adoptIdleWakeupTurnForContinuation()
++        : undefined;
++    this.logger?.warn?.(
++      {
++        sessionId: this.sessionId,
++        source,
++        attempt: this.authExpiryRetryCount,
++        adoptTurnId: adoptTurnId ?? null,
++        tokenRefreshedSeen: this.hasValidRefreshAround(errAt),
++      },
++      "antigravity.bridge.auth_401_auto_continuing",
++    );
++    const ok = await this.onTransientAuthRecovery(ANTIGRAVITY_AUTH_RECOVERY_PROMPT, source, adoptTurnId);
++    if (!ok) {
++      this.unrecoverableAuthError = UNRECOVERABLE_AUTH_401_MESSAGE;
++      return "exhausted";
++    }
++    return "dispatched";
++  }
++
++  private async recoverAutonomousWakeupAuth401(): Promise<void> {
++    this.recoveringAutonomousAuth401 = true;
++    try {
++      this.clearIdleWakeupTimer();
++      const outcome = await this.tryRecoverPendingAuth401(undefined, "autonomous_wakeup_401");
++      if (outcome === "exhausted") {
++        const failure = this.consumeUnrecoverableAuthError();
++        let turnId = this.adoptIdleWakeupTurnForContinuation();
++        if (failure) {
++          if (!turnId) {
++            turnId = `agy-wakeup-${randomUUID()}`;
++            this.emit({
++              type: "turn_started",
++              provider: this.provider,
++              turnId,
++            });
++          }
++          this.emit({
++            type: "timeline",
++            provider: this.provider,
++            item: { type: "error", message: failure.error },
++            turnId,
++          });
++          this.emit({
++            type: "turn_failed",
++            provider: this.provider,
++            error: failure.error,
++            code: failure.code,
++            ...(failure.diagnostic !== undefined ? { diagnostic: failure.diagnostic } : {}),
++            turnId,
++          });
++        }
++      }
++    } finally {
++      this.recoveringAutonomousAuth401 = false;
++    }
++  }
++
++  async recoverDirectPrompt401(signal?: AbortSignal): Promise<boolean> {
++    await this.pollServerLog();
++    if (this.pendingAuth401At === null) {
++      this.pendingAuth401At = this.now();
++    }
++    const outcome = await this.tryRecoverPendingAuth401(signal, "direct_prompt_error_401");
++    return outcome === "dispatched";
++  }
+ }
+ 
+ export function createAntigravityProviderHooks(
+@@ -687,11 +1537,18 @@ export function createAntigravityProviderHooks(
+         emit: ctx.emit,
+         isForegroundTurnActive: ctx.isForegroundTurnActive,
+         lastStreamedContentAt: ctx.lastStreamedContentAt,
++        childPid: ctx.childPid,
++        onTransientAuthRecovery: (prompt, reason, adoptTurnId) =>
++          ctx.retryActiveOrOpenTurn?.(prompt, reason, adoptTurnId) ?? false,
+         pollIntervalMs: options.pollIntervalMs,
+         heldPollIntervalMs: options.heldPollIntervalMs,
+         postSettleWaitMs: options.postSettleWaitMs,
+         postSettleToolWaitMs: options.postSettleToolWaitMs,
+         streamFlushGraceMs: options.streamFlushGraceMs,
++        maxAuthExpiryRetries: options.maxAuthExpiryRetries,
++        authRefreshMinGraceMs: options.authRefreshMinGraceMs,
++        authRefreshWaitMs: options.authRefreshWaitMs,
++        authLogFlushGraceMs: options.authLogFlushGraceMs,
+       });
+       bridges.set(ctx.acpSessionId, bridge);
+       bridge.start();
+@@ -706,6 +1563,10 @@ export function createAntigravityProviderHooks(
+       const text = extractPromptText(prompt);
+       bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
+     },
++    onForegroundTurnSteered(ctx, prompt) {
++      const text = extractPromptText(prompt);
++      bridges.get(ctx.acpSessionId)?.markSteerSubmitted(text.trim().length > 0 ? text : null);
++    },
+     holdTurnWhile(ctx) {
+       const bridge = bridges.get(ctx.acpSessionId);
+       if (!bridge) {
+@@ -713,6 +1574,20 @@ export function createAntigravityProviderHooks(
+       }
+       return bridge.waitForBackgroundSettled(holdTimeoutMs, ctx.signal);
+     },
++    verifyTurnOutcome(ctx) {
++      return bridges.get(ctx.acpSessionId)?.consumeUnrecoverableAuthError() ?? null;
++    },
++    async recoverFromPromptError(ctx) {
++      const bridge = bridges.get(ctx.acpSessionId);
++      if (!bridge) {
++        return false;
++      }
++      const rawMsg = ctx.error instanceof Error ? ctx.error.message : String(ctx.error ?? "");
++      if (!/UNAUTHENTICATED|code 401/i.test(rawMsg)) {
++        return false;
++      }
++      return bridge.recoverDirectPrompt401(ctx.signal);
++    },
+     canStopRuntime(ctx: ACPProviderHookContext) {
+       return !(bridges.get(ctx.acpSessionId)?.hasBlockingBackgroundWork() ?? false);
+     },
+@@ -722,3 +1597,25 @@ export function createAntigravityProviderHooks(
+ function isCompactSlashCommand(text: string): boolean {
+   return /^\/compact(?:\s|$)/i.test(text.trim());
+ }
++
++function isAuthRecoveryPrompt(text: string | null): boolean {
++  return typeof text === "string" && text.includes("transient OAuth access-token refresh boundary");
++}
++
++function matchesAntigravityTaskId(trackedId: string, candidateId: string): boolean {
++  const a = trackedId.trim();
++  const b = candidateId.trim();
++  if (!a || !b) {
++    return false;
++  }
++  if (a === b) {
++    return true;
++  }
++  if (!a.includes("/") && b.endsWith(`/${a}`)) {
++    return true;
++  }
++  if (!b.includes("/") && a.endsWith(`/${b}`)) {
++    return true;
++  }
++  return false;
++}
+diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
+index 1012848..64404e4 100644
+--- a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
++++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
+@@ -167,6 +167,91 @@ export function unwrapAntigravityStringArrayArg(value: unknown): string[] {
+   return [];
+ }
+ 
++export function readAntigravityNumberArg(value: unknown): number | null {
++  if (typeof value === "number" && Number.isFinite(value)) {
++    return value;
++  }
++  const unwrapped = unwrapAntigravityArgString(value);
++  if (unwrapped === undefined) {
++    return null;
++  }
++  const trimmed = unwrapped.trim();
++  if (trimmed.length === 0) {
++    return null;
++  }
++  const parsed = Number(trimmed);
++  return Number.isFinite(parsed) ? parsed : null;
++}
++
++export function isManageTaskNotRunningError(content: string | null): boolean {
++  if (!content) {
++    return false;
++  }
++  return /\btask is not running\b|\bcannot (?:kill|find) task\b.*\bnot (?:running|found)\b|\btask .* not found\b|\bunknown task\b|\bno such task\b/i.test(
++    content,
++  );
++}
++
++export function parseManageTaskStatusResult(
++  content: string | null,
++): { taskId: string | null; status: string } | null {
++  if (!content) {
++    return null;
++  }
++  const statusMatch = /^Status:\s*([A-Za-z_]+)/im.exec(content);
++  if (!statusMatch?.[1]) {
++    return null;
++  }
++  const taskMatch = /^Task:\s*([^\s\r\n]+)/im.exec(content);
++  return {
++    taskId: taskMatch?.[1]?.trim() || null,
++    status: statusMatch[1].trim().toUpperCase(),
++  };
++}
++
++export function parseManageTaskListIds(content: string | null): string[] | null {
++  if (!content) {
++    return null;
++  }
++  if (/\bNo background tasks are currently running\b/i.test(content)) {
++    return [];
++  }
++  const headerMatch = /You have (\d+) background task\(s\) currently running:/i.exec(content);
++  if (!headerMatch) {
++    return null;
++  }
++  const after = content.slice(headerMatch.index + headerMatch[0].length);
++  const startBracket = after.indexOf("[");
++  const endBracket = after.lastIndexOf("]");
++  if (startBracket < 0 || endBracket <= startBracket) {
++    return null;
++  }
++  try {
++    const parsed: unknown = JSON.parse(after.slice(startBracket, endBracket + 1));
++    if (!Array.isArray(parsed)) {
++      return null;
++    }
++    const ids: string[] = [];
++    for (const entry of parsed) {
++      const obj = asRecord(entry);
++      const rawId = readString(obj?.taskId) ?? readString(obj?.TaskId) ?? readString(obj?.id);
++      if (!rawId) {
++        return null;
++      }
++      const trimmed = rawId.trim();
++      if (trimmed.length > 0) {
++        ids.push(trimmed);
++      }
++    }
++    if (parsed.length === 0) {
++      return Number(headerMatch[1]) === 0 ? [] : null;
++    }
++    return ids;
++  } catch {
++    return null;
++  }
++}
++
+ export function parseAntigravityTranscriptLine(line: string): AntigravityTranscriptRecord | null {
+   const trimmed = line.trim();
+   if (trimmed.length === 0) {

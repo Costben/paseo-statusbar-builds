@@ -285,6 +285,24 @@ const PATCHES = [
       needle: "function isCompleteTranscriptRecord(",
     },
   },
+  {
+    name: "acp-turn-and-antigravity-runtime",
+    file: "paseo-acp-turn-and-antigravity-runtime.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
+      needle: "const SCHEDULE_EXPIRY_GRACE_MS =",
+    },
+  },
+  {
+    name: "completion-notifications",
+    file: "paseo-completion-notifications.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/server/src/server/agent/agent-manager.ts",
+      needle: "agent.manager.attention.deferred_for_background_work",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -904,6 +922,56 @@ const MARKERS = [
     label: "Antigravity's unterminated last record is delivered",
     path: "packages/server/src/server/agent/providers/antigravity/transcript-log.ts",
     needle: "isCompleteTranscriptRecord(tail)",
+  },
+  {
+    label: "ACP queued prompt serialization counter",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "pendingQueuedPrompts",
+  },
+  {
+    label: "ACP 90s stale foreground turn force-close log",
+    path: "packages/server/src/server/agent/providers/acp-agent.ts",
+    needle: "stale_foreground_turn_force_closed",
+  },
+  {
+    label: "Antigravity full-access skip-permissions flag",
+    path: "packages/server/src/server/agent/providers/antigravity-acp-agent.ts",
+    needle: "ANTIGRAVITY_SKIP_PERMISSIONS_FLAG",
+  },
+  {
+    label: "Antigravity reactive wakeup turn id prefix",
+    path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
+    needle: "agy-wakeup-",
+  },
+  {
+    label: "Antigravity OAuth 401 expiry recovery",
+    path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
+    needle: "antigravity_oauth_401",
+  },
+  {
+    label: "Antigravity schedule/timer expiry grace",
+    path: "packages/server/src/server/agent/providers/antigravity/native-bridge.ts",
+    needle: "SCHEDULE_EXPIRY_GRACE_MS",
+  },
+  {
+    label: "Antigravity manage_task list id parser",
+    path: "packages/server/src/server/agent/providers/antigravity/transcript-log.ts",
+    needle: "parseManageTaskListIds",
+  },
+  {
+    label: "No-push-token in-app attention fanout flag",
+    path: "packages/server/src/server/agent-attention-policy.ts",
+    needle: "notifyAllConnected",
+  },
+  {
+    label: "Deferred finished attention while background work runs",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: "agent.manager.attention.deferred_for_background_work",
+  },
+  {
+    label: "macOS Electron Notification osascript fallback",
+    path: "packages/desktop/src/features/notifications.ts",
+    needle: "sendDarwinOsascriptNotification",
   },
 ];
 
