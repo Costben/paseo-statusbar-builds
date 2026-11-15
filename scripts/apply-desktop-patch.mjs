@@ -225,8 +225,10 @@ const PATCHES = [
   },
   {
     // Built-in `antigravity-usage-source` plugin: reads `agy` OAuth credentials
-    // from OS keyring (macOS Keychain / Windows Credential Manager / Linux
-    // Secret Service) and queries CloudCode `loadCodeAssist` +
+    // from `$ANTIGRAVITY_HOME/antigravity-oauth-token` (or default
+    // `~/.gemini/antigravity-cli/antigravity-oauth-token`) with OS keyring
+    // fallback (macOS Keychain / Windows Credential Manager / Linux Secret
+    // Service) and queries CloudCode `loadCodeAssist` +
     // `retrieveUserQuotaSummary` + `retrieveUserQuota` for plan tier, 3P 5h/weekly
     // limits, Gemini quota, and AI Credits.
     name: "antigravity-usage",
@@ -892,6 +894,11 @@ const MARKERS = [
     label: "Antigravity built-in usage source registered",
     path: "packages/server/src/server/plugins/builtin/index.ts",
     needle: '"antigravity-usage-source",',
+  },
+  {
+    label: "Antigravity usage source reads antigravity-oauth-token file",
+    path: "plugins/antigravity-usage-source/server/usage.ts",
+    needle: "antigravity-oauth-token",
   },
   {
     label: "Antigravity native transcript bridge hooks wired",

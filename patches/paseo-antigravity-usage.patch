@@ -49,12 +49,20 @@ index 0000000..33cc7f3
 +{ "id": "antigravity-usage-source", "requirements": { "paseo": ">=0.11.0" } }
 diff --git a/plugins/antigravity-usage-source/server/usage.test.ts b/plugins/antigravity-usage-source/server/usage.test.ts
 new file mode 100644
-index 0000000..d6cc0dc
+index 0000000..600b394
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.test.ts
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,558 @@
++import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
 +import { describe, expect, test } from "vitest";
-+import { decodeKeyringPayload, discover, fetchUsage } from "./usage.js";
++import {
++  antigravityTokenFilePath,
++  decodeKeyringPayload,
++  discover,
++  fetchUsage,
++} from "./usage.js";
 +
 +function encodeGoKeyring(payload: unknown): string {
 +  return `go-keyring-base64:${Buffer.from(JSON.stringify(payload), "utf8").toString("base64")}`;
@@ -90,6 +98,7 @@ index 0000000..d6cc0dc
 +
 +    const lookup = {
 +      platform: "darwin" as const,
++      readFileRaw: async () => null,
 +      readKeyringRaw: async () => raw,
 +    };
 +
@@ -421,15 +430,197 @@ index 0000000..d6cc0dc
 +      usedPct: 6.19,
 +    });
 +  });
++
++  test("decodes raw JSON payload stored in antigravity-oauth-token file", () => {
++    const raw = JSON.stringify({
++      token: {
++        access_token: "ya29.file-token",
++        refresh_token: "1//refresh",
++        token_type: "Bearer",
++        expiry: "2026-11-16T04:46:22.602713+08:00",
++        expires_in: 3599,
++      },
++      auth_method: "consumer",
++      id_token_email: "file-user@example.com",
++    });
++
++    expect(decodeKeyringPayload(raw)).toEqual({
++      accessToken: "ya29.file-token",
++      email: "file-user@example.com",
++      expiresAtMs: Date.parse("2026-11-16T04:46:22.602713+08:00"),
++      authMethod: "consumer",
++    });
++  });
++
++  test("antigravityTokenFilePath resolves default and ANTIGRAVITY_HOME paths", () => {
++    expect(antigravityTokenFilePath({ home: "/tmp/home-a", env: {} })).toBe(
++      join("/tmp/home-a", ".gemini", "antigravity-cli", "antigravity-oauth-token"),
++    );
++    expect(
++      antigravityTokenFilePath({ env: { USERPROFILE: "/win/alice" } }),
++    ).toBe(join("/win/alice", ".gemini", "antigravity-cli", "antigravity-oauth-token"));
++    expect(
++      antigravityTokenFilePath({
++        home: "/tmp/home-a",
++        env: { ANTIGRAVITY_HOME: "~/custom-agy" },
++      }),
++    ).toBe(join("/tmp/home-a", "custom-agy", "antigravity-oauth-token"));
++    expect(
++      antigravityTokenFilePath({
++        home: "/tmp/home-a",
++        env: { ANTIGRAVITY_HOME: "/var/lib/agy-home" },
++      }),
++    ).toBe(join("/var/lib/agy-home", "antigravity-oauth-token"));
++  });
++
++  test("discover prefers antigravity-oauth-token file over keyring and preserves account key", async () => {
++    const tempRoot = await mkdtemp(join(tmpdir(), "paseo-agy-usage-"));
++    try {
++      const cliDir = join(tempRoot, ".gemini", "antigravity-cli");
++      const tokenPath = join(cliDir, "antigravity-oauth-token");
++      await mkdir(cliDir, { recursive: true });
++      await writeFile(
++        tokenPath,
++        JSON.stringify({
++          token: { access_token: "ya29.from-file" },
++          id_token_email: "User@Example.com",
++          auth_method: "consumer",
++        }),
++        "utf8",
++      );
++
++      let keyringCalled = false;
++      const staleKeyring = encodeGoKeyring({
++        token: { access_token: "ya29.stale-keyring" },
++        id_token_email: "stale@example.com",
++      });
++
++      const fileAccounts = await discover(
++        { kind: "global" },
++        {
++          home: tempRoot,
++          env: {},
++          readKeyringRaw: async () => {
++            keyringCalled = true;
++            return staleKeyring;
++          },
++        },
++      );
++
++      expect(keyringCalled).toBe(false);
++      expect(fileAccounts).toHaveLength(1);
++      expect(fileAccounts[0]).toMatchObject({
++        label: "User@Example.com",
++        harness: "Antigravity",
++        input: { route: { store: "file", path: tokenPath } },
++      });
++
++      const keyringOnlyAccounts = await discover(
++        { kind: "global" },
++        {
++          home: join(tempRoot, "missing-home"),
++          env: {},
++          readKeyringRaw: async () =>
++            encodeGoKeyring({
++              token: { access_token: "ya29.from-keyring" },
++              id_token_email: "user@example.com",
++            }),
++        },
++      );
++      expect(keyringOnlyAccounts[0]?.key).toBe(fileAccounts[0]?.key);
++
++      const customHome = join(tempRoot, "override-home");
++      await mkdir(customHome, { recursive: true });
++      await writeFile(
++        join(customHome, "antigravity-oauth-token"),
++        JSON.stringify({
++          token: { access_token: "ya29.override" },
++          id_token_email: "override@example.com",
++        }),
++        "utf8",
++      );
++
++      const sessionAccounts = await discover(
++        {
++          kind: "session",
++          provider: "antigravity",
++          env: { ANTIGRAVITY_HOME: customHome },
++        },
++        { readKeyringRaw: async () => null },
++      );
++      expect(sessionAccounts).toHaveLength(1);
++      expect(sessionAccounts[0]).toMatchObject({
++        label: "override@example.com",
++        input: {
++          route: { store: "file", path: join(customHome, "antigravity-oauth-token") },
++        },
++      });
++    } finally {
++      await rm(tempRoot, { recursive: true, force: true });
++    }
++  });
++
++  test("fetchUsage reads credentials from file route and errors when missing", async () => {
++    const filePayload = JSON.stringify({
++      token: {
++        access_token: "ya29.file-token",
++        expiry: "2026-11-14T19:00:00.000Z",
++      },
++      id_token_email: "user@example.com",
++    });
++
++    const fetchApi: typeof fetch = async (input) => {
++      const url = String(input);
++      if (url.endsWith("/v1internal:loadCodeAssist")) {
++        return new Response(
++          JSON.stringify({
++            paidTier: { name: "Google AI Ultra" },
++            cloudaicompanionProject: "aicode-consumers",
++          }),
++        );
++      }
++      return new Response(JSON.stringify({ groups: [], buckets: [] }));
++    };
++
++    const report = await fetchUsage(
++      { route: { store: "file", path: "/tmp/antigravity-oauth-token" } },
++      fetchApi,
++      {
++        platform: "darwin",
++        arch: "arm64",
++        now: () => Date.parse("2026-11-14T18:00:00.000Z"),
++        readFileRaw: async (filePath) =>
++          filePath === "/tmp/antigravity-oauth-token" ? filePayload : null,
++      },
++    );
++
++    expect(report).toEqual({
++      status: "available",
++      planLabel: "Google AI Ultra",
++      windows: [],
++      balances: [],
++      details: [],
++    });
++
++    await expect(
++      fetchUsage(
++        { route: { store: "file", path: "/tmp/missing-token" } },
++        fetchApi,
++        { readFileRaw: async () => null },
++      ),
++    ).rejects.toThrow("Antigravity login store no longer exists");
++  });
 +});
 diff --git a/plugins/antigravity-usage-source/server/usage.ts b/plugins/antigravity-usage-source/server/usage.ts
 new file mode 100644
-index 0000000..47f0616
+index 0000000..c4be41d
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.ts
-@@ -0,0 +1,636 @@
+@@ -0,0 +1,691 @@
 +import { execFile } from "node:child_process";
-+import { arch as osArch, platform as osPlatform } from "node:os";
++import { readFile } from "node:fs/promises";
++import { arch as osArch, homedir, platform as osPlatform } from "node:os";
++import { join, resolve } from "node:path";
 +import { promisify } from "node:util";
 +import { z } from "zod";
 +import {
@@ -450,6 +641,8 @@ index 0000000..47f0616
 +
 +const ANTIGRAVITY_KEYCHAIN_SERVICE = "gemini";
 +const ANTIGRAVITY_KEYCHAIN_ACCOUNT = "antigravity";
++const DEFAULT_ANTIGRAVITY_HOME_SEGMENTS = [".gemini", "antigravity-cli"] as const;
++const ANTIGRAVITY_OAUTH_TOKEN_FILE = "antigravity-oauth-token";
 +const GO_KEYRING_BASE64_PREFIX = "go-keyring-base64:";
 +const DEFAULT_CLOUD_CODE_URL = "https://daily-cloudcode-pa.googleapis.com";
 +const KEYRING_TIMEOUT_MS = 2_500;
@@ -541,10 +734,31 @@ index 0000000..47f0616
 +export interface AntigravityLookup {
 +  platform?: NodeJS.Platform;
 +  arch?: string;
++  home?: string;
 +  env?: NodeJS.ProcessEnv;
 +  now?: () => number;
 +  baseUrl?: string;
++  readFileRaw?: (path: string) => Promise<string | null>;
 +  readKeyringRaw?: (service: string, account: string) => Promise<string | null>;
++}
++
++/**
++ * agy 1.4.7+ / 1.5.4+ 将 OAuth 凭证写入 `$ANTIGRAVITY_HOME/antigravity-oauth-token`
++ * （默认 `~/.gemini/antigravity-cli/antigravity-oauth-token`），以避开 macOS Keychain
++ * 与 Windows Credential Manager 的体积限制。
++ */
++export function antigravityTokenFilePath(lookup: AntigravityLookup = {}): string {
++  const env = lookup.env ?? process.env;
++  const home = lookup.home ?? (env.HOME?.trim() || env.USERPROFILE?.trim() || homedir());
++  const configured = env.ANTIGRAVITY_HOME?.trim();
++  const antigravityHome = !configured
++    ? join(home, ...DEFAULT_ANTIGRAVITY_HOME_SEGMENTS)
++    : configured === "~"
++      ? home
++      : configured.startsWith("~/") || configured.startsWith("~\\")
++        ? join(home, configured.slice(2))
++        : resolve(configured);
++  return join(antigravityHome, ANTIGRAVITY_OAUTH_TOKEN_FILE);
 +}
 +
 +/** Decode a go-keyring payload (either `go-keyring-base64:...` or raw JSON). */
@@ -697,10 +911,24 @@ index 0000000..47f0616
 +  return null;
 +}
 +
++async function readDefaultFileRaw(filePath: string): Promise<string | null> {
++  try {
++    return await readFile(filePath, "utf8");
++  } catch {
++    return null;
++  }
++}
++
 +async function readCredentials(
 +  input: AntigravityUsageInput,
 +  lookup: AntigravityLookup = {},
 +): Promise<AntigravityCredentials | null> {
++  if (input.route.store === "file") {
++    const raw = lookup.readFileRaw
++      ? await lookup.readFileRaw(input.route.path)
++      : await readDefaultFileRaw(input.route.path);
++    return decodeKeyringPayload(raw);
++  }
 +  const { service, account } = input.route;
 +  const platform = lookup.platform ?? osPlatform();
 +  const env = lookup.env ?? process.env;
@@ -716,29 +944,45 @@ index 0000000..47f0616
 +): Promise<UsageAccount[]> {
 +  if (scope.kind === "session") {
 +    if (scope.provider !== "antigravity") return [];
-+    lookup = { ...lookup, env: scope.env };
++    lookup = {
++      ...lookup,
++      env: scope.env,
++      home: lookup.home ?? (scope.env.HOME?.trim() || scope.env.USERPROFILE?.trim() || homedir()),
++    };
 +  }
-+  const input: AntigravityUsageInput = {
-+    route: {
-+      store: "keyring",
-+      service: ANTIGRAVITY_KEYCHAIN_SERVICE,
-+      account: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
-+    },
-+  };
-+  const credentials = await readCredentials(input, lookup);
-+  if (!credentials) return [];
-+
-+  const key = credentials.email
-+    ? hashAccountKey(`antigravity:${credentials.email.toLowerCase()}`)
-+    : hashAccountKey(JSON.stringify(input.route));
-+  return [
++  const candidates: AntigravityUsageInput[] = [
 +    {
-+      key,
-+      ...(credentials.email ? { label: credentials.email } : {}),
-+      harness: "Antigravity",
-+      input,
++      route: {
++        store: "file",
++        path: antigravityTokenFilePath(lookup),
++      },
++    },
++    {
++      route: {
++        store: "keyring",
++        service: ANTIGRAVITY_KEYCHAIN_SERVICE,
++        account: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
++      },
 +    },
 +  ];
++
++  for (const input of candidates) {
++    const credentials = await readCredentials(input, lookup);
++    if (!credentials) continue;
++
++    const key = credentials.email
++      ? hashAccountKey(`antigravity:${credentials.email.toLowerCase()}`)
++      : hashAccountKey(JSON.stringify(input.route));
++    return [
++      {
++        key,
++        ...(credentials.email ? { label: credentials.email } : {}),
++        harness: "Antigravity",
++        input,
++      },
++    ];
++  }
++  return [];
 +}
 +
 +function pctUsedFromRemainingFraction(remainingFraction: number): number {
@@ -1066,13 +1310,19 @@ index 0000000..47f0616
 +}
 diff --git a/plugins/antigravity-usage-source/shared/input.ts b/plugins/antigravity-usage-source/shared/input.ts
 new file mode 100644
-index 0000000..d52e029
+index 0000000..bc7112c
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/shared/input.ts
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,20 @@
 +import { z } from "zod";
 +
 +export const routeSchema = z.discriminatedUnion("store", [
++  z
++    .object({
++      store: z.literal("file"),
++      path: z.string().min(1),
++    })
++    .strict(),
 +  z
 +    .object({
 +      store: z.literal("keyring"),
