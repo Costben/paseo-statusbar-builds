@@ -1,8 +1,26 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index ae79fc6..8bb7a76 100644
+index ae79fc6..5e19a2f 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -7830,4 +7830,103 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+@@ -237,6 +237,7 @@ function createSessionWithConfig(
+     providerOptions?: Record<string, unknown>;
+     featureValues?: Record<string, unknown>;
+     lateTimelineGraceMs?: number;
++    postLoadReplayQuietMs?: number;
+   } = {},
+   logger: ReturnType<typeof createTestLogger> = createTestLogger(),
+   capabilityOverrides: Partial<AgentCapabilityFlags> = {},
+@@ -258,6 +259,9 @@ function createSessionWithConfig(
+       ...(config.lateTimelineGraceMs !== undefined
+         ? { lateTimelineGraceMs: config.lateTimelineGraceMs }
+         : {}),
++      ...(config.postLoadReplayQuietMs !== undefined
++        ? { postLoadReplayQuietMs: config.postLoadReplayQuietMs }
++        : {}),
+       capabilities: {
+         supportsStreaming: true,
+         supportsSessionPersistence: true,
+@@ -7830,4 +7834,227 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
        terminal: true,
      });
    });
@@ -105,13 +123,141 @@ index ae79fc6..8bb7a76 100644
 +    );
 +    expect(autoTurnStarts).toHaveLength(0);
 +  });
++
++  test("suppresses cross-turn tool_call_update timeline events while updating internal tool snapshot", async () => {
++    const logger = createTestLogger();
++    let resolveTurn1!: (val: PromptResponse) => void;
++    let resolveTurn2!: (val: PromptResponse) => void;
++    const prompt = vi
++      .fn<() => Promise<PromptResponse>>()
++      .mockImplementationOnce(
++        () =>
++          new Promise<PromptResponse>((resolve) => {
++            resolveTurn1 = resolve;
++          }),
++      )
++      .mockImplementationOnce(
++        () =>
++          new Promise<PromptResponse>((resolve) => {
++            resolveTurn2 = resolve;
++          }),
++      );
++    const session = createSessionWithConfig({ provider: "antigravity" }, logger);
++    const internals = asInternals<
++      ACPSessionInternals & { toolCalls: Map<string, { status: string }> }
++    >(session);
++    internals.sessionId = "session-1";
++    internals.connection = openPromptConnection(prompt);
++
++    const events: AgentStreamEvent[] = [];
++    session.subscribe((e) => events.push(e));
++
++    // Turn 1 starts a tool_call and ends
++    await session.startTurn("turn 1");
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call",
++        toolCallId: "call_cross_1",
++        title: "Shell",
++        kind: "execute",
++        status: "in_progress",
++      } as SessionUpdate,
++    });
++    resolveTurn1({ stopReason: "end_turn" });
++    await new Promise((r) => setTimeout(r, 20));
++    expect(events.filter((e) => e.type === "turn_completed")).toHaveLength(1);
++
++    // Turn 2 receives a delayed/replayed tool_call_update for Turn 1's call_cross_1
++    const turn2StartIdx = events.length;
++    await session.startTurn("turn 2");
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "tool_call_update",
++        toolCallId: "call_cross_1",
++        status: "completed",
++        rawOutput: { stdout: "done" },
++      } as SessionUpdate,
++    });
++    resolveTurn2({ stopReason: "end_turn" });
++    await new Promise((r) => setTimeout(r, 20));
++
++    const turn2ToolTimeline = events
++      .slice(turn2StartIdx)
++      .filter((e) => e.type === "timeline" && e.item.type === "tool_call");
++    expect(turn2ToolTimeline).toHaveLength(0);
++    expect(internals.toolCalls.get("call_cross_1")?.status).toBe("completed");
++  });
++
++  test("waits postLoadReplayQuietMs before leaving history replay so trailing load notifications do not open auto turns", async () => {
++    const logger = createTestLogger();
++    const child = createProbeChildStub();
++
++    class SettlingLoadSession extends ACPAgentSession {
++      protected override async spawnProcess(): Promise<SpawnedACPProcess> {
++        return {
++          child,
++          connection: {
++            loadSession: vi.fn(async () => {
++              setTimeout(() => {
++                void this.sessionUpdate({
++                  sessionId: "session-1",
++                  update: {
++                    sessionUpdate: "agent_message_chunk",
++                    messageId: "tail-msg-1",
++                    content: { type: "text", text: "Trailing replayed history frame" },
++                  } as SessionUpdate,
++                });
++              }, 35);
++              return {};
++            }),
++          } as unknown as ClientSideConnection,
++          initialize: { agentCapabilities: { loadSession: true } },
++        };
++      }
++    }
++
++    const session = new SettlingLoadSession(
++      { provider: "antigravity", cwd: "/tmp/paseo-acp-test" },
++      {
++        provider: "antigravity",
++        logger,
++        defaultCommand: ["agy", "acp"],
++        defaultModes: [],
++        postLoadReplayQuietMs: 120,
++        capabilities: {
++          supportsStreaming: true,
++          supportsSessionPersistence: true,
++        },
++        handle: { provider: "antigravity", sessionId: "session-1" },
++      },
++    );
++
++    const liveEvents: AgentStreamEvent[] = [];
++    session.subscribe((e) => liveEvents.push(e));
++    await session.initializeResumedSession();
++
++    const historyItems: AgentStreamEvent[] = [];
++    for await (const item of session.streamHistory()) {
++      historyItems.push(item);
++    }
++    await new Promise((r) => setTimeout(r, 150));
++
++    expect(historyItems).toHaveLength(1);
++    expect(liveEvents.filter((e) => e.type === "turn_started" || e.type === "timeline")).toHaveLength(0);
++  });
  });
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index f5dfe99..d1e09f4 100644
+index f5dfe99..240a54f 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -601,6 +601,14 @@ export interface ACPProviderHookContext {
+@@ -599,8 +599,18 @@ export interface ACPProviderHookContext {
+   emit: (event: AgentStreamEvent) => void;
+   /** True while this session has a foreground turn open. */
    isForegroundTurnActive?: () => boolean;
++  /** True while `initializeResumedSession()` is replaying persisted history. */
++  replayingHistory?: boolean;
    /** When the ACP stream last delivered agent output to this session, or null. */
    lastStreamedContentAt?: () => number | null;
 +  /** PID of the spawned ACP child process, when available. */
@@ -125,7 +271,7 @@ index f5dfe99..d1e09f4 100644
  }
  
  /**
-@@ -683,6 +691,11 @@ export interface ACPProviderHooks {
+@@ -683,6 +693,11 @@ export interface ACPProviderHooks {
     * as it will be sent. Not called for a prompt queued through steering.
     */
    onForegroundTurnStarting?(ctx: ACPProviderHookContext, prompt: AgentPromptInput): void;
@@ -137,7 +283,16 @@ index f5dfe99..d1e09f4 100644
    /**
     * Checked once the turn hold has settled, before the turn is reported. A
     * provider that knows the prompt never ran returns the failure to report even
-@@ -744,6 +757,17 @@ export interface ACPProviderHooks {
+@@ -705,7 +720,7 @@ export interface ACPProviderHooks {
+    * update is dropped before it reaches the timeline and does not count as
+    * output of the turn.
+    */
+-  shouldDropSessionUpdate?(update: SessionUpdate): boolean;
++  shouldDropSessionUpdate?(update: SessionUpdate, ctx?: ACPProviderHookContext): boolean;
+   /**
+    * Consume an update that belongs to a subagent the agent spawned. Return the
+    * events to emit in its place — `provider_subagent` events, normally — or null
+@@ -744,6 +759,17 @@ export interface ACPProviderHooks {
     * when no foreground turn is active.
     */
    canStopRuntime?(ctx: ACPProviderHookContext): boolean;
@@ -155,7 +310,39 @@ index f5dfe99..d1e09f4 100644
  }
  
  export type ACPSessionMetaBuilder = (
-@@ -1385,6 +1409,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -798,6 +824,7 @@ interface ACPAgentClientOptions {
+   extensionCommandsParser?: ACPExtensionCommandsParser;
+   waitForInitialCommands?: boolean;
+   initialCommandsWaitTimeoutMs?: number;
++  postLoadReplayQuietMs?: number;
+   terminateProcess?: ProcessTerminator;
+   providerHooks?: ACPProviderHooks;
+   /**
+@@ -853,6 +880,7 @@ interface ACPAgentSessionOptions {
+   waitForInitialCommands?: boolean;
+   initialCommandsWaitTimeoutMs?: number;
+   lateTimelineGraceMs?: number;
++  postLoadReplayQuietMs?: number;
+   terminateProcess?: ProcessTerminator;
+   providerHooks?: ACPProviderHooks;
+   supportsAutoAccept?: boolean;
+@@ -1330,6 +1358,7 @@ export class ACPAgentClient implements AgentClient {
+   ) => Promise<void>;
+   private readonly waitForInitialCommands: boolean;
+   private readonly initialCommandsWaitTimeoutMs: number;
++  private readonly postLoadReplayQuietMs: number;
+   private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
+   private readonly providerHooks?: ACPProviderHooks;
+   private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
+@@ -1376,6 +1405,7 @@ export class ACPAgentClient implements AgentClient {
+     this.thinkingOptionWriter = options.thinkingOptionWriter;
+     this.waitForInitialCommands = options.waitForInitialCommands ?? false;
+     this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
++    this.postLoadReplayQuietMs = options.postLoadReplayQuietMs ?? 0;
+     this.extensionCommandsParser = options.extensionCommandsParser;
+     this.providerHooks = options.providerHooks;
+     this.catalogCacheKey = options.catalogCacheKey;
+@@ -1385,6 +1415,10 @@ export class ACPAgentClient implements AgentClient {
      this.now = options.now ?? Date.now;
    }
  
@@ -166,7 +353,7 @@ index f5dfe99..d1e09f4 100644
    async createSession(
      config: AgentSessionConfig,
      launchContext?: AgentLaunchContext,
-@@ -1399,7 +1427,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1399,7 +1433,7 @@ export class ACPAgentClient implements AgentClient {
          usageProvider: this.usageProvider,
          logger: this.logger,
          runtimeSettings: this.runtimeSettings,
@@ -175,7 +362,15 @@ index f5dfe99..d1e09f4 100644
          defaultModes: this.defaultModes,
          modelTransformer: this.modelTransformer,
          sessionResponseTransformer: this.sessionResponseTransformer,
-@@ -1466,7 +1494,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1431,6 +1465,7 @@ export class ACPAgentClient implements AgentClient {
+         extensionCommandsParser: this.extensionCommandsParser,
+         waitForInitialCommands: this.waitForInitialCommands,
+         initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
++        postLoadReplayQuietMs: this.postLoadReplayQuietMs,
+         providerHooks: this.providerHooks,
+       },
+     );
+@@ -1466,7 +1501,7 @@ export class ACPAgentClient implements AgentClient {
        usageProvider: this.usageProvider,
        logger: this.logger,
        runtimeSettings: this.runtimeSettings,
@@ -184,7 +379,23 @@ index f5dfe99..d1e09f4 100644
        defaultModes: this.defaultModes,
        modelTransformer: this.modelTransformer,
        sessionResponseTransformer: this.sessionResponseTransformer,
-@@ -2440,6 +2468,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1500,6 +1535,7 @@ export class ACPAgentClient implements AgentClient {
+       extensionCommandsParser: this.extensionCommandsParser,
+       waitForInitialCommands: this.waitForInitialCommands,
+       initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
++      postLoadReplayQuietMs: this.postLoadReplayQuietMs,
+       providerHooks: this.providerHooks,
+     });
+     await session.initializeResumedSession();
+@@ -2390,6 +2426,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private pendingUserMessage: PendingUserMessage | null = null;
+   private submittedUserMessageTurnId: string | null = null;
+   private readonly toolCalls = new Map<string, ACPToolSnapshot>();
++  private readonly toolCallTurnIds = new Map<string, string | null>();
+   private readonly terminalEntries = new Map<string, TerminalEntry>();
+   private readonly persistedHistory: AgentTimelineItem[] = [];
+   private readonly initialHandle?: AgentPersistenceHandle;
+@@ -2440,6 +2477,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private providerSessionCleanup: (() => void) | null = null;
    private currentTurnUsage: AgentUsage | undefined;
    private activeForegroundTurnId: string | null = null;
@@ -201,7 +412,23 @@ index f5dfe99..d1e09f4 100644
    /**
     * A turn the provider opened on its own. ACP carries no prompt request for it,
     * so Paseo never receives a `turn_started` and the session stays "completed"
-@@ -2519,6 +2557,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2467,6 +2514,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   private historyPending = false;
+   private historyRuntimeReleased = false;
+   private replayingHistory = false;
++  private lastReplayUpdateAt: number | null = null;
++  private readonly postLoadReplayQuietMs: number;
+   private bootstrapThreadEventPending = false;
+   private readonly terminateProcess: ProcessTerminator;
+ 
+@@ -2513,12 +2562,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
+     this.requiresTimelineOutput = options.capabilities.kimiReliableQueue === true;
+     this.lateTimelineGraceMs = options.lateTimelineGraceMs ?? ACP_LATE_TIMELINE_GRACE_MS;
++    this.postLoadReplayQuietMs = options.postLoadReplayQuietMs ?? 0;
+     this.extensionCommandsParser = options.extensionCommandsParser;
+     this.providerHooks = options.providerHooks;
+     this.supportsAutoAccept = options.supportsAutoAccept ?? true;
      if (options.providerHooks?.acceptsQueuedPrompts) {
        this.steerActiveTurn = (prompt, steerOptions) =>
          this.steerIntoProviderQueue(prompt, steerOptions);
@@ -211,9 +438,67 @@ index f5dfe99..d1e09f4 100644
      }
    }
  
-@@ -2675,6 +2716,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2591,6 +2644,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       const sessionCapabilities = this.agentCapabilities?.sessionCapabilities;
+       if (this.agentCapabilities?.loadSession) {
+         this.replayingHistory = true;
++        this.lastReplayUpdateAt = null;
+         const response = await this.runACPRequest(() =>
+           this.connection!.loadSession({
+             sessionId: handle.sessionId,
+@@ -2599,6 +2653,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+             ...(sessionMeta ? { _meta: sessionMeta } : {}),
+           }),
+         );
++        await this.waitForHistoryReplayToSettle();
+         this.deliverTranslatedEvents(this.flushPendingUserMessage());
+         this.replayingHistory = false;
+         this.historyPending = this.persistedHistory.length > 0;
+@@ -2628,6 +2683,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     }
+   }
+ 
++  /**
++   * Some ACP servers (e.g. Antigravity) spawn the history-replay goroutine
++   * asynchronously and resolve `session/load` slightly before the final replay
++   * `sessionUpdate` notifications finish flushing on stdout. Wait for a short
++   * quiet window after the last replay frame before leaving history-replay mode
++   * so late tail frames do not spill into a live turn.
++   */
++  private async waitForHistoryReplayToSettle(): Promise<void> {
++    const quietMs = this.postLoadReplayQuietMs;
++    if (!(quietMs > 0) || this.closed) {
++      return;
++    }
++    const startedAt = Date.now();
++    const maxWaitMs = Math.max(quietMs, 2_500);
++    while (!this.closed) {
++      const lastActivityAt = this.lastReplayUpdateAt ?? startedAt;
++      const now = Date.now();
++      const quietElapsed = now - lastActivityAt;
++      const totalElapsed = now - startedAt;
++      if (quietElapsed >= quietMs || totalElapsed >= maxWaitMs) {
++        return;
++      }
++      const waitMs = Math.min(50, quietMs - quietElapsed, maxWaitMs - totalElapsed);
++      if (waitMs <= 0) {
++        return;
++      }
++      await new Promise<void>((resolve) => {
++        const timer = setTimeout(resolve, waitMs);
++        timer.unref?.();
++      });
++    }
++  }
++
+   // History resumes exist to replay persisted events into the canonical
+   // timeline; the provider process is released once replay finishes so
+   // archived agents hold no resident runtime. Interactive work goes through
+@@ -2674,7 +2762,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       logger: this.logger,
        emit: (event) => this.pushProviderEvent(event),
        isForegroundTurnActive: () => this.activeForegroundTurnId !== null,
++      replayingHistory: this.replayingHistory,
        lastStreamedContentAt: () => this.lastStreamedContentAt,
 +      childPid: () => this.child?.pid ?? null,
 +      retryActiveOrOpenTurn: (prompt, reason, adoptTurnId) =>
@@ -221,7 +506,7 @@ index f5dfe99..d1e09f4 100644
      };
    }
  
-@@ -2688,6 +2732,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2688,6 +2780,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     * reply Kimi narrates next to it is dropped.
     */
    private pushProviderEvent(event: AgentStreamEvent): void {
@@ -236,7 +521,7 @@ index f5dfe99..d1e09f4 100644
      if (
        event.type === "turn_completed" &&
        event.turnId === undefined &&
-@@ -2740,13 +2792,132 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2740,13 +2840,132 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return { status: "unavailable" };
      }
      // Anything already held goes first, so a steer never overtakes it.
@@ -370,7 +655,7 @@ index f5dfe99..d1e09f4 100644
    /**
     * Inject a message into the turn Paseo's own prompt is driving. False when the
     * agent left it `unconsumed` (no turn of the client's was live by the time it
-@@ -2797,6 +2968,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2797,6 +3016,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
      const outgoing = this.applyProviderPromptTransform(prompt);
      const messageId = options.clientMessageId ?? randomUUID();
@@ -378,7 +663,7 @@ index f5dfe99..d1e09f4 100644
      void (async () => {
        try {
          const response = await connection.prompt({
-@@ -2821,6 +2993,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2821,6 +3041,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              }),
            );
          }
@@ -394,7 +679,7 @@ index f5dfe99..d1e09f4 100644
        }
      })();
      return { status: "accepted" };
-@@ -3095,6 +3276,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3095,6 +3324,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -418,7 +703,7 @@ index f5dfe99..d1e09f4 100644
    /**
     * The failure to report for a turn that produced no timeline output, carrying
     * the provider's explanation when it has one.
-@@ -3184,13 +3382,38 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3184,13 +3430,38 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.closeAutonomousTurn("superseded");
      }
      if (this.activeForegroundTurnId) {
@@ -458,7 +743,7 @@ index f5dfe99..d1e09f4 100644
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
-@@ -3198,37 +3421,97 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3198,37 +3469,97 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
@@ -474,10 +759,10 @@ index f5dfe99..d1e09f4 100644
      }
      this.notifyForegroundTurnStarting(outgoing);
 +    this.dispatchForegroundPromptRpc(outgoing, messageId, turnId, promptSeq);
- 
++
 +    return { turnId };
 +  }
-+
+ 
 +  private dispatchForegroundPromptRpc(
 +    outgoing: AgentPromptInput,
 +    messageId: string,
@@ -559,7 +844,7 @@ index f5dfe99..d1e09f4 100644
                activeTurnId: this.activeForegroundTurnId ?? undefined,
                err: error,
              },
-@@ -3236,6 +3519,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3236,6 +3567,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            );
            return;
          }
@@ -588,7 +873,7 @@ index f5dfe99..d1e09f4 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -3247,8 +3552,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3247,8 +3600,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          });
        })
        .finally(() => connection.signal?.removeEventListener("abort", failOnDisconnect));
@@ -597,7 +882,70 @@ index f5dfe99..d1e09f4 100644
    }
  
    // The SDK aborts the connection without rejecting the pending prompt, and before the child's
-@@ -5312,7 +5615,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4243,6 +4594,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       return;
+     }
+ 
++    if (this.replayingHistory) {
++      this.lastReplayUpdateAt = Date.now();
++    }
+     const events = this.translateSessionUpdate(params.update);
+     this.currentTurnUpdateCount += 1;
+     if (
+@@ -4723,7 +5077,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+   }
+ 
+   private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
+-    if (this.providerHooks?.shouldDropSessionUpdate?.(update) === true) {
++    if (
++      this.providerHooks?.shouldDropSessionUpdate?.(update, this.providerHookContext() ?? undefined) ===
++      true
++    ) {
+       return [];
+     }
+     // Before the prompt-echo branch: a child's prompt belongs to the child, and
+@@ -4808,19 +5165,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       }
+       case "tool_call":
+         this.fallbackAssistantMessageId = null;
++        if (!this.replayingHistory) {
++          this.toolCallTurnIds.set(update.toolCallId, this.activeForegroundTurnId);
++        }
+         return [
+           ...pendingUserEvents,
+           ...this.handleToolCallUpdate(update.toolCallId, update, undefined),
+         ];
+-      case "tool_call_update":
+-        return [
+-          ...pendingUserEvents,
+-          ...this.handleToolCallUpdate(
+-            update.toolCallId,
+-            update,
+-            this.toolCalls.get(update.toolCallId),
+-          ),
+-        ];
++      case "tool_call_update": {
++        const toolEvents = this.handleToolCallUpdate(
++          update.toolCallId,
++          update,
++          this.toolCalls.get(update.toolCallId),
++        );
++        const ownerTurnId = this.toolCallTurnIds.get(update.toolCallId);
++        if (
++          !this.replayingHistory &&
++          ownerTurnId !== undefined &&
++          ownerTurnId !== null &&
++          this.activeForegroundTurnId !== null &&
++          ownerTurnId !== this.activeForegroundTurnId
++        ) {
++          return pendingUserEvents;
++        }
++        return [...pendingUserEvents, ...toolEvents];
++      }
+       case "plan":
+         this.fallbackAssistantMessageId = null;
+         return [...pendingUserEvents, this.wrapTimeline(mapPlanToTimeline(update))];
+@@ -5312,7 +5681,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private pushEvent(event: AgentStreamEvent): void {
@@ -627,7 +975,7 @@ index f5dfe99..d1e09f4 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -5350,9 +5675,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5350,9 +5741,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.closed) {
        return;
      }
@@ -643,7 +991,7 @@ index f5dfe99..d1e09f4 100644
        return;
      }
      if (this.activeForegroundTurnId) {
-@@ -5365,6 +5694,37 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5365,6 +5760,37 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      ) {
        return;
      }
@@ -681,7 +1029,7 @@ index f5dfe99..d1e09f4 100644
      const turnId = `auto-${Date.now().toString(36)}-${this.autonomousOrdinal++}`;
      this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
      this.activeForegroundTurnId = turnId;
-@@ -5372,6 +5732,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5372,6 +5798,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.armAutonomousIdle();
    }
  
@@ -704,7 +1052,7 @@ index f5dfe99..d1e09f4 100644
    /** 静默收尾：没有新事件就认为这一轮结束了。 */
    private armAutonomousIdle(): void {
      if (this.autonomousIdleTimer) {
-@@ -5442,12 +5818,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5442,12 +5884,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private finishTurn(
      event: Extract<AgentStreamEvent, { type: "turn_completed" | "turn_failed" | "turn_canceled" }>,
    ): void {
@@ -721,6 +1069,15 @@ index f5dfe99..d1e09f4 100644
      this.activeForegroundTurnId = null;
      this.turnAbort = null;
      this.fallbackAssistantMessageId = null;
+@@ -5757,7 +6203,7 @@ export function extractPromptText(prompt: AgentPromptInput): string {
+     .join("");
+ }
+ 
+-function contentBlockToText(content: ContentBlock): string {
++export function contentBlockToText(content: ContentBlock): string {
+   switch (content.type) {
+     case "text":
+       return content.text;
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 index c8203c7..c93178b 100644
 --- a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
@@ -789,7 +1146,7 @@ index c8203c7..c93178b 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
-index b1e06f3..57d6d60 100644
+index b1e06f3..8e3d0c7 100644
 --- a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 @@ -35,10 +35,21 @@ import { createAntigravityProviderHooks } from "./antigravity/native-bridge.js";
@@ -851,7 +1208,14 @@ index b1e06f3..57d6d60 100644
  }
  
  export function buildAntigravitySessionMeta(
-@@ -300,6 +330,12 @@ export class AntigravityACPAgentClient extends ACPAgentClient {
+@@ -294,12 +324,19 @@ export class AntigravityACPAgentClient extends ACPAgentClient {
+       autoAcceptModeId: ANTIGRAVITY_FULL_ACCESS_MODE_ID,
+       autoAcceptUnderlyingModeId: ANTIGRAVITY_DEFAULT_MODE_ID,
+       waitForInitialCommands: true,
++      postLoadReplayQuietMs: 350,
+       catalogCacheKey: "host",
+       supportsAutoAccept: false,
+       providerHooks: createAntigravityProviderHooks(),
      });
    }
  
@@ -865,10 +1229,18 @@ index b1e06f3..57d6d60 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925..50f1ddf 100644
+index 93d6925..1324b45 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-@@ -9,9 +9,13 @@ import type { AgentStreamEvent } from "../../agent-sdk-types.js";
+@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
+ import os from "node:os";
+ import path from "node:path";
+ 
++import type { SessionUpdate } from "@agentclientprotocol/sdk";
+ import { afterEach, describe, expect, test } from "vitest";
+ 
+ import { createTestLogger } from "../../../../test-utils/test-logger.js";
+@@ -9,9 +10,13 @@ import type { AgentStreamEvent } from "../../agent-sdk-types.js";
  import type { ACPProviderHookContext } from "../acp-agent.js";
  import { createAntigravityProviderHooks } from "./native-bridge.js";
  import {
@@ -882,7 +1254,7 @@ index 93d6925..50f1ddf 100644
    unwrapAntigravityArgString,
  } from "./transcript-log.js";
  
-@@ -600,6 +604,7 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -600,6 +605,7 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        expect(harness.events.findLast((event) => event.type === "turn_completed")).toEqual({
          type: "turn_completed",
          provider: "antigravity",
@@ -890,7 +1262,7 @@ index 93d6925..50f1ddf 100644
        });
        expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
          type: "background_work",
-@@ -610,4 +615,317 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -610,4 +616,657 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        sessionHandle?.onClose?.();
      }
    });
@@ -1207,25 +1579,369 @@ index 93d6925..50f1ddf 100644
 +      handle?.onClose?.();
 +    }
 +  });
++
++  test("suppresses replayed wakeup catch-up updates across swapped channels while passing live Turn 2 output", async () => {
++    const harness = createHarness({ postSettleWaitMs: 60 });
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 1 prompt");
++      appendJsonl(harness.transcriptPath, {
++        step_index: 0,
++        source: "USER_EXPLICIT",
++        type: "USER_INPUT",
++        status: "DONE",
++        content: "Turn 1 prompt",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 10", WaitMsBeforeAsync: 500 } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-101`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Waiting for task-101.",
++        tool_calls: [],
++      });
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      expect(holdPromise).toBeInstanceOf(Promise);
++      await new Promise((r) => setTimeout(r, 40));
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `[Message] timestamp=2026-11-15T11:00:00Z sender=${harness.sessionId}/task-101 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-101" finished`,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "Wakeup thinking first",
++        content: "Running check step.",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "echo hi" } }],
++      });
++      await new Promise((r) => setTimeout(r, 40));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "hi",
++      });
++      await new Promise((r) => setTimeout(r, 40));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "Wakeup thinking second",
++        content: "All finished in wakeup.",
++        tool_calls: [],
++      });
++      await holdPromise;
++      harness.setForeground(false);
++
++      // Start Turn 2: catch-up replay filter arms
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 2 prompt");
++
++      // Never drop during history replay (session/load)
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "Wakeup thinking first" },
++          } as SessionUpdate,
++          { ...harness.ctx, replayingHistory: true },
++        ),
++      ).toBe(false);
++
++      // Swapped order: split thought chunk, then tool_call BEFORE "Running check step." message
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "Wakeup thinking " },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "first" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_catchup_1",
++            title: "Shell",
++            kind: "execute",
++            status: "in_progress",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "Running check step." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call_update",
++            toolCallId: "call_catchup_1",
++            status: "completed",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "Wakeup thinking second" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "All finished in wakeup." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++
++      // Live Turn 2 updates pass through immediately, while late updates for call_catchup_1 stay dropped
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "Live Turn 2 thought" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_live_2",
++            title: "Live Shell",
++            kind: "execute",
++            status: "in_progress",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "SECOND_TURN_LIVE" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call_update",
++            toolCallId: "call_catchup_1",
++            status: "completed",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call_update",
++            toolCallId: "call_live_2",
++            status: "completed",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("pairs ACP-streamed foreground tool callIds without sync duplicates and settles backgrounded tasks", async () => {
++    const harness = createHarness({ postSettleWaitMs: 60 });
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "sync then bg");
++      appendJsonl(harness.transcriptPath, {
++        step_index: 0,
++        source: "USER_EXPLICIT",
++        type: "USER_INPUT",
++        status: "DONE",
++        content: "sync then bg",
++      });
++
++      // Synchronous foreground tool streamed via ACP must not get a duplicate settled bridge card
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_sync_1",
++            title: "Read",
++            kind: "read",
++            status: "in_progress",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "read_file", args: { Path: "/tmp/a" } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "file content",
++      });
++      await new Promise((r) => setTimeout(r, 50));
++      const dupSyncCards = harness.events.filter(
++        (e) => e.type === "timeline" && e.item.type === "tool_call" && e.item.callId === "call_sync_1",
++      );
++      expect(dupSyncCards).toHaveLength(0);
++
++      // Foreground tool that transitions to background gets settled once on wakeup using its streamed callId
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_fg_bg_1",
++            title: "Shell",
++            kind: "execute",
++            status: "in_progress",
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 8", WaitMsBeforeAsync: 500 } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-201`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Waiting on task-201",
++        tool_calls: [],
++      });
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `[Message] timestamp=2026-11-15T11:00:05Z sender=${harness.sessionId}/task-201 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-201" finished`,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Done after task-201",
++        tool_calls: [],
++      });
++      await holdPromise;
++
++      const settledCards = harness.events.filter(
++        (e) =>
++          e.type === "timeline" &&
++          e.item.type === "tool_call" &&
++          e.item.callId === "call_fg_bg_1" &&
++          e.item.status === "completed",
++      );
++      expect(settledCards).toHaveLength(1);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index dbd750b..1a34b7d 100644
+index dbd750b..ec3cd41 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-@@ -1,3 +1,7 @@
+@@ -1,5 +1,10 @@
 +import { randomUUID } from "node:crypto";
 +import { readdirSync, readFileSync, statSync } from "node:fs";
 +import { open, readdir, stat } from "node:fs/promises";
 +import path from "node:path";
  import { setTimeout as delay } from "node:timers/promises";
  
++import type { SessionUpdate } from "@agentclientprotocol/sdk";
  import type { Logger } from "pino";
-@@ -8,16 +12,25 @@ import type {
+ 
+ import type {
+@@ -8,16 +13,26 @@ import type {
    AgentTimelineItem,
  } from "../../agent-sdk-types.js";
  import type { AgentBackgroundWorkInput } from "../../background-work/index.js";
 -import { extractPromptText, type ACPProviderHookContext, type ACPProviderHooks } from "../acp-agent.js";
 +import {
++  contentBlockToText,
 +  extractPromptText,
 +  type ACPProviderHookContext,
 +  type ACPProviderHooks,
@@ -1247,7 +1963,7 @@ index dbd750b..1a34b7d 100644
    unwrapAntigravityArgString,
    unwrapAntigravityStringArrayArg,
    type AntigravityToolCallEntry,
-@@ -26,12 +39,30 @@ import {
+@@ -26,12 +41,31 @@ import {
  
  export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
  export const HELD_ANTIGRAVITY_POLL_INTERVAL_MS = 250;
@@ -1276,12 +1992,13 @@ index dbd750b..1a34b7d 100644
 +const DEFAULT_AUTH_REFRESH_WAIT_MS = 6_000;
 +const DEFAULT_AUTH_LOG_FLUSH_GRACE_MS = 120;
 +const SERVER_LOG_READ_CHUNK_BYTES = 256 * 1024;
++const MAX_DROPPED_CATCHUP_TOOL_CALL_IDS = 512;
 +const UNRECOVERABLE_AUTH_401_MESSAGE =
 +  "Antigravity OAuth access token expired (HTTP 401) and automatic continuation failed; please check `agy` login status or send '继续' to retry.";
  
  interface TrackedBackgroundEntry {
    id: string;
-@@ -39,6 +70,8 @@ interface TrackedBackgroundEntry {
+@@ -39,16 +73,27 @@ interface TrackedBackgroundEntry {
    blocking: boolean;
    description: string | null;
    command?: string;
@@ -1290,20 +2007,27 @@ index dbd750b..1a34b7d 100644
  }
  
  interface PendingStepToolEntry {
-@@ -51,6 +84,12 @@ interface RenderedCallRef {
-   callId: string;
+   call: AntigravityToolCallEntry;
+   renderedCallId: string | null;
++  streamedCallId: string | null;
++  fromAcpStream: boolean;
  }
  
+ interface RenderedCallRef {
+   call: AntigravityToolCallEntry;
+-  callId: string;
++  callId: string | null;
++  fromAcpStream: boolean;
++}
++
 +interface RemoveTrackedTaskSettleOptions {
 +  render: boolean;
 +  failed?: boolean;
 +  output?: string | null;
-+}
-+
+ }
+ 
  export interface AntigravityNativeBridgeOptions {
-   sessionId: string;
-   antigravityHome?: string;
-@@ -59,11 +98,22 @@ export interface AntigravityNativeBridgeOptions {
+@@ -59,11 +104,22 @@ export interface AntigravityNativeBridgeOptions {
    emit: (event: AgentStreamEvent) => void;
    isForegroundTurnActive?: () => boolean;
    lastStreamedContentAt?: () => number | null;
@@ -1326,7 +2050,7 @@ index dbd750b..1a34b7d 100644
    now?: () => number;
  }
  
-@@ -75,24 +125,42 @@ export interface AntigravityProviderHooksOptions {
+@@ -75,24 +131,42 @@ export interface AntigravityProviderHooksOptions {
    postSettleWaitMs?: number;
    postSettleToolWaitMs?: number;
    streamFlushGraceMs?: number;
@@ -1376,7 +2100,7 @@ index dbd750b..1a34b7d 100644
    private readonly provider: AgentProvider;
    private readonly emit: (event: AgentStreamEvent) => void;
    private readonly isForegroundTurnActive: () => boolean;
-@@ -114,11 +182,14 @@ export class AntigravityNativeBridge {
+@@ -114,11 +188,14 @@ export class AntigravityNativeBridge {
    private lastForegroundEndedAt: number | null = null;
  
    private inTurnHold = false;
@@ -1391,10 +2115,20 @@ index dbd750b..1a34b7d 100644
  
    private readonly pendingStepTools: PendingStepToolEntry[] = [];
    private readonly trackedTasks = new Map<string, TrackedBackgroundEntry>();
-@@ -128,7 +199,32 @@ export class AntigravityNativeBridge {
+@@ -128,7 +205,42 @@ export class AntigravityNativeBridge {
    private emittedAnyBackgroundWork = false;
    private syntheticCallOrdinal = 0;
  
++  // Ordered queues of transcript-rendered wakeup output that Antigravity's
++  // ACP server may replay as session/update catch-up chunks at the start of the
++  // next prompt turn (thoughts, assistant text, and tool calls arrive on independent channels).
++  private readonly unstreamedRenderedThoughts: string[] = [];
++  private readonly unstreamedRenderedMessages: string[] = [];
++  private unstreamedRenderedToolCalls = 0;
++  private readonly droppedCatchupToolCallIds = new Set<string>();
++  private activeCatchupFilter = false;
++  private readonly recentStreamedToolCallIds: string[] = [];
++
 +  private resolvedServerLogPath: string | null;
 +  private serverLogInitialized = false;
 +  private serverLogOffset = 0;
@@ -1424,7 +2158,7 @@ index dbd750b..1a34b7d 100644
      this.provider = options.provider;
      this.emit = options.emit;
      this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
-@@ -152,6 +248,7 @@ export class AntigravityNativeBridge {
+@@ -152,6 +264,7 @@ export class AntigravityNativeBridge {
        return;
      }
      this.started = true;
@@ -1432,7 +2166,7 @@ index dbd750b..1a34b7d 100644
      this.log.start();
      this.scheduleNextPoll();
    }
-@@ -165,6 +262,7 @@ export class AntigravityNativeBridge {
+@@ -165,6 +278,7 @@ export class AntigravityNativeBridge {
        clearTimeout(this.pollTimer);
        this.pollTimer = null;
      }
@@ -1440,7 +2174,7 @@ index dbd750b..1a34b7d 100644
      this.log.stop();
      this.trackedTasks.clear();
      this.trackedSubagents.clear();
-@@ -181,16 +279,60 @@ export class AntigravityNativeBridge {
+@@ -181,14 +295,62 @@ export class AntigravityNativeBridge {
        return;
      }
      await this.log.pollNow();
@@ -1462,6 +2196,8 @@ index dbd750b..1a34b7d 100644
 +    const isRecovery = isAuthRecoveryPrompt(promptText);
      this.pendingManualCompact = promptText !== null && isCompactSlashCommand(promptText);
 -    this.idleWakeupActive = false;
++    this.recentStreamedToolCallIds.length = 0;
++    this.activeCatchupFilter = this.hasPendingCatchup();
 +    if (!isRecovery) {
 +      this.closeIdleWakeupTurn();
 +      this.authExpiryRetryCount = 0;
@@ -1471,17 +2207,19 @@ index dbd750b..1a34b7d 100644
 +      this.lastAuth401DetectedAt = null;
 +    }
 +    this.lastTranscriptStepNeedsModelFollowup = true;
-     this.awaitingPostSettleResponse = false;
-     this.postSettleFinalPlannerSeen = false;
-     this.postSettleDeadline = null;
-   }
- 
-+  markSteerSubmitted(promptText: string | null): void {
-+    const isRecovery = isAuthRecoveryPrompt(promptText);
-+    this.pendingManualCompact = promptText !== null && isCompactSlashCommand(promptText);
 +    this.awaitingPostSettleResponse = false;
 +    this.postSettleFinalPlannerSeen = false;
 +    this.postSettleDeadline = null;
++  }
++
++  markSteerSubmitted(promptText: string | null): void {
++    const isRecovery = isAuthRecoveryPrompt(promptText);
++    this.pendingManualCompact = promptText !== null && isCompactSlashCommand(promptText);
++    this.recentStreamedToolCallIds.length = 0;
++    this.activeCatchupFilter = this.hasPendingCatchup();
+     this.awaitingPostSettleResponse = false;
+     this.postSettleFinalPlannerSeen = false;
+     this.postSettleDeadline = null;
 +    if (!isRecovery) {
 +      this.authExpiryRetryCount = 0;
 +      this.fatalAuthFailureSeen = false;
@@ -1497,12 +2235,10 @@ index dbd750b..1a34b7d 100644
 +    } else if (!isRecovery) {
 +      this.closeIdleWakeupTurn();
 +    }
-+  }
-+
+   }
+ 
    hasBlockingBackgroundWork(): boolean {
-     for (const entry of this.trackedTasks.values()) {
-       if (entry.blocking) {
-@@ -241,25 +383,53 @@ export class AntigravityNativeBridge {
+@@ -241,25 +403,53 @@ export class AntigravityNativeBridge {
      await this.pollNow();
      await this.awaitCompactCheckpoint(signal);
      if (!this.hasBlockingBackgroundWork()) {
@@ -1557,7 +2293,7 @@ index dbd750b..1a34b7d 100644
  
          if (this.hasBlockingBackgroundWork()) {
            this.awaitingPostSettleResponse = false;
-@@ -275,16 +445,21 @@ export class AntigravityNativeBridge {
+@@ -275,16 +465,21 @@ export class AntigravityNativeBridge {
          if (nowMs >= deadline) {
            break;
          }
@@ -1579,7 +2315,7 @@ index dbd750b..1a34b7d 100644
        this.holdEpochSawWakeup = false;
        this.awaitingPostSettleResponse = false;
        this.postSettleFinalPlannerSeen = false;
-@@ -323,7 +498,7 @@ export class AntigravityNativeBridge {
+@@ -323,7 +518,7 @@ export class AntigravityNativeBridge {
      }
      await new Promise<void>((resolve) => {
        let settled = false;
@@ -1588,7 +2324,7 @@ index dbd750b..1a34b7d 100644
          if (settled) {
            return;
          }
-@@ -346,9 +521,12 @@ export class AntigravityNativeBridge {
+@@ -346,9 +541,12 @@ export class AntigravityNativeBridge {
    private handleRecord(record: AntigravityTranscriptRecord): void {
      if (record.source === "USER_EXPLICIT" && record.type === "USER_INPUT") {
        this.pendingStepTools.length = 0;
@@ -1603,7 +2339,7 @@ index dbd750b..1a34b7d 100644
        }
        return;
      }
-@@ -359,7 +537,8 @@ export class AntigravityNativeBridge {
+@@ -359,7 +557,8 @@ export class AntigravityNativeBridge {
          !manualFromPrompt &&
          this.lastUserInputText !== null &&
          isCompactSlashCommand(this.lastUserInputText);
@@ -1613,7 +2349,7 @@ index dbd750b..1a34b7d 100644
        this.pendingManualCompact = false;
        if (manualFromTranscript) {
          this.lastUserInputText = null;
-@@ -415,6 +594,11 @@ export class AntigravityNativeBridge {
+@@ -415,25 +614,52 @@ export class AntigravityNativeBridge {
  
      const renderThisStep = this.shouldRenderCurrentStep();
      const hasToolCalls = record.toolCalls.length > 0;
@@ -1622,12 +2358,22 @@ index dbd750b..1a34b7d 100644
 +    this.unrecoverableAuthError = null;
 +    this.pendingAuth401At = null;
 +    this.lastTranscriptStepNeedsModelFollowup = hasToolCalls;
++    if (!renderThisStep && !hasToolCalls) {
++      this.recentStreamedToolCallIds.length = 0;
++    }
  
      if (renderThisStep && record.thinking && record.thinking.trim().length > 0) {
++      this.unstreamedRenderedThoughts.push(record.thinking);
        this.emitTimelineItem({
-@@ -424,7 +608,10 @@ export class AntigravityNativeBridge {
+         type: "reasoning",
+         text: record.thinking,
+       });
      }
  
++    if (renderThisStep && hasToolCalls) {
++      this.unstreamedRenderedToolCalls += record.toolCalls.length;
++    }
++
      for (let idx = 0; idx < record.toolCalls.length; idx++) {
 -      const call = record.toolCalls[idx]!;
 +      const call = record.toolCalls[idx];
@@ -1635,9 +2381,30 @@ index dbd750b..1a34b7d 100644
 +        continue;
 +      }
        let renderedCallId: string | null = null;
++      let streamedCallId: string | null = null;
        if (renderThisStep) {
          renderedCallId = `agy-step-${record.stepIndex ?? this.syntheticCallOrdinal++}-tc-${idx}`;
-@@ -448,19 +635,22 @@ export class AntigravityNativeBridge {
+         this.emitTimelineItem(buildAntigravityRunningToolItem(call, renderedCallId));
++      } else {
++        streamedCallId = this.recentStreamedToolCallIds.shift() ?? null;
+       }
+-      this.pendingStepTools.push({ call, renderedCallId });
++      this.pendingStepTools.push({
++        call,
++        renderedCallId,
++        streamedCallId,
++        fromAcpStream: !renderThisStep,
++      });
+     }
+ 
+     if (renderThisStep && record.content && record.content.length > 0) {
++      if (record.content.trim().length > 0) {
++        this.unstreamedRenderedMessages.push(record.content);
++      }
+       this.emitTimelineItem({
+         type: "assistant_message",
+         text: record.content,
+@@ -448,46 +674,92 @@ export class AntigravityNativeBridge {
            this.postSettleFinalPlannerSeen = true;
            this.wakeHoldLoop();
          }
@@ -1668,7 +2435,9 @@ index dbd750b..1a34b7d 100644
      const stepTool = this.pendingStepTools.shift() ?? null;
      const call = stepTool?.call ?? null;
      const renderedCallId = stepTool?.renderedCallId ?? null;
-@@ -468,27 +658,63 @@ export class AntigravityNativeBridge {
++    const streamedCallId = stepTool?.streamedCallId ?? null;
++    const fromAcpStream = Boolean(stepTool?.fromAcpStream);
+ 
      if (record.status === "RUNNING") {
        const taskSpawn = parseBackgroundTaskSpawn(record.content);
        if (taskSpawn) {
@@ -1732,16 +2501,22 @@ index dbd750b..1a34b7d 100644
 +          ...(timerCondition ? { timerCondition } : {}),
 +          ...(expiresAtMs !== null ? { expiresAtMs } : {}),
          });
-         if (renderedCallId && call) {
-           this.backgroundToolCalls.set(taskSpawn.taskId, { call, callId: renderedCallId });
-         }
+-        if (renderedCallId && call) {
+-          this.backgroundToolCalls.set(taskSpawn.taskId, { call, callId: renderedCallId });
++        const backgroundCallId = renderedCallId ?? streamedCallId;
++        if (call && (backgroundCallId || fromAcpStream)) {
++          this.backgroundToolCalls.set(taskSpawn.taskId, {
++            call,
++            callId: backgroundCallId,
++            fromAcpStream,
++          });
++        }
 +        if (!this.inTurnHold && this.idleWakeupTurnId !== null && !isDaemon) {
 +          this.clearIdleWakeupTimer();
-+        }
+         }
          this.emitBackgroundWorkIfChanged();
          return;
-       }
-@@ -513,12 +739,52 @@ export class AntigravityNativeBridge {
+@@ -513,12 +785,52 @@ export class AntigravityNativeBridge {
        backgroundChanged = true;
      }
  
@@ -1798,7 +2573,7 @@ index dbd750b..1a34b7d 100644
        }
      }
  
-@@ -545,34 +811,68 @@ export class AntigravityNativeBridge {
+@@ -545,34 +857,68 @@ export class AntigravityNativeBridge {
  
      if (renderedCallId && call) {
        const failed = record.status === "ERROR" || record.status === "INVALID";
@@ -1879,7 +2654,7 @@ index dbd750b..1a34b7d 100644
          }
        }
      }
-@@ -598,6 +898,10 @@ export class AntigravityNativeBridge {
+@@ -598,6 +944,10 @@ export class AntigravityNativeBridge {
  
      if (!this.isForegroundTurnActive()) {
        this.idleWakeupActive = true;
@@ -1890,7 +2665,7 @@ index dbd750b..1a34b7d 100644
      }
    }
  
-@@ -631,7 +935,73 @@ export class AntigravityNativeBridge {
+@@ -631,7 +981,73 @@ export class AntigravityNativeBridge {
      return false;
    }
  
@@ -1964,7 +2739,7 @@ index dbd750b..1a34b7d 100644
      this.emit({
        type: "timeline",
        provider: this.provider,
-@@ -669,6 +1039,486 @@ export class AntigravityNativeBridge {
+@@ -669,6 +1085,643 @@ export class AntigravityNativeBridge {
        items,
      });
    }
@@ -1983,7 +2758,7 @@ index dbd750b..1a34b7d 100644
 +      const bgTool = this.backgroundToolCalls.get(key);
 +      if (bgTool) {
 +        this.backgroundToolCalls.delete(key);
-+        if (settleOptions?.render) {
++        if (settleOptions?.render && bgTool.callId) {
 +          this.emitTimelineItem(
 +            buildAntigravitySettledToolItem(
 +              bgTool.call,
@@ -2011,7 +2786,7 @@ index dbd750b..1a34b7d 100644
 +      const bgTool = this.backgroundToolCalls.get(key);
 +      if (bgTool) {
 +        this.backgroundToolCalls.delete(key);
-+        if (render) {
++        if (render && bgTool.callId) {
 +          this.emitTimelineItem(
 +            buildAntigravitySettledToolItem(
 +              bgTool.call,
@@ -2448,10 +3223,167 @@ index dbd750b..1a34b7d 100644
 +    const outcome = await this.tryRecoverPendingAuth401(signal, "direct_prompt_error_401");
 +    return outcome === "dispatched";
 +  }
++
++  hasPendingCatchup(): boolean {
++    return (
++      this.unstreamedRenderedThoughts.length > 0 ||
++      this.unstreamedRenderedMessages.length > 0 ||
++      this.unstreamedRenderedToolCalls > 0
++    );
++  }
++
++  private clearActiveCatchupQueues(): void {
++    this.unstreamedRenderedThoughts.length = 0;
++    this.unstreamedRenderedMessages.length = 0;
++    this.unstreamedRenderedToolCalls = 0;
++    this.activeCatchupFilter = false;
++  }
++
++  private rememberDroppedCatchupToolCallId(toolCallId: string): void {
++    if (this.droppedCatchupToolCallIds.has(toolCallId)) {
++      this.droppedCatchupToolCallIds.delete(toolCallId);
++    }
++    this.droppedCatchupToolCallIds.add(toolCallId);
++    while (this.droppedCatchupToolCallIds.size > MAX_DROPPED_CATCHUP_TOOL_CALL_IDS) {
++      const oldest = this.droppedCatchupToolCallIds.values().next().value;
++      if (oldest === undefined) {
++        break;
++      }
++      this.droppedCatchupToolCallIds.delete(oldest);
++    }
++  }
++
++  private consumeCatchupText(queue: string[], chunk: string): boolean {
++    if (queue.length === 0) {
++      return false;
++    }
++    const expected = queue[0];
++    if (expected === undefined) {
++      return false;
++    }
++    if (expected === chunk) {
++      queue.shift();
++      return true;
++    }
++    if (expected.startsWith(chunk)) {
++      const rest = expected.slice(chunk.length);
++      if (rest.trim().length === 0) {
++        queue.shift();
++      } else {
++        queue[0] = rest;
++      }
++      return true;
++    }
++    const trimmedExpected = expected.trim();
++    const trimmedChunk = chunk.trim();
++    if (trimmedExpected.length > 0 && trimmedExpected === trimmedChunk) {
++      queue.shift();
++      return true;
++    }
++    return false;
++  }
++
++  private recordForegroundStreamedToolCallId(toolCallId: string): void {
++    for (const entry of this.pendingStepTools) {
++      if (entry.fromAcpStream && !entry.streamedCallId) {
++        entry.streamedCallId = toolCallId;
++        return;
++      }
++    }
++    for (const bgTool of this.backgroundToolCalls.values()) {
++      if (bgTool.fromAcpStream && !bgTool.callId) {
++        bgTool.callId = toolCallId;
++        return;
++      }
++    }
++    this.recentStreamedToolCallIds.push(toolCallId);
++  }
++
++  shouldDropSessionUpdate(update: SessionUpdate, ctx?: ACPProviderHookContext): boolean {
++    if (ctx?.replayingHistory === true) {
++      return false;
++    }
++    const kind = update.sessionUpdate;
++    if (ctx?.isForegroundTurnActive && !ctx.isForegroundTurnActive() && isTimelineSessionUpdateKind(kind)) {
++      return true;
++    }
++    const toolCallId =
++      (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") &&
++      typeof update.toolCallId === "string" &&
++      update.toolCallId.length > 0
++        ? update.toolCallId
++        : null;
++    if (
++      (kind === "tool_call_update" || kind === "tool_call") &&
++      toolCallId !== null &&
++      this.droppedCatchupToolCallIds.has(toolCallId)
++    ) {
++      return true;
++    }
++    if (this.activeCatchupFilter) {
++      switch (kind) {
++        case "agent_thought_chunk": {
++          const chunk = readSessionUpdateText(update);
++          if (chunk.length === 0) {
++            return true;
++          }
++          if (this.consumeCatchupText(this.unstreamedRenderedThoughts, chunk)) {
++            if (!this.hasPendingCatchup()) {
++              this.activeCatchupFilter = false;
++            }
++            return true;
++          }
++          this.clearActiveCatchupQueues();
++          return false;
++        }
++        case "agent_message_chunk": {
++          const chunk = readSessionUpdateText(update);
++          if (chunk.length === 0) {
++            return true;
++          }
++          if (this.consumeCatchupText(this.unstreamedRenderedMessages, chunk)) {
++            if (!this.hasPendingCatchup()) {
++              this.activeCatchupFilter = false;
++            }
++            return true;
++          }
++          this.clearActiveCatchupQueues();
++          return false;
++        }
++        case "tool_call": {
++          if (this.unstreamedRenderedToolCalls > 0) {
++            this.unstreamedRenderedToolCalls -= 1;
++            if (toolCallId !== null) {
++              this.rememberDroppedCatchupToolCallId(toolCallId);
++            }
++            if (!this.hasPendingCatchup()) {
++              this.activeCatchupFilter = false;
++            }
++            return true;
++          }
++          this.clearActiveCatchupQueues();
++          break;
++        }
++        case "plan":
++          this.clearActiveCatchupQueues();
++          return false;
++        default:
++          break;
++      }
++    }
++    if (
++      kind === "tool_call" &&
++      toolCallId !== null &&
++      (!ctx?.isForegroundTurnActive || ctx.isForegroundTurnActive())
++    ) {
++      this.recordForegroundStreamedToolCallId(toolCallId);
++    }
++    return false;
++  }
  }
  
  export function createAntigravityProviderHooks(
-@@ -687,11 +1537,18 @@ export function createAntigravityProviderHooks(
+@@ -687,11 +1740,18 @@ export function createAntigravityProviderHooks(
          emit: ctx.emit,
          isForegroundTurnActive: ctx.isForegroundTurnActive,
          lastStreamedContentAt: ctx.lastStreamedContentAt,
@@ -2470,7 +3402,7 @@ index dbd750b..1a34b7d 100644
        });
        bridges.set(ctx.acpSessionId, bridge);
        bridge.start();
-@@ -706,6 +1563,10 @@ export function createAntigravityProviderHooks(
+@@ -706,6 +1766,10 @@ export function createAntigravityProviderHooks(
        const text = extractPromptText(prompt);
        bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
      },
@@ -2481,7 +3413,7 @@ index dbd750b..1a34b7d 100644
      holdTurnWhile(ctx) {
        const bridge = bridges.get(ctx.acpSessionId);
        if (!bridge) {
-@@ -713,6 +1574,20 @@ export function createAntigravityProviderHooks(
+@@ -713,12 +1777,74 @@ export function createAntigravityProviderHooks(
        }
        return bridge.waitForBackgroundSettled(holdTimeoutMs, ctx.signal);
      },
@@ -2502,7 +3434,35 @@ index dbd750b..1a34b7d 100644
      canStopRuntime(ctx: ACPProviderHookContext) {
        return !(bridges.get(ctx.acpSessionId)?.hasBlockingBackgroundWork() ?? false);
      },
-@@ -722,3 +1597,25 @@ export function createAntigravityProviderHooks(
++    shouldDropSessionUpdate(update, ctx) {
++      if (!ctx) {
++        return false;
++      }
++      return bridges.get(ctx.acpSessionId)?.shouldDropSessionUpdate(update, ctx) ?? false;
++    },
+   };
+ }
+ 
++function isTimelineSessionUpdateKind(kind: SessionUpdate["sessionUpdate"] | undefined): boolean {
++  return (
++    kind === "agent_message_chunk" ||
++    kind === "agent_thought_chunk" ||
++    kind === "tool_call" ||
++    kind === "tool_call_update" ||
++    kind === "plan"
++  );
++}
++
++function readSessionUpdateText(update: SessionUpdate): string {
++  if (
++    update.sessionUpdate !== "agent_thought_chunk" &&
++    update.sessionUpdate !== "agent_message_chunk"
++  ) {
++    return "";
++  }
++  return contentBlockToText(update.content);
++}
++
  function isCompactSlashCommand(text: string): boolean {
    return /^\/compact(?:\s|$)/i.test(text.trim());
  }
