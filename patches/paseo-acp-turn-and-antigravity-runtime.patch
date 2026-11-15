@@ -1209,7 +1209,7 @@ index 93d6925..154130c 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index dbd750b..405607c 100644
+index dbd750b..1a34b7d 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -1,3 +1,7 @@
@@ -1412,8 +1412,8 @@ index dbd750b..405607c 100644
 +    this.sessionId = options.sessionId;
 +    this.logger = options.logger;
 +    this.antigravityHome = resolveAntigravityHome(options.antigravityHome);
-+    this.getChildPid =
-+      typeof options.childPid === "function" ? options.childPid : () => options.childPid ?? null;
++    const childPid = options.childPid ?? null;
++    this.getChildPid = typeof childPid === "function" ? childPid : () => childPid;
 +    this.resolvedServerLogPath = options.serverLogPath ?? null;
 +    this.onTransientAuthRecovery = options.onTransientAuthRecovery ?? null;
 +    this.maxAuthExpiryRetries = options.maxAuthExpiryRetries ?? DEFAULT_MAX_AUTH_EXPIRY_RETRIES;
