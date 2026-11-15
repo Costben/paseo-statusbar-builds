@@ -52,7 +52,7 @@ new file mode 100644
 index 0000000..d6cc0dc
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.test.ts
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,369 @@
 +import { describe, expect, test } from "vitest";
 +import { decodeKeyringPayload, discover, fetchUsage } from "./usage.js";
 +
@@ -393,7 +393,12 @@ index 0000000..d6cc0dc
 +    const report = await fetchUsage(
 +      { route: { store: "keyring", service: "gemini", account: "antigravity" } },
 +      fetchApi,
-+      { platform: "darwin", arch: "arm64", readKeyringRaw: async () => raw },
++      {
++        platform: "darwin",
++        arch: "arm64",
++        now: () => Date.parse("2026-11-14T18:00:00.000Z"),
++        readKeyringRaw: async () => raw,
++      },
 +    );
 +
 +    expect(new Set(userAgents)).toEqual(

@@ -107,7 +107,7 @@ index ae79fc6..8bb7a76 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index f5dfe99..fb84c6c 100644
+index f5dfe99..d1e09f4 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -601,6 +601,14 @@ export interface ACPProviderHookContext {
@@ -655,7 +655,7 @@ index f5dfe99..fb84c6c 100644
 +    // 回合刚结束时的尾随事件，或与上一回合最终消息内容重复的回放，不该凭空开一个新回合。
 +    const sinceMs = this.lastTurnCompletedAt ? Date.now() - this.lastTurnCompletedAt : -1;
 +    const isDuplicateFinal = this.isDuplicateTrailingTimelineItem(event.item, sinceMs);
-+    if ((this.lastTurnCompletedAt && sinceMs < 8_000) || isDuplicateFinal) {
++    if ((this.provider === "kimi" && this.lastTurnCompletedAt > 0 && sinceMs < 8_000) || isDuplicateFinal) {
 +      this.logger.warn(
 +        {
 +          agentId: this.agentId,
@@ -865,7 +865,7 @@ index b1e06f3..57d6d60 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925..154130c 100644
+index 93d6925..50f1ddf 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -9,9 +9,13 @@ import type { AgentStreamEvent } from "../../agent-sdk-types.js";
@@ -957,7 +957,7 @@ index 93d6925..154130c 100644
 +          type: "GENERIC",
 +          status: "RUNNING",
 +          content:
-+            "Command is still running in the background with task ID: 11111111-2222-4333-8444-555555555555/task-1.",
++            "Tool is running as a background task with task id: 11111111-2222-4333-8444-555555555555/task-1",
 +        })}\n`,
 +      );
 +      appendFileSync(
@@ -968,7 +968,7 @@ index 93d6925..154130c 100644
 +          type: "GENERIC",
 +          status: "RUNNING",
 +          content:
-+            "Scheduled task started with task ID: 11111111-2222-4333-8444-555555555555/task-2.",
++            "Tool is running as a background task with task id: 11111111-2222-4333-8444-555555555555/task-2",
 +        })}\n`,
 +      );
 +
@@ -1034,19 +1034,19 @@ index 93d6925..154130c 100644
 +          source: "MODEL",
 +          type: "GENERIC",
 +          status: "RUNNING",
-+          content: "Task ID: sess/task-1.",
++          content: "Tool is running as a background task with task id: sess/task-1",
 +        })}\n${JSON.stringify({
 +          step_index: 3,
 +          source: "MODEL",
 +          type: "GENERIC",
 +          status: "RUNNING",
-+          content: "Task ID: sess/task-2.",
++          content: "Tool is running as a background task with task id: sess/task-2",
 +        })}\n${JSON.stringify({
 +          step_index: 4,
 +          source: "MODEL",
 +          type: "GENERIC",
 +          status: "RUNNING",
-+          content: "Task ID: sess/task-3.",
++          content: "Tool is running as a background task with task id: sess/task-3",
 +        })}\n`,
 +      );
 +
@@ -1121,7 +1121,7 @@ index 93d6925..154130c 100644
 +          source: "MODEL",
 +          type: "GENERIC",
 +          status: "RUNNING",
-+          content: "Task ID: sess/task-99.",
++          content: "Tool is running as a background task with task id: sess/task-99",
 +        })}\n`,
 +      );
 +

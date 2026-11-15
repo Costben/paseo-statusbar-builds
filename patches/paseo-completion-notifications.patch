@@ -168,14 +168,179 @@ index 98b3a4d..c2a1446 100644
    return { inAppRecipientIndex: null, shouldPush: pushEligible };
  }
  
-diff --git a/packages/server/src/server/agent/agent-manager.test.ts b/packages/server/src/server/agent/agent-manager.test.ts
-index 1491aaa..d8437ea 100644
---- a/packages/server/src/server/agent/agent-manager.test.ts
-+++ b/packages/server/src/server/agent/agent-manager.test.ts
-@@ -14316,3 +14316,138 @@ test("workspace archive preserves a loaded history agent stamp and stamps cascad
-     rmSync(workdir, { recursive: true, force: true });
-   }
- });
+diff --git a/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts b/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts
+new file mode 100644
+index 0000000..12af94d
+--- /dev/null
++++ b/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts
+@@ -0,0 +1,302 @@
++import { randomUUID } from "node:crypto";
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { expect, test, vi } from "vitest";
++import { createTestLogger } from "../../test-utils/test-logger.js";
++import { AgentManager } from "./agent-manager.js";
++import type {
++  AgentClient,
++  AgentLaunchContext,
++  AgentPersistenceHandle,
++  AgentProvider,
++  AgentRunResult,
++  AgentSession,
++  AgentSessionConfig,
++  AgentStreamEvent,
++} from "./agent-sdk-types.js";
++import { AgentStorage } from "./agent-storage.js";
++
++const logger = createTestLogger();
++
++async function drainAsyncGenerator<T>(generator: AsyncGenerator<T>): Promise<void> {
++  for await (const _ of generator) {
++    // Drain provider events while AgentManager subscribers observe them.
++  }
++}
++
++const TEST_CAPABILITIES = {
++  supportsStreaming: false,
++  supportsSessionPersistence: false,
++  supportsSessionListing: true,
++  supportsDynamicModes: false,
++  supportsMcpServers: false,
++  supportsReasoningStream: false,
++  supportsToolInvocations: false,
++} as const;
++
++class TestAgentSession implements AgentSession {
++  readonly provider = "codex" as const;
++  readonly capabilities = TEST_CAPABILITIES;
++  readonly id = randomUUID();
++  private runtimeModel: string | null = null;
++  private subscribers = new Set<(event: AgentStreamEvent) => void>();
++  private turnIdCounter = 0;
++
++  constructor(private readonly config: AgentSessionConfig) {}
++
++  async run(): Promise<AgentRunResult> {
++    return {
++      sessionId: this.id ?? this.config.provider,
++      finalText: "",
++      timeline: [],
++    };
++  }
++
++  async startTurn(): Promise<{ turnId: string }> {
++    const turnId = `turn-${this.id}-${++this.turnIdCounter}`;
++    setTimeout(() => {
++      this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
++      this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
++      this.runtimeModel = "gpt-5.2-codex";
++    }, 0);
++    return { turnId };
++  }
++
++  subscribe(callback: (event: AgentStreamEvent) => void): () => void {
++    this.subscribers.add(callback);
++    return () => {
++      this.subscribers.delete(callback);
++    };
++  }
++
++  pushEvent(event: AgentStreamEvent): void {
++    for (const cb of this.subscribers) {
++      try {
++        cb(event);
++      } catch {
++        // error isolation per design
++      }
++    }
++  }
++
++  async *streamHistory(): AsyncGenerator<AgentStreamEvent> {}
++
++  async getRuntimeInfo() {
++    return {
++      provider: this.provider,
++      sessionId: this.id,
++      model: this.runtimeModel ?? this.config.model ?? null,
++      modeId: this.config.modeId ?? null,
++    };
++  }
++
++  async getAvailableModes() {
++    return [];
++  }
++
++  async getCurrentMode() {
++    return null;
++  }
++
++  async setMode(): Promise<void> {}
++
++  getPendingPermissions() {
++    return [];
++  }
++
++  async respondToPermission(): Promise<void> {}
++
++  describePersistence() {
++    return {
++      provider: this.provider,
++      sessionId: this.id,
++    };
++  }
++
++  async interrupt(): Promise<void> {}
++
++  async close(): Promise<void> {}
++}
++
++class TestAgentClient implements AgentClient {
++  readonly provider: AgentProvider;
++  readonly capabilities = TEST_CAPABILITIES;
++  readonly createdConfigs: AgentSessionConfig[] = [];
++  readonly resumeOverrides: Array<Partial<AgentSessionConfig> | undefined> = [];
++
++  constructor(provider: AgentProvider = "codex") {
++    this.provider = provider;
++  }
++
++  async isAvailable(): Promise<boolean> {
++    return true;
++  }
++
++  async createSession(config: AgentSessionConfig): Promise<AgentSession> {
++    this.createdConfigs.push(config);
++    return new TestAgentSession(config);
++  }
++
++  async fetchCatalog() {
++    return {
++      models: [
++        {
++          provider: this.provider,
++          id: "gpt-5.4",
++          label: "GPT-5.4",
++          isDefault: true,
++        },
++      ],
++      modes: [],
++    };
++  }
++
++  async resumeSession(
++    _handle: AgentPersistenceHandle,
++    config?: Partial<AgentSessionConfig>,
++    _launchContext?: AgentLaunchContext,
++  ): Promise<AgentSession> {
++    this.resumeOverrides.push(config);
++    return new TestAgentSession({
++      provider: this.provider,
++      cwd: config?.cwd ?? process.cwd(),
++      daemonAppendSystemPrompt: config?.daemonAppendSystemPrompt,
++    });
++  }
++}
 +
 +test("defers finished attention while blocking background work is active and clears deferral on wakeup turn", async () => {
 +  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-deferred-wakeup-"));
