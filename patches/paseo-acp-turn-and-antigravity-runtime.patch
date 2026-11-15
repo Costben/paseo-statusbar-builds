@@ -1229,7 +1229,7 @@ index b1e06f3..8e3d0c7 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925..1324b45 100644
+index 93d6925..37d8ca1 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
@@ -1262,7 +1262,7 @@ index 93d6925..1324b45 100644
        });
        expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
          type: "background_work",
-@@ -610,4 +616,657 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -610,4 +616,717 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        sessionHandle?.onClose?.();
      }
    });
@@ -1574,6 +1574,66 @@ index 93d6925..1324b45 100644
 +      expect(recovered).toBe(true);
 +      expect(retryCalls).toHaveLength(1);
 +      expect(retryCalls[0]?.reason).toBe("direct_prompt_error_401");
++      expect(hooks.verifyTurnOutcome?.(ctx)).toBeNull();
++    } finally {
++      handle?.onClose?.();
++    }
++  });
++
++  test("auto-continues when the context summarization hook aborts the turn with 401", async () => {
++    const antigravityHome = createTempAntigravityHome();
++    const sessionId = "33333333-4444-4555-8666-777777777777";
++    const transcriptPath = getTranscriptPath(antigravityHome, sessionId);
++    const logDir = path.join(antigravityHome, "log");
++    mkdirSync(path.dirname(transcriptPath), { recursive: true });
++    mkdirSync(logDir, { recursive: true });
++    const serverLogPath = path.join(logDir, "acp-server-4343.log");
++    writeFileSync(serverLogPath, "acp server started\n", "utf8");
++    writeFileSync(transcriptPath, "", "utf8");
++
++    const retryCalls: Array<{ reason: string; adoptTurnId?: string }> = [];
++    const hooks = createAntigravityProviderHooks({
++      antigravityHome,
++      pollIntervalMs: 20,
++      heldPollIntervalMs: 10,
++      postSettleWaitMs: 50,
++      authRefreshMinGraceMs: 10,
++      authRefreshWaitMs: 400,
++      authLogFlushGraceMs: 10,
++    });
++    const ctx: ACPProviderHookContext = {
++      acpSessionId: sessionId,
++      provider: "antigravity",
++      logger: createTestLogger(),
++      emit: () => {},
++      isForegroundTurnActive: () => true,
++      lastStreamedContentAt: () => null,
++      childPid: () => 4343,
++      retryActiveOrOpenTurn: async (_prompt, reason, adoptTurnId) => {
++        retryCalls.push({ reason, adoptTurnId });
++        return true;
++      },
++    };
++    const handle = hooks.onSessionReady?.(ctx);
++    try {
++      hooks.onForegroundTurnStarting?.(ctx, "long job");
++      appendFileSync(
++        serverLogPath,
++        [
++          "token refreshed, new expiry=2026-11-15T23:18:52Z",
++          "agent executor error: pre-invocation hook: context summarization: UNAUTHENTICATED (code 401)",
++          "",
++        ].join("\n"),
++      );
++
++      await hooks.holdTurnWhile?.({
++        acpSessionId: sessionId,
++        logger: ctx.logger,
++        signal: new AbortController().signal,
++        sawTimeline: false,
++      });
++      expect(retryCalls).toHaveLength(1);
++      expect(retryCalls[0]?.reason).toBe("foreground_end_turn");
 +      expect(hooks.verifyTurnOutcome?.(ctx)).toBeNull();
 +    } finally {
 +      handle?.onClose?.();
@@ -1921,7 +1981,7 @@ index 93d6925..1324b45 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index dbd750b..ec3cd41 100644
+index dbd750b..bbdd9cf 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -1,5 +1,10 @@
@@ -1963,7 +2023,7 @@ index dbd750b..ec3cd41 100644
    unwrapAntigravityArgString,
    unwrapAntigravityStringArrayArg,
    type AntigravityToolCallEntry,
-@@ -26,12 +41,31 @@ import {
+@@ -26,12 +41,32 @@ import {
  
  export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
  export const HELD_ANTIGRAVITY_POLL_INTERVAL_MS = 250;
@@ -1981,8 +2041,9 @@ index dbd750b..ec3cd41 100644
 -const DEFAULT_POST_SETTLE_TOOL_WAIT_MS = 15_000;
 +const DEFAULT_POST_SETTLE_WAIT_MS = 90_000;
 +const DEFAULT_POST_SETTLE_TOOL_WAIT_MS = 180_000;
-+const AUTH_EXECUTOR_401_RE =
-+  /agent executor error:\s*generating and executing:\s*UNAUTHENTICATED \(code 401\)/i;
++// Any stage that aborts the agent executor (model call, context summarization hook, ...)
++// ends the turn the same way, so every UNAUTHENTICATED executor error is recoverable.
++const AUTH_EXECUTOR_401_RE = /agent executor error:.*UNAUTHENTICATED \(code 401\)/i;
 +const AUTH_TOKEN_REFRESHED_RE = /\btoken refreshed,\s*new expiry=/i;
 +const AUTH_FATAL_LOGIN_RE =
 +  /\binvalid_grant\b|refresh token.*expired|You are not logged into Antigravity/i;
@@ -1998,7 +2059,7 @@ index dbd750b..ec3cd41 100644
  
  interface TrackedBackgroundEntry {
    id: string;
-@@ -39,16 +73,27 @@ interface TrackedBackgroundEntry {
+@@ -39,16 +74,27 @@ interface TrackedBackgroundEntry {
    blocking: boolean;
    description: string | null;
    command?: string;
@@ -2027,7 +2088,7 @@ index dbd750b..ec3cd41 100644
  }
  
  export interface AntigravityNativeBridgeOptions {
-@@ -59,11 +104,22 @@ export interface AntigravityNativeBridgeOptions {
+@@ -59,11 +105,22 @@ export interface AntigravityNativeBridgeOptions {
    emit: (event: AgentStreamEvent) => void;
    isForegroundTurnActive?: () => boolean;
    lastStreamedContentAt?: () => number | null;
@@ -2050,7 +2111,7 @@ index dbd750b..ec3cd41 100644
    now?: () => number;
  }
  
-@@ -75,24 +131,42 @@ export interface AntigravityProviderHooksOptions {
+@@ -75,24 +132,42 @@ export interface AntigravityProviderHooksOptions {
    postSettleWaitMs?: number;
    postSettleToolWaitMs?: number;
    streamFlushGraceMs?: number;
@@ -2100,7 +2161,7 @@ index dbd750b..ec3cd41 100644
    private readonly provider: AgentProvider;
    private readonly emit: (event: AgentStreamEvent) => void;
    private readonly isForegroundTurnActive: () => boolean;
-@@ -114,11 +188,14 @@ export class AntigravityNativeBridge {
+@@ -114,11 +189,14 @@ export class AntigravityNativeBridge {
    private lastForegroundEndedAt: number | null = null;
  
    private inTurnHold = false;
@@ -2115,7 +2176,7 @@ index dbd750b..ec3cd41 100644
  
    private readonly pendingStepTools: PendingStepToolEntry[] = [];
    private readonly trackedTasks = new Map<string, TrackedBackgroundEntry>();
-@@ -128,7 +205,42 @@ export class AntigravityNativeBridge {
+@@ -128,7 +206,42 @@ export class AntigravityNativeBridge {
    private emittedAnyBackgroundWork = false;
    private syntheticCallOrdinal = 0;
  
@@ -2158,7 +2219,7 @@ index dbd750b..ec3cd41 100644
      this.provider = options.provider;
      this.emit = options.emit;
      this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
-@@ -152,6 +264,7 @@ export class AntigravityNativeBridge {
+@@ -152,6 +265,7 @@ export class AntigravityNativeBridge {
        return;
      }
      this.started = true;
@@ -2166,7 +2227,7 @@ index dbd750b..ec3cd41 100644
      this.log.start();
      this.scheduleNextPoll();
    }
-@@ -165,6 +278,7 @@ export class AntigravityNativeBridge {
+@@ -165,6 +279,7 @@ export class AntigravityNativeBridge {
        clearTimeout(this.pollTimer);
        this.pollTimer = null;
      }
@@ -2174,7 +2235,7 @@ index dbd750b..ec3cd41 100644
      this.log.stop();
      this.trackedTasks.clear();
      this.trackedSubagents.clear();
-@@ -181,14 +295,62 @@ export class AntigravityNativeBridge {
+@@ -181,14 +296,62 @@ export class AntigravityNativeBridge {
        return;
      }
      await this.log.pollNow();
@@ -2238,7 +2299,7 @@ index dbd750b..ec3cd41 100644
    }
  
    hasBlockingBackgroundWork(): boolean {
-@@ -241,25 +403,53 @@ export class AntigravityNativeBridge {
+@@ -241,25 +404,53 @@ export class AntigravityNativeBridge {
      await this.pollNow();
      await this.awaitCompactCheckpoint(signal);
      if (!this.hasBlockingBackgroundWork()) {
@@ -2293,7 +2354,7 @@ index dbd750b..ec3cd41 100644
  
          if (this.hasBlockingBackgroundWork()) {
            this.awaitingPostSettleResponse = false;
-@@ -275,16 +465,21 @@ export class AntigravityNativeBridge {
+@@ -275,16 +466,21 @@ export class AntigravityNativeBridge {
          if (nowMs >= deadline) {
            break;
          }
@@ -2315,7 +2376,7 @@ index dbd750b..ec3cd41 100644
        this.holdEpochSawWakeup = false;
        this.awaitingPostSettleResponse = false;
        this.postSettleFinalPlannerSeen = false;
-@@ -323,7 +518,7 @@ export class AntigravityNativeBridge {
+@@ -323,7 +519,7 @@ export class AntigravityNativeBridge {
      }
      await new Promise<void>((resolve) => {
        let settled = false;
@@ -2324,7 +2385,7 @@ index dbd750b..ec3cd41 100644
          if (settled) {
            return;
          }
-@@ -346,9 +541,12 @@ export class AntigravityNativeBridge {
+@@ -346,9 +542,12 @@ export class AntigravityNativeBridge {
    private handleRecord(record: AntigravityTranscriptRecord): void {
      if (record.source === "USER_EXPLICIT" && record.type === "USER_INPUT") {
        this.pendingStepTools.length = 0;
@@ -2339,7 +2400,7 @@ index dbd750b..ec3cd41 100644
        }
        return;
      }
-@@ -359,7 +557,8 @@ export class AntigravityNativeBridge {
+@@ -359,7 +558,8 @@ export class AntigravityNativeBridge {
          !manualFromPrompt &&
          this.lastUserInputText !== null &&
          isCompactSlashCommand(this.lastUserInputText);
@@ -2349,7 +2410,7 @@ index dbd750b..ec3cd41 100644
        this.pendingManualCompact = false;
        if (manualFromTranscript) {
          this.lastUserInputText = null;
-@@ -415,25 +614,52 @@ export class AntigravityNativeBridge {
+@@ -415,25 +615,52 @@ export class AntigravityNativeBridge {
  
      const renderThisStep = this.shouldRenderCurrentStep();
      const hasToolCalls = record.toolCalls.length > 0;
@@ -2404,7 +2465,7 @@ index dbd750b..ec3cd41 100644
        this.emitTimelineItem({
          type: "assistant_message",
          text: record.content,
-@@ -448,46 +674,92 @@ export class AntigravityNativeBridge {
+@@ -448,46 +675,92 @@ export class AntigravityNativeBridge {
            this.postSettleFinalPlannerSeen = true;
            this.wakeHoldLoop();
          }
@@ -2516,7 +2577,7 @@ index dbd750b..ec3cd41 100644
          }
          this.emitBackgroundWorkIfChanged();
          return;
-@@ -513,12 +785,52 @@ export class AntigravityNativeBridge {
+@@ -513,12 +786,52 @@ export class AntigravityNativeBridge {
        backgroundChanged = true;
      }
  
@@ -2573,7 +2634,7 @@ index dbd750b..ec3cd41 100644
        }
      }
  
-@@ -545,34 +857,68 @@ export class AntigravityNativeBridge {
+@@ -545,34 +858,68 @@ export class AntigravityNativeBridge {
  
      if (renderedCallId && call) {
        const failed = record.status === "ERROR" || record.status === "INVALID";
@@ -2654,7 +2715,7 @@ index dbd750b..ec3cd41 100644
          }
        }
      }
-@@ -598,6 +944,10 @@ export class AntigravityNativeBridge {
+@@ -598,6 +945,10 @@ export class AntigravityNativeBridge {
  
      if (!this.isForegroundTurnActive()) {
        this.idleWakeupActive = true;
@@ -2665,7 +2726,7 @@ index dbd750b..ec3cd41 100644
      }
    }
  
-@@ -631,7 +981,73 @@ export class AntigravityNativeBridge {
+@@ -631,7 +982,73 @@ export class AntigravityNativeBridge {
      return false;
    }
  
@@ -2739,7 +2800,7 @@ index dbd750b..ec3cd41 100644
      this.emit({
        type: "timeline",
        provider: this.provider,
-@@ -669,6 +1085,643 @@ export class AntigravityNativeBridge {
+@@ -669,6 +1086,643 @@ export class AntigravityNativeBridge {
        items,
      });
    }
@@ -3383,7 +3444,7 @@ index dbd750b..ec3cd41 100644
  }
  
  export function createAntigravityProviderHooks(
-@@ -687,11 +1740,18 @@ export function createAntigravityProviderHooks(
+@@ -687,11 +1741,18 @@ export function createAntigravityProviderHooks(
          emit: ctx.emit,
          isForegroundTurnActive: ctx.isForegroundTurnActive,
          lastStreamedContentAt: ctx.lastStreamedContentAt,
@@ -3402,7 +3463,7 @@ index dbd750b..ec3cd41 100644
        });
        bridges.set(ctx.acpSessionId, bridge);
        bridge.start();
-@@ -706,6 +1766,10 @@ export function createAntigravityProviderHooks(
+@@ -706,6 +1767,10 @@ export function createAntigravityProviderHooks(
        const text = extractPromptText(prompt);
        bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
      },
@@ -3413,7 +3474,7 @@ index dbd750b..ec3cd41 100644
      holdTurnWhile(ctx) {
        const bridge = bridges.get(ctx.acpSessionId);
        if (!bridge) {
-@@ -713,12 +1777,74 @@ export function createAntigravityProviderHooks(
+@@ -713,12 +1778,74 @@ export function createAntigravityProviderHooks(
        }
        return bridge.waitForBackgroundSettled(holdTimeoutMs, ctx.signal);
      },
