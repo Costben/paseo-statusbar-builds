@@ -1,0 +1,468 @@
+diff --git a/packages/app/src/background-work/index.tsx b/packages/app/src/background-work/index.tsx
+index 34dfbb8..07dab46 100644
+--- a/packages/app/src/background-work/index.tsx
++++ b/packages/app/src/background-work/index.tsx
+@@ -3,11 +3,17 @@ import { Text, View } from "react-native";
+ import { useTranslation } from "react-i18next";
+ import { StyleSheet } from "react-native-unistyles";
+ import { ComposerTrackPill, ComposerTrackRow } from "@/composer/tracks";
++import { BackgroundTaskPillTrigger } from "@/composer/background-task-pill";
+ import { LiveElapsed } from "@/components/message";
+ import { Button } from "@/components/ui/button";
++import { MenuRoot, MenuSurface } from "@/components/ui/menu";
+ import type { PaseoAgentBackgroundWorkItem } from "@getpaseo/client";
+ import { createHostBackgroundWorkModel } from "./host";
+-import { backgroundWorkText } from "./presentation";
++import {
++  backgroundWorkText,
++  resolveBackgroundWorkDisplay,
++  type BackgroundWorkDisplaySnapshot,
++} from "./presentation";
+ export { createHostBackgroundWorkModel } from "./host";
+ 
+ function kindKey(kind: string): "shell" | "monitor" | "other" {
+@@ -15,39 +21,22 @@ function kindKey(kind: string): "shell" | "monitor" | "other" {
+   return "other";
+ }
+ 
+-export function BackgroundWorkTrack({
++function BackgroundWorkPanelBody({
++  status,
++  items,
++  rows,
++  stops,
+   model,
+-  count,
+ }: {
++  status: ReturnType<ReturnType<typeof createHostBackgroundWorkModel>["getSnapshot"]>["status"];
++  items: BackgroundWorkDisplaySnapshot["items"];
++  rows: PaseoAgentBackgroundWorkItem[];
++  stops: BackgroundWorkDisplaySnapshot["stops"];
+   model: ReturnType<typeof createHostBackgroundWorkModel>;
+-  count: number;
+ }) {
+   const { t } = useTranslation();
+-  const { items, status, stops } = useSyncExternalStore(
+-    model.subscribe,
+-    model.getSnapshot,
+-    model.getSnapshot,
+-  );
+-  const missing = Object.values(stops ?? {}).filter(
+-    (entry) => !items?.some((item) => item.stopToken === entry.item.stopToken),
+-  );
+-  const rows = [...(items ?? []), ...missing.map((entry) => entry.item)];
+-  if (count === 0 && rows.length === 0) return null;
+-  const visibleCount = items?.length || count;
+   return (
+-    <ComposerTrackPill
+-      testID="background-work"
+-      panelTitle={t("message.backgroundWork.title")}
+-      segments={[
+-        {
+-          bucket: "running",
+-          text:
+-            visibleCount === 1
+-              ? t("message.backgroundWork.pillOne")
+-              : t("message.backgroundWork.pillMany", { count: visibleCount }),
+-        },
+-      ]}
+-    >
++    <>
+       {status === "loading" || status === "stale" ? (
+         <ComposerTrackRow>
+           <Text style={styles.facts}>{t("message.backgroundWork.waiting")}</Text>
+@@ -77,10 +66,99 @@ export function BackgroundWorkTrack({
+           stopStatus={stops?.[item.stopToken ?? ""]?.status}
+         />
+       ))}
++    </>
++  );
++}
++
++export function BackgroundWorkTrack({
++  model,
++  count,
++}: {
++  model: ReturnType<typeof createHostBackgroundWorkModel>;
++  count: number;
++}) {
++  const { t } = useTranslation();
++  const { items, status, stops } = useSyncExternalStore(
++    model.subscribe,
++    model.getSnapshot,
++    model.getSnapshot,
++  );
++  const { visible, rows, visibleCount } = resolveBackgroundWorkDisplay({ items, stops }, count);
++  if (!visible) return null;
++  return (
++    <ComposerTrackPill
++      testID="background-work"
++      panelTitle={t("message.backgroundWork.title")}
++      segments={[
++        {
++          bucket: "running",
++          text:
++            visibleCount === 1
++              ? t("message.backgroundWork.pillOne")
++              : t("message.backgroundWork.pillMany", { count: visibleCount }),
++        },
++      ]}
++    >
++      <BackgroundWorkPanelBody
++        status={status}
++        items={items}
++        rows={rows}
++        stops={stops}
++        model={model}
++      />
+     </ComposerTrackPill>
+   );
+ }
+ 
++export function BackgroundWorkVoicePill({
++  model,
++  count,
++}: {
++  model: ReturnType<typeof createHostBackgroundWorkModel>;
++  count: number;
++}) {
++  const { t } = useTranslation();
++  const { items, status, stops } = useSyncExternalStore(
++    model.subscribe,
++    model.getSnapshot,
++    model.getSnapshot,
++  );
++  const { visible, rows, visibleCount } = resolveBackgroundWorkDisplay({ items, stops }, count);
++  if (!visible) return null;
++  const accessibilityLabel =
++    visibleCount === 1
++      ? t("message.backgroundWork.pillOne")
++      : t("message.backgroundWork.pillMany", { count: visibleCount });
++  return (
++    <MenuRoot compactMode="sheet">
++      <BackgroundTaskPillTrigger
++        count={visibleCount}
++        testID="background-work"
++        accessibilityLabel={accessibilityLabel}
++      />
++      <MenuSurface
++        side="top"
++        align="end"
++        offset={6}
++        sheetTitle={`${t("message.backgroundWork.title")} (${visibleCount})`}
++        minWidth={280}
++        maxWidth={460}
++        maxHeight={400}
++        scrollable
++        testID="background-work-panel"
++      >
++        <BackgroundWorkPanelBody
++          status={status}
++          items={items}
++          rows={rows}
++          stops={stops}
++          model={model}
++        />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
++
+ function BackgroundWorkRow({
+   item,
+   model,
+diff --git a/packages/app/src/background-work/presentation.test.ts b/packages/app/src/background-work/presentation.test.ts
+index 738dde7..799dac6 100644
+--- a/packages/app/src/background-work/presentation.test.ts
++++ b/packages/app/src/background-work/presentation.test.ts
+@@ -1,5 +1,5 @@
+-import { expect, test } from "vitest";
+-import { backgroundWorkText } from "./presentation";
++import { describe, expect, test } from "vitest";
++import { backgroundWorkText, resolveBackgroundWorkDisplay } from "./presentation";
+ 
+ test("shows descriptions and commands once, with useful fallbacks", () => {
+   expect(
+@@ -18,3 +18,59 @@ test("shows descriptions and commands once, with useful fallbacks", () => {
+     command: null,
+   });
+ });
++
++describe("resolveBackgroundWorkDisplay", () => {
++  const itemA = {
++    id: "bg-1",
++    kind: "shell",
++    description: "Run tests",
++    startedAt: "2026-11-16T02:00:00Z",
++    stopToken: "tok-1",
++  };
++  const itemB = {
++    id: "bg-2",
++    kind: "monitor",
++    description: "Watch logs",
++    startedAt: "2026-11-16T02:01:00Z",
++    stopToken: "tok-2",
++  };
++
++  test("hides when count is zero and there are no live or failed-stop items", () => {
++    expect(resolveBackgroundWorkDisplay({ items: null }, 0)).toEqual({
++      visible: false,
++      rows: [],
++      visibleCount: 0,
++    });
++    expect(resolveBackgroundWorkDisplay({ items: [] }, 0)).toEqual({
++      visible: false,
++      rows: [],
++      visibleCount: 0,
++    });
++  });
++
++  test("shows count fallback while live items are still loading", () => {
++    expect(resolveBackgroundWorkDisplay({ items: null }, 2)).toEqual({
++      visible: true,
++      rows: [],
++      visibleCount: 2,
++    });
++  });
++
++  test("prefers live item count and retains failed stop entries after item exits", () => {
++    expect(resolveBackgroundWorkDisplay({ items: [itemA, itemB] }, 1)).toEqual({
++      visible: true,
++      rows: [itemA, itemB],
++      visibleCount: 2,
++    });
++    expect(
++      resolveBackgroundWorkDisplay(
++        { items: [], stops: { "tok-1": { status: "error", item: itemA } } },
++        0,
++      ),
++    ).toEqual({
++      visible: true,
++      rows: [itemA],
++      visibleCount: 1,
++    });
++  });
++});
+diff --git a/packages/app/src/background-work/presentation.ts b/packages/app/src/background-work/presentation.ts
+index 4913289..4360942 100644
+--- a/packages/app/src/background-work/presentation.ts
++++ b/packages/app/src/background-work/presentation.ts
+@@ -1,3 +1,29 @@
++import type { PaseoAgentBackgroundWorkItem } from "@getpaseo/client";
++
++export interface BackgroundWorkDisplaySnapshot {
++  items: PaseoAgentBackgroundWorkItem[] | null;
++  stops?: Record<string, { status: "pending" | "error"; item: PaseoAgentBackgroundWorkItem }>;
++}
++
++export interface BackgroundWorkDisplay {
++  visible: boolean;
++  rows: PaseoAgentBackgroundWorkItem[];
++  visibleCount: number;
++}
++
++export function resolveBackgroundWorkDisplay(
++  snapshot: BackgroundWorkDisplaySnapshot,
++  count: number,
++): BackgroundWorkDisplay {
++  const missing = Object.values(snapshot.stops ?? {}).filter(
++    (entry) => !snapshot.items?.some((item) => item.stopToken === entry.item.stopToken),
++  );
++  const rows = [...(snapshot.items ?? []), ...missing.map((entry) => entry.item)];
++  const visible = count > 0 || rows.length > 0;
++  const visibleCount = snapshot.items?.length || count || rows.length;
++  return { visible, rows, visibleCount };
++}
++
+ export function backgroundWorkText(
+   item: { description: string | null; command?: string },
+   kind: string,
+diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
+index 612c2a3..0236d88 100644
+--- a/packages/app/src/composer/background-task-pill.tsx
++++ b/packages/app/src/composer/background-task-pill.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, type ReactElement } from "react";
++import { useCallback, useMemo, type ReactElement } from "react";
+ import { Text, View } from "react-native";
+ import { Terminal } from "lucide-react-native";
+ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+@@ -8,8 +8,10 @@ import {
+   MenuSurface,
+   MenuTrigger,
+   menuRowContentInset,
++  useMenuContext,
+   type MenuTriggerState,
+ } from "@/components/ui/menu";
++import { isWeb } from "@/constants/platform";
+ import { formatDuration } from "@/utils/time";
+ 
+ const ThemedTerminal = withUnistyles(Terminal);
+@@ -99,7 +101,7 @@ export function BackgroundTaskPill({
+       <BackgroundTaskPillTrigger count={backgroundTasks.count} />
+       <MenuSurface
+         side="top"
+-        align="start"
++        align="end"
+         offset={6}
+         sheetTitle={`后台任务 (${backgroundTasks.count})`}
+         minWidth={280}
+@@ -114,20 +116,33 @@ export function BackgroundTaskPill({
+   );
+ }
+ 
+-function BackgroundTaskPillTrigger({ count }: { count: number }): ReactElement {
++export function BackgroundTaskPillTrigger({
++  count,
++  testID = "composer-background-task-pill",
++  accessibilityLabel,
++}: {
++  count: number;
++  testID?: string;
++  accessibilityLabel?: string;
++}): ReactElement {
++  const { open } = useMenuContext("BackgroundTaskPillTrigger");
++  const accessibilityState = useMemo(() => ({ expanded: open }), [open]);
++  const ariaExpandedProps = isWeb ? { "aria-expanded": open } : null;
+   const pillStyle = useCallback(
+-    ({ hovered, pressed, open }: MenuTriggerState) => [
++    ({ hovered, pressed, open: isOpen }: MenuTriggerState) => [
+       taskPillStyles.pill,
+-      (hovered || pressed || open) && taskPillStyles.pillActive,
++      (hovered || pressed || isOpen) && taskPillStyles.pillActive,
+     ],
+     [],
+   );
+ 
+   return (
+     <MenuTrigger
+-      testID="composer-background-task-pill"
++      testID={testID}
+       accessibilityRole="button"
+-      accessibilityLabel={`后台任务: ${count} 个运行中`}
++      accessibilityLabel={accessibilityLabel ?? `后台任务: ${count} 个运行中`}
++      accessibilityState={accessibilityState}
++      {...ariaExpandedProps}
+       style={pillStyle}
+     >
+       <ThemedTerminal size={13} uniProps={blueMapping} />
+diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
+index bf0b191..d089e1c 100644
+--- a/packages/app/src/composer/index.tsx
++++ b/packages/app/src/composer/index.tsx
+@@ -68,6 +68,8 @@ import { ContextWindowMeter } from "@/components/context-window-meter";
+ import { GoalPill } from "@/composer/goal-pill";
+ import { BackgroundTaskPill } from "@/composer/background-task-pill";
+ import { TrajectoryPill } from "@/composer/trajectory-pill";
++import { BackgroundWorkVoicePill, createHostBackgroundWorkModel } from "@/background-work";
++import { resolveBackgroundWorkDisplay } from "@/background-work/presentation";
+ import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+ import {
+   selectAgentSentMessages,
+@@ -309,6 +311,21 @@ const ABSENT_AGENT_STATE = {
+   supportsSteering: true,
+ };
+ 
++const EMPTY_BACKGROUND_WORK_SNAPSHOT: ReturnType<
++  ReturnType<typeof createHostBackgroundWorkModel>["getSnapshot"]
++> = {
++  status: "ready",
++  items: null,
++};
++
++const NOOP_BACKGROUND_WORK_MODEL: ReturnType<typeof createHostBackgroundWorkModel> = {
++  getSnapshot: () => EMPTY_BACKGROUND_WORK_SNAPSHOT,
++  dismissStop: noopCallback,
++  stopItem: async () => {},
++  retry: noopCallback,
++  subscribe: () => noopCallback,
++};
++
+ function buildAgentStateSelector(serverId: string, agentId: string) {
+   return (state: ReturnType<typeof useSessionStore.getState>) => {
+     const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
+@@ -2224,13 +2241,46 @@ function ComposerContentImpl({
+     () => <GoalPill goal={agentState.goal} provider={agentState.provider} />,
+     [agentState.goal, agentState.provider],
+   );
++  const backgroundWorkCount = useSessionStore((state) => {
++    const session = state.sessions[serverId];
++    const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
++    return agent?.backgroundWork?.count ?? 0;
++  });
++  const backgroundWorkModel = useMemo(
++    () =>
++      hasAgent && mode.showVoice
++        ? createHostBackgroundWorkModel(serverId, agentId)
++        : NOOP_BACKGROUND_WORK_MODEL,
++    [agentId, hasAgent, mode.showVoice, serverId],
++  );
++  const backgroundWorkSnapshot = useSyncExternalStore(
++    backgroundWorkModel.subscribe,
++    backgroundWorkModel.getSnapshot,
++    backgroundWorkModel.getSnapshot,
++  );
++  const hasHostBackgroundWork =
++    hasAgent &&
++    mode.showVoice &&
++    resolveBackgroundWorkDisplay(backgroundWorkSnapshot, backgroundWorkCount).visible;
++  const backgroundWorkVoicePill = useMemo(
++    () =>
++      hasHostBackgroundWork ? (
++        <BackgroundWorkVoicePill model={backgroundWorkModel} count={backgroundWorkCount} />
++      ) : null,
++    [backgroundWorkCount, backgroundWorkModel, hasHostBackgroundWork],
++  );
+   const backgroundTaskPill = useMemo(
+     () => <BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />,
+     [agentState.backgroundTasks],
+   );
+-  // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
++  // Both host background work (Antigravity, Claude, Codex, OpenCode) and Kimi's
++  // backgroundTasks take the dictation button's slot while tasks run so the top-left
++  // ComposerTrackBar stays free for subagent pills; the mic returns when they finish.
+   const backgroundTaskVoiceReplacement =
+-    agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
++    backgroundWorkVoicePill ??
++    (mode.showVoice && agentState.backgroundTasks && agentState.backgroundTasks.count > 0
++      ? backgroundTaskPill
++      : null);
+   // dsh keeps a trajectory table of its own; nothing else does, so the pill is provider-scoped.
+   const contextPercent = useMemo(() => {
+     const max = agentState.contextWindowMaxTokens;
+diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
+index c4abe7a..ee19265 100644
+--- a/packages/app/src/panels/agent-tracks.tsx
++++ b/packages/app/src/panels/agent-tracks.tsx
+@@ -1,6 +1,5 @@
+ import type { AgentAddress } from "@getpaseo/protocol/addresses";
+-import { memo, useCallback, useMemo, type ReactElement } from "react";
+-import { BackgroundWorkTrack, createHostBackgroundWorkModel } from "@/background-work";
++import { memo, useCallback, type ReactElement } from "react";
+ import { WorkspaceDiffStatPill } from "@/composer/diff-stat-pill";
+ import { AgentTaskList } from "@/composer/task-list";
+ import { ComposerTrackBar } from "@/composer/tracks";
+@@ -52,15 +51,6 @@ export const AgentTracks = memo(function AgentTracks({
+     rows: subagentRows,
+   });
+   const { tabId } = usePaneContext();
+-  const backgroundWorkCount = useSessionStore((state) => {
+-    const session = state.sessions[serverId];
+-    const agent = session?.agents.get(agentId) ?? session?.agentDetails.get(agentId);
+-    return agent?.backgroundWork?.count ?? 0;
+-  });
+-  const backgroundModel = useMemo(
+-    () => createHostBackgroundWorkModel(serverId, agentId),
+-    [serverId, agentId],
+-  );
+   const isCompact = useIsCompactFormFactor();
+   const openInSidePane = useSettings((settings) => settings.openInSidePane);
+   const workspaceKey = buildWorkspaceTabPersistenceKey({ serverId, workspaceId });
+@@ -121,7 +111,6 @@ export const AgentTracks = memo(function AgentTracks({
+ 
+   return (
+     <ComposerTrackBar>
+-      <BackgroundWorkTrack model={backgroundModel} count={backgroundWorkCount} />
+       {parentAgentId ? <ParentAgentPill serverId={serverId} parentAgentId={parentAgentId} /> : null}
+       <AgentTaskList tasks={tasks} />
+       <SubagentsTrack

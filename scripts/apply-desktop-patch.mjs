@@ -305,6 +305,20 @@ const PATCHES = [
       needle: "agent.manager.attention.deferred_for_background_work",
     },
   },
+  {
+    // Upstream's `BackgroundWorkTrack` renders background tasks into the
+    // top-left ComposerTrackBar alongside subagents. Keep that rail for
+    // subagents/tasks/diffs and route all host `background_work` (Antigravity,
+    // Claude, Codex, OpenCode) into the compact bottom-right voice-slot pill
+    // over the dictation mic button alongside Kimi's `backgroundTasks`.
+    name: "composer-background-work-pill",
+    file: "paseo-composer-background-work-pill.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/app/src/background-work/index.tsx",
+      needle: "export function BackgroundWorkVoicePill(",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -984,6 +998,16 @@ const MARKERS = [
     label: "macOS Electron Notification osascript fallback",
     path: "packages/desktop/src/features/notifications.ts",
     needle: "sendDarwinOsascriptNotification",
+  },
+  {
+    label: "Background work rendered in bottom-right voice slot pill",
+    path: "packages/app/src/composer/index.tsx",
+    needle: "<BackgroundWorkVoicePill model={backgroundWorkModel} count={backgroundWorkCount} />",
+  },
+  {
+    label: "Background work helper exported from presentation module",
+    path: "packages/app/src/background-work/presentation.ts",
+    needle: "export function resolveBackgroundWorkDisplay(",
   },
 ];
 
