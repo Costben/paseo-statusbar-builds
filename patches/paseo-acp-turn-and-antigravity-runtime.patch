@@ -1229,7 +1229,7 @@ index b1e06f3..8e3d0c7 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925..c77b2cb 100644
+index 93d6925..9d41494 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
@@ -1262,7 +1262,7 @@ index 93d6925..c77b2cb 100644
        });
        expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
          type: "background_work",
-@@ -610,4 +616,1021 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -610,4 +616,1342 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        sessionHandle?.onClose?.();
      }
    });
@@ -2283,9 +2283,330 @@ index 93d6925..c77b2cb 100644
 +      sessionHandle?.onClose?.();
 +    }
 +  });
++
++  test("upgrades truncated tool_calls from transcript_full and suppresses subsequent full ACP catchup", async () => {
++    const harness = createHarness({ postSettleWaitMs: 60 });
++    const fullCommand =
++      "python3 -c '\nimport xml.etree.ElementTree as ET\nprint(\"ok\")\n' && echo DONE_LONG_CMD";
++    const truncatedCommand = '"python3 -c \'\\nimport xml.etree.ElementTree as ET';
++    const fullTranscriptPath = path.join(path.dirname(harness.transcriptPath), "transcript_full.jsonl");
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 1");
++      appendJsonl(harness.transcriptPath, {
++        step_index: 0,
++        source: "USER_EXPLICIT",
++        type: "USER_INPUT",
++        status: "DONE",
++        content: "Turn 1",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 10", WaitMsBeforeAsync: 500 } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-401`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Waiting",
++        tool_calls: [],
++      });
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `[Message] timestamp=2026-11-16T07:45:01Z sender=${harness.sessionId}/task-401 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-401" finished`,
++      });
++      await new Promise((r) => setTimeout(r, 30));
++
++      const fullStep5 = {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "Inspecting the full UI tree and restoring settings.",
++        tool_calls: [{ name: "run_command", args: { CommandLine: fullCommand } }],
++      };
++      appendJsonl(fullTranscriptPath, fullStep5);
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "Inspecting the full UI tree and restoring settings.",
++        tool_calls: [{ name: "run_command", args: { CommandLine: truncatedCommand } }],
++        truncated_fields: ["tool_calls"],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "DONE_LONG_CMD",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "Attempting to reconnect device.",
++        content: "正在确认 165 设备连通性并核对改动文件状态。",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "adb connect 192.168.31.165:5555" } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 8,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "connected",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 9,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "已参考 PiliPlus 的默认画质设置方式完成修复。",
++        tool_calls: [],
++      });
++
++      await holdPromise;
++
++      const renderedShell = harness.events.find(
++        (e): e is Extract<AgentStreamEvent, { type: "timeline" }> =>
++          e.type === "timeline" &&
++          e.item.type === "tool_call" &&
++          e.item.name === "run_command" &&
++          e.item.detail.type === "shell" &&
++          e.item.detail.command.includes("DONE_LONG_CMD"),
++      );
++      expect(renderedShell?.item.type === "tool_call" && renderedShell.item.detail.type === "shell" ? renderedShell.item.detail.command : null).toBe(fullCommand);
++
++      // Start Turn 2: ACP skips step 5 thought, starts straight at step 5 full `tool_call`, then
++      // emits step 7 in short chunks and step 9 final answer.
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 2");
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_replay_trunc_1",
++            title: "Shell",
++            kind: "execute",
++            status: "in_progress",
++            rawInput: { command: fullCommand },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "Attempti" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "ng to reconnect device." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_replay_trunc_2",
++            title: "Shell",
++            kind: "execute",
++            status: "in_progress",
++            rawInput: { command: "adb connect 192.168.31.165:5555" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "正在确认" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: " 165 设备连通性并核对改动文件状态。" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "已参考 PiliPlus 的默认画质设置方式完成修复。" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++
++      // Genuine Turn 2 output passes immediately.
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "收到，开始检查私人仓库与画质解锁实现。" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("falls back to truncated tool prefix matching when transcript_full is unavailable", async () => {
++    const harness = createHarness({ postSettleWaitMs: 60 });
++    const fullCommand = "python3 -c '\nprint(\"fallback_ok\")\n' && echo END";
++    const truncatedCommand = '"python3 -c \'\\nprint(\\"fallback_';
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 1");
++      appendJsonl(harness.transcriptPath, {
++        step_index: 0,
++        source: "USER_EXPLICIT",
++        type: "USER_INPUT",
++        status: "DONE",
++        content: "Turn 1",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 10", WaitMsBeforeAsync: 500 } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-402`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Waiting",
++        tool_calls: [],
++      });
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `[Message] timestamp=2026-11-16T07:45:01Z sender=${harness.sessionId}/task-402 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-402" finished`,
++      });
++      await new Promise((r) => setTimeout(r, 30));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: truncatedCommand } }],
++        truncated_fields: ["tool_calls"],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "END",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Turn 1 tail summary.",
++        tool_calls: [],
++      });
++      await holdPromise;
++
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 2");
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_replay_fallback_1",
++            title: "Shell",
++            kind: "execute",
++            status: "in_progress",
++            rawInput: { command: fullCommand },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "Turn 1 tail summary." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "Turn 2 fresh." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index dbd750b..6f036ea 100644
+index dbd750b..5b5e3be 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -1,5 +1,10 @@
@@ -2299,7 +2620,7 @@ index dbd750b..6f036ea 100644
  import type { Logger } from "pino";
  
  import type {
-@@ -8,16 +13,27 @@ import type {
+@@ -8,30 +13,62 @@ import type {
    AgentTimelineItem,
  } from "../../agent-sdk-types.js";
  import type { AgentBackgroundWorkInput } from "../../background-work/index.js";
@@ -2327,8 +2648,10 @@ index dbd750b..6f036ea 100644
 +  resolveAntigravityHome,
    unwrapAntigravityArgString,
    unwrapAntigravityStringArrayArg,
++  unwrapAntigravityTruncatedArgPrefix,
    type AntigravityToolCallEntry,
-@@ -26,12 +42,32 @@ import {
+   type AntigravityTranscriptRecord,
+ } from "./transcript-log.js";
  
  export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
  export const HELD_ANTIGRAVITY_POLL_INTERVAL_MS = 250;
@@ -2364,7 +2687,7 @@ index dbd750b..6f036ea 100644
  
  interface TrackedBackgroundEntry {
    id: string;
-@@ -39,16 +75,32 @@ interface TrackedBackgroundEntry {
+@@ -39,16 +76,33 @@ interface TrackedBackgroundEntry {
    blocking: boolean;
    description: string | null;
    command?: string;
@@ -2382,6 +2705,7 @@ index dbd750b..6f036ea 100644
 +interface CatchupToolEntry {
 +  kind: string | null;
 +  target: string | null;
++  targetPrefix: boolean;
  }
  
  interface RenderedCallRef {
@@ -2398,7 +2722,7 @@ index dbd750b..6f036ea 100644
  }
  
  export interface AntigravityNativeBridgeOptions {
-@@ -59,11 +111,22 @@ export interface AntigravityNativeBridgeOptions {
+@@ -59,11 +113,22 @@ export interface AntigravityNativeBridgeOptions {
    emit: (event: AgentStreamEvent) => void;
    isForegroundTurnActive?: () => boolean;
    lastStreamedContentAt?: () => number | null;
@@ -2421,7 +2745,7 @@ index dbd750b..6f036ea 100644
    now?: () => number;
  }
  
-@@ -75,24 +138,42 @@ export interface AntigravityProviderHooksOptions {
+@@ -75,24 +140,42 @@ export interface AntigravityProviderHooksOptions {
    postSettleWaitMs?: number;
    postSettleToolWaitMs?: number;
    streamFlushGraceMs?: number;
@@ -2471,7 +2795,7 @@ index dbd750b..6f036ea 100644
    private readonly provider: AgentProvider;
    private readonly emit: (event: AgentStreamEvent) => void;
    private readonly isForegroundTurnActive: () => boolean;
-@@ -114,11 +195,14 @@ export class AntigravityNativeBridge {
+@@ -114,11 +197,14 @@ export class AntigravityNativeBridge {
    private lastForegroundEndedAt: number | null = null;
  
    private inTurnHold = false;
@@ -2486,7 +2810,7 @@ index dbd750b..6f036ea 100644
  
    private readonly pendingStepTools: PendingStepToolEntry[] = [];
    private readonly trackedTasks = new Map<string, TrackedBackgroundEntry>();
-@@ -128,7 +212,42 @@ export class AntigravityNativeBridge {
+@@ -128,7 +214,42 @@ export class AntigravityNativeBridge {
    private emittedAnyBackgroundWork = false;
    private syntheticCallOrdinal = 0;
  
@@ -2529,7 +2853,7 @@ index dbd750b..6f036ea 100644
      this.provider = options.provider;
      this.emit = options.emit;
      this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
-@@ -152,6 +271,7 @@ export class AntigravityNativeBridge {
+@@ -152,6 +273,7 @@ export class AntigravityNativeBridge {
        return;
      }
      this.started = true;
@@ -2537,7 +2861,7 @@ index dbd750b..6f036ea 100644
      this.log.start();
      this.scheduleNextPoll();
    }
-@@ -165,6 +285,7 @@ export class AntigravityNativeBridge {
+@@ -165,6 +287,7 @@ export class AntigravityNativeBridge {
        clearTimeout(this.pollTimer);
        this.pollTimer = null;
      }
@@ -2545,7 +2869,7 @@ index dbd750b..6f036ea 100644
      this.log.stop();
      this.trackedTasks.clear();
      this.trackedSubagents.clear();
-@@ -181,14 +302,62 @@ export class AntigravityNativeBridge {
+@@ -181,14 +304,62 @@ export class AntigravityNativeBridge {
        return;
      }
      await this.log.pollNow();
@@ -2609,7 +2933,7 @@ index dbd750b..6f036ea 100644
    }
  
    hasBlockingBackgroundWork(): boolean {
-@@ -241,25 +410,53 @@ export class AntigravityNativeBridge {
+@@ -241,25 +412,53 @@ export class AntigravityNativeBridge {
      await this.pollNow();
      await this.awaitCompactCheckpoint(signal);
      if (!this.hasBlockingBackgroundWork()) {
@@ -2664,7 +2988,7 @@ index dbd750b..6f036ea 100644
  
          if (this.hasBlockingBackgroundWork()) {
            this.awaitingPostSettleResponse = false;
-@@ -275,16 +472,21 @@ export class AntigravityNativeBridge {
+@@ -275,16 +474,21 @@ export class AntigravityNativeBridge {
          if (nowMs >= deadline) {
            break;
          }
@@ -2686,7 +3010,7 @@ index dbd750b..6f036ea 100644
        this.holdEpochSawWakeup = false;
        this.awaitingPostSettleResponse = false;
        this.postSettleFinalPlannerSeen = false;
-@@ -323,7 +525,7 @@ export class AntigravityNativeBridge {
+@@ -323,7 +527,7 @@ export class AntigravityNativeBridge {
      }
      await new Promise<void>((resolve) => {
        let settled = false;
@@ -2695,7 +3019,7 @@ index dbd750b..6f036ea 100644
          if (settled) {
            return;
          }
-@@ -346,9 +548,12 @@ export class AntigravityNativeBridge {
+@@ -346,9 +550,12 @@ export class AntigravityNativeBridge {
    private handleRecord(record: AntigravityTranscriptRecord): void {
      if (record.source === "USER_EXPLICIT" && record.type === "USER_INPUT") {
        this.pendingStepTools.length = 0;
@@ -2710,7 +3034,7 @@ index dbd750b..6f036ea 100644
        }
        return;
      }
-@@ -359,7 +564,8 @@ export class AntigravityNativeBridge {
+@@ -359,7 +566,8 @@ export class AntigravityNativeBridge {
          !manualFromPrompt &&
          this.lastUserInputText !== null &&
          isCompactSlashCommand(this.lastUserInputText);
@@ -2720,7 +3044,7 @@ index dbd750b..6f036ea 100644
        this.pendingManualCompact = false;
        if (manualFromTranscript) {
          this.lastUserInputText = null;
-@@ -391,10 +597,19 @@ export class AntigravityNativeBridge {
+@@ -391,10 +599,19 @@ export class AntigravityNativeBridge {
          }
        }
        if (this.shouldRenderCurrentStep()) {
@@ -2744,7 +3068,7 @@ index dbd750b..6f036ea 100644
        }
        return;
      }
-@@ -415,25 +630,54 @@ export class AntigravityNativeBridge {
+@@ -415,25 +632,55 @@ export class AntigravityNativeBridge {
  
      const renderThisStep = this.shouldRenderCurrentStep();
      const hasToolCalls = record.toolCalls.length > 0;
@@ -2766,8 +3090,9 @@ index dbd750b..6f036ea 100644
      }
  
 +    if (renderThisStep && hasToolCalls) {
++      const toolsTruncated = record.truncatedFields.includes("tool_calls");
 +      for (const call of record.toolCalls) {
-+        this.unstreamedRenderedTools.push(buildCatchupToolEntry(call));
++        this.unstreamedRenderedTools.push(buildCatchupToolEntry(call, toolsTruncated));
 +      }
 +    }
 +
@@ -2801,7 +3126,7 @@ index dbd750b..6f036ea 100644
        this.emitTimelineItem({
          type: "assistant_message",
          text: record.content,
-@@ -448,46 +692,92 @@ export class AntigravityNativeBridge {
+@@ -448,46 +695,92 @@ export class AntigravityNativeBridge {
            this.postSettleFinalPlannerSeen = true;
            this.wakeHoldLoop();
          }
@@ -2913,7 +3238,7 @@ index dbd750b..6f036ea 100644
          }
          this.emitBackgroundWorkIfChanged();
          return;
-@@ -513,12 +803,52 @@ export class AntigravityNativeBridge {
+@@ -513,12 +806,52 @@ export class AntigravityNativeBridge {
        backgroundChanged = true;
      }
  
@@ -2970,7 +3295,7 @@ index dbd750b..6f036ea 100644
        }
      }
  
-@@ -545,34 +875,68 @@ export class AntigravityNativeBridge {
+@@ -545,34 +878,68 @@ export class AntigravityNativeBridge {
  
      if (renderedCallId && call) {
        const failed = record.status === "ERROR" || record.status === "INVALID";
@@ -3051,7 +3376,7 @@ index dbd750b..6f036ea 100644
          }
        }
      }
-@@ -598,6 +962,10 @@ export class AntigravityNativeBridge {
+@@ -598,6 +965,10 @@ export class AntigravityNativeBridge {
  
      if (!this.isForegroundTurnActive()) {
        this.idleWakeupActive = true;
@@ -3062,7 +3387,7 @@ index dbd750b..6f036ea 100644
      }
    }
  
-@@ -631,7 +999,73 @@ export class AntigravityNativeBridge {
+@@ -631,7 +1002,73 @@ export class AntigravityNativeBridge {
      return false;
    }
  
@@ -3136,7 +3461,7 @@ index dbd750b..6f036ea 100644
      this.emit({
        type: "timeline",
        provider: this.provider,
-@@ -669,6 +1103,772 @@ export class AntigravityNativeBridge {
+@@ -669,6 +1106,776 @@ export class AntigravityNativeBridge {
        items,
      });
    }
@@ -3761,6 +4086,7 @@ index dbd750b..6f036ea 100644
 +    if (trimmedChunk.length < 4) {
 +      return false;
 +    }
++    const minPrefixLen = /[^\x00-\x7F]/.test(trimmedChunk) ? 4 : 8;
 +    for (let idx = 1; idx < queue.length; idx++) {
 +      const candidate = queue[idx];
 +      if (!candidate) {
@@ -3768,7 +4094,10 @@ index dbd750b..6f036ea 100644
 +      }
 +      const trimmedCandidate = candidate.trim();
 +      const exactMatch = trimmedCandidate.length > 0 && trimmedCandidate === trimmedChunk;
-+      const distinctPrefixMatch = trimmedChunk.length >= 16 && trimmedCandidate.length >= 16;
++      const distinctPrefixMatch =
++        trimmedChunk.length >= minPrefixLen &&
++        trimmedCandidate.length >= minPrefixLen &&
++        trimmedCandidate.startsWith(trimmedChunk);
 +      if ((exactMatch || distinctPrefixMatch) && this.consumeCatchupTextAtIndex(queue, idx, chunk)) {
 +        return true;
 +      }
@@ -3800,7 +4129,7 @@ index dbd750b..6f036ea 100644
 +      }
 +      // Only skip past unmatched earlier tools when kind or target explicitly disambiguates them.
 +      if (
-+        (updateTarget !== null && candidate.target === updateTarget) ||
++        (updateTarget !== null && matchesCatchupTarget(candidate, updateTarget)) ||
 +        (updateKind !== null && candidate.kind !== null)
 +      ) {
 +        this.unstreamedRenderedTools.splice(0, idx + 1);
@@ -3909,7 +4238,7 @@ index dbd750b..6f036ea 100644
  }
  
  export function createAntigravityProviderHooks(
-@@ -687,11 +1887,18 @@ export function createAntigravityProviderHooks(
+@@ -687,11 +1894,18 @@ export function createAntigravityProviderHooks(
          emit: ctx.emit,
          isForegroundTurnActive: ctx.isForegroundTurnActive,
          lastStreamedContentAt: ctx.lastStreamedContentAt,
@@ -3928,7 +4257,7 @@ index dbd750b..6f036ea 100644
        });
        bridges.set(ctx.acpSessionId, bridge);
        bridge.start();
-@@ -706,6 +1913,10 @@ export function createAntigravityProviderHooks(
+@@ -706,6 +1920,10 @@ export function createAntigravityProviderHooks(
        const text = extractPromptText(prompt);
        bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
      },
@@ -3939,7 +4268,7 @@ index dbd750b..6f036ea 100644
      holdTurnWhile(ctx) {
        const bridge = bridges.get(ctx.acpSessionId);
        if (!bridge) {
-@@ -713,12 +1924,190 @@ export function createAntigravityProviderHooks(
+@@ -713,12 +1931,217 @@ export function createAntigravityProviderHooks(
        }
        return bridge.waitForBackgroundSettled(holdTimeoutMs, ctx.signal);
      },
@@ -4059,32 +4388,50 @@ index dbd750b..6f036ea 100644
 +  return errorText;
 +}
 +
-+function buildCatchupToolEntry(call: AntigravityToolCallEntry): CatchupToolEntry {
++function buildCatchupToolTarget(
++  rawArg: unknown,
++  toolsTruncated: boolean,
++): { target: string | null; targetPrefix: boolean } {
++  const unwrapped = unwrapAntigravityTruncatedArgPrefix(rawArg);
++  if (!unwrapped) {
++    return { target: null, targetPrefix: false };
++  }
++  const target = unwrapped.value.trim() || null;
++  return {
++    target,
++    targetPrefix: Boolean(target && (unwrapped.truncatedQuote || toolsTruncated)),
++  };
++}
++
++function buildCatchupToolEntry(
++  call: AntigravityToolCallEntry,
++  toolsTruncated = false,
++): CatchupToolEntry {
 +  const args = call.args ?? {};
 +  switch (call.name) {
 +    case "run_command":
 +      return {
 +        kind: "execute",
-+        target: unwrapAntigravityArgString(args.CommandLine)?.trim() || null,
++        ...buildCatchupToolTarget(args.CommandLine, toolsTruncated),
 +      };
 +    case "read_file":
 +      return {
 +        kind: "read",
-+        target: unwrapAntigravityArgString(args.Path)?.trim() || null,
++        ...buildCatchupToolTarget(args.Path, toolsTruncated),
 +      };
 +    case "edit_file":
 +    case "write_file":
 +      return {
 +        kind: "edit",
-+        target: unwrapAntigravityArgString(args.Path)?.trim() || null,
++        ...buildCatchupToolTarget(args.Path, toolsTruncated),
 +      };
 +    case "search_web":
 +      return {
 +        kind: "search",
-+        target: unwrapAntigravityArgString(args.query)?.trim() || null,
++        ...buildCatchupToolTarget(args.query, toolsTruncated),
 +      };
 +    default:
-+      return { kind: null, target: null };
++      return { kind: null, target: null, targetPrefix: false };
 +  }
 +}
 +
@@ -4097,11 +4444,13 @@ index dbd750b..6f036ea 100644
 +  }
 +  for (const key of [
 +    "CommandLine",
++    "commandLine",
 +    "command",
 +    "cmd",
 +    "Path",
 +    "filePath",
 +    "file_path",
++    "target_file",
 +    "path",
 +    "query",
 +  ]) {
@@ -4111,6 +4460,13 @@ index dbd750b..6f036ea 100644
 +    }
 +  }
 +  return null;
++}
++
++function matchesCatchupTarget(entry: CatchupToolEntry, updateTarget: string): boolean {
++  if (!entry.target) {
++    return false;
++  }
++  return entry.targetPrefix ? updateTarget.startsWith(entry.target) : entry.target === updateTarget;
 +}
 +
 +function matchesCatchupToolEntry(
@@ -4126,15 +4482,98 @@ index dbd750b..6f036ea 100644
 +    }
 +  }
 +  if (entry.target && updateTarget) {
-+    return entry.target === updateTarget;
++    return matchesCatchupTarget(entry, updateTarget);
 +  }
 +  return true;
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
-index 1012848..c339f87 100644
+index 1012848..a4718a9 100644
 --- a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
-@@ -167,6 +167,91 @@ export function unwrapAntigravityStringArrayArg(value: unknown): string[] {
+@@ -11,7 +11,7 @@ import type { AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js
+ const DEFAULT_ANTIGRAVITY_HOME_SEGMENTS = [".gemini", "antigravity-cli"] as const;
+ const MAX_BYTES_PER_READ = 256 * 1024;
+ const MAX_PENDING_LINE_BYTES = 4 * 1024 * 1024;
+-const FULL_TRANSCRIPT_TAIL_BYTES = 512 * 1024;
++const FULL_TRANSCRIPT_TAIL_BYTES = 2 * 1024 * 1024;
+ 
+ export interface AntigravityToolCallEntry {
+   name: string;
+@@ -133,6 +133,73 @@ export function unwrapAntigravityArgString(value: unknown): string | undefined {
+   return value;
+ }
+ 
++/**
++ * Unwraps a `tool_calls[].args` string field that may have been truncated
++ * mid-JSON-string in compact `transcript.jsonl` (missing its closing `"`).
++ */
++export function unwrapAntigravityTruncatedArgPrefix(
++  value: unknown,
++): { value: string; truncatedQuote: boolean } | undefined {
++  if (typeof value !== "string") {
++    return undefined;
++  }
++  const trimmed = value.trim();
++  if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) {
++    try {
++      const parsed: unknown = JSON.parse(trimmed);
++      if (typeof parsed === "string") {
++        return { value: parsed, truncatedQuote: false };
++      }
++    } catch {
++      // Fall through to raw string.
++    }
++  }
++  if (trimmed.startsWith('"') && !trimmed.endsWith('"')) {
++    let body = trimmed.slice(1);
++    // Drop an incomplete trailing escape sequence produced at the truncation boundary.
++    body = body.replace(/\\(?:u[0-9a-fA-F]{0,3})?$/, "");
++    let decoded = "";
++    for (let i = 0; i < body.length; i += 1) {
++      const ch = body[i];
++      if (ch === "\\" && i + 1 < body.length) {
++        const next = body[i + 1];
++        i += 1;
++        switch (next) {
++          case "n":
++            decoded += "\n";
++            break;
++          case "r":
++            decoded += "\r";
++            break;
++          case "t":
++            decoded += "\t";
++            break;
++          case '"':
++          case "\\":
++          case "/":
++            decoded += next;
++            break;
++          case "u": {
++            const hex = body.slice(i + 1, i + 5);
++            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
++              decoded += String.fromCharCode(Number.parseInt(hex, 16));
++              i += 4;
++            }
++            break;
++          }
++          default:
++            decoded += next ?? "";
++            break;
++        }
++      } else {
++        decoded += ch;
++      }
++    }
++    return { value: decoded, truncatedQuote: true };
++  }
++  return { value, truncatedQuote: false };
++}
++
+ export function isAntigravityTruthyArg(value: unknown): boolean {
+   if (value === true) {
+     return true;
+@@ -167,6 +234,91 @@ export function unwrapAntigravityStringArrayArg(value: unknown): string[] {
    return [];
  }
  
@@ -4226,7 +4665,7 @@ index 1012848..c339f87 100644
  export function parseAntigravityTranscriptLine(line: string): AntigravityTranscriptRecord | null {
    const trimmed = line.trim();
    if (trimmed.length === 0) {
-@@ -632,9 +717,9 @@ export class AntigravityTranscriptLog {
+@@ -632,9 +784,11 @@ export class AntigravityTranscriptLog {
          continue;
        }
        if (
@@ -4234,7 +4673,9 @@ index 1012848..c339f87 100644
 +        (record.type === "PLANNER_RESPONSE" || record.type === "ERROR_MESSAGE") &&
          record.stepIndex !== null &&
 -        record.truncatedFields.some((f) => f === "content" || f === "thinking")
-+        record.truncatedFields.some((f) => f === "content" || f === "thinking" || f === "error")
++        record.truncatedFields.some(
++          (f) => f === "content" || f === "thinking" || f === "error" || f === "tool_calls",
++        )
        ) {
          const full = await this.readFullRecordForStep(record.stepIndex);
          if (full) {
