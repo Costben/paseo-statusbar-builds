@@ -1229,7 +1229,7 @@ index b1e06f3..8e3d0c7 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925..37d8ca1 100644
+index 93d6925..c77b2cb 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
@@ -1262,7 +1262,7 @@ index 93d6925..37d8ca1 100644
        });
        expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
          type: "background_work",
-@@ -610,4 +616,717 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -610,4 +616,1021 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        sessionHandle?.onClose?.();
      }
    });
@@ -1979,9 +1979,313 @@ index 93d6925..37d8ca1 100644
 +      sessionHandle?.onClose?.();
 +    }
 +  });
++
++  test("suppresses transient auto-retry error cards, strips malformed-call prompt dumps, and drops ACP ⚠ catch-up replays", async () => {
++    const harness = createHarness({ postSettleWaitMs: 60 });
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 1");
++      appendJsonl(harness.transcriptPath, {
++        step_index: 0,
++        source: "USER_EXPLICIT",
++        type: "USER_INPUT",
++        status: "DONE",
++        content: "Turn 1",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 10", WaitMsBeforeAsync: 500 } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-301`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Waiting for build.",
++        tool_calls: [],
++      });
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `[Message] timestamp=2026-11-16T04:15:00Z sender=${harness.sessionId}/task-301 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-301" finished`,
++      });
++      await new Promise((r) => setTimeout(r, 30));
++
++      const malformedTransientErr =
++        "Your previous response contained an improperly formatted function call: Malformed function call: \n user\nThe following is a <SYSTEM_MESSAGE>\n</SYSTEM_MESSAGE>\n thought\nsecret\nPlease retry\nRetries remaining: 3";
++      const apiRetryErr =
++        'API error (attempt 1): request failed: Post "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse": EOF';
++      const malformedExhaustedErr =
++        "Your previous response contained an improperly formatted function call: Malformed function call: \n user\nThe following is a <SYSTEM_MESSAGE>dump</SYSTEM_MESSAGE>\nPlease retry\nRetries remaining: 0";
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "SYSTEM",
++        type: "ERROR_MESSAGE",
++        status: "DONE",
++        error: apiRetryErr,
++        content: "",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        thinking: "Checking screen state.",
++        content: "正在检查状态。",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "adb shell dumpsys" } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "ok",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 8,
++        source: "SYSTEM",
++        type: "ERROR_MESSAGE",
++        status: "DONE",
++        error: malformedTransientErr,
++        content: `Error: ${malformedTransientErr}`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 9,
++        source: "SYSTEM",
++        type: "ERROR_MESSAGE",
++        status: "DONE",
++        error: malformedExhaustedErr,
++        content: `Error: ${malformedExhaustedErr}`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 10,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "[FINAL SUMMARY] All fixed.",
++        tool_calls: [],
++      });
++
++      await holdPromise;
++
++      const emittedErrors = harness.events
++        .filter(
++          (e): e is Extract<AgentStreamEvent, { type: "timeline" }> & {
++            item: { type: "error"; message: string };
++          } => e.type === "timeline" && e.item.type === "error",
++        )
++        .map((e) => e.item.message);
++      expect(emittedErrors).toEqual([
++        "Your previous response contained an improperly formatted function call: Malformed function call: (Retries remaining: 0)",
++      ]);
++
++      // Start Turn 2: `agy acp` replays all unstreamed Turn 1 wakeup items including `\n⚠ ...` chunks
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 2");
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: `\n⚠ ${apiRetryErr}\n` },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_thought_chunk",
++            content: { type: "text", text: "Checking screen state." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_replay_1",
++            title: "Shell",
++            kind: "execute",
++            status: "in_progress",
++            rawInput: { CommandLine: "adb shell dumpsys" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      // Merged wakeup message + `\n⚠ ...` chunk + trailing exhausted error + final summary all drop cleanly
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: `正在检查状态。\n⚠ ${malformedTransientErr}\n` },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: `⚠ ${malformedExhaustedErr}` },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "[FINAL SUMMARY] All fixed." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++
++      // Live Turn 2 text passes immediately
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "Starting Turn 2 work." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
++
++  test("resyncs skipped catchup entries and lets mismatched Turn 2 tool kinds pass through", async () => {
++    const harness = createHarness({ postSettleWaitMs: 60 });
++    const sessionHandle = harness.attach();
++    try {
++      harness.setForeground(true);
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 1");
++      appendJsonl(harness.transcriptPath, {
++        step_index: 0,
++        source: "USER_EXPLICIT",
++        type: "USER_INPUT",
++        status: "DONE",
++        content: "Turn 1",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 1,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "sleep 10", WaitMsBeforeAsync: 500 } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 2,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "RUNNING",
++        content: `Tool is running as a background task with task id: ${harness.sessionId}/task-302`,
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 3,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Waiting",
++        tool_calls: [],
++      });
++
++      const holdPromise = harness.hooks.holdTurnWhile?.({
++        ...harness.ctx,
++        signal: new AbortController().signal,
++      });
++      await new Promise((r) => setTimeout(r, 40));
++
++      appendJsonl(harness.transcriptPath, {
++        step_index: 4,
++        source: "SYSTEM",
++        type: "SYSTEM_MESSAGE",
++        status: "DONE",
++        content: `[Message] timestamp=2026-11-16T04:15:00Z sender=${harness.sessionId}/task-302 priority=MESSAGE_PRIORITY_HIGH content=Task id "${harness.sessionId}/task-302" finished`,
++      });
++      await new Promise((r) => setTimeout(r, 30));
++      appendJsonl(harness.transcriptPath, {
++        step_index: 5,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Skipped wakeup step.",
++        tool_calls: [{ name: "run_command", args: { CommandLine: "echo one" } }],
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 6,
++        source: "MODEL",
++        type: "GENERIC",
++        status: "DONE",
++        content: "one",
++      });
++      appendJsonl(harness.transcriptPath, {
++        step_index: 7,
++        source: "MODEL",
++        type: "PLANNER_RESPONSE",
++        status: "DONE",
++        content: "Final Turn 1 report.",
++        tool_calls: [],
++      });
++      await holdPromise;
++
++      // Turn 2 skips "Skipped wakeup step." and jumps straight to "Final Turn 1 report."
++      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Turn 2");
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "agent_message_chunk",
++            content: { type: "text", text: "Final Turn 1 report." },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(true);
++
++      // Even if Turn 1's `run_command` remained unconsumed in the tool queue, a live Turn 2 `read`
++      // tool clears catchup rather than being swallowed.
++      expect(
++        harness.hooks.shouldDropSessionUpdate?.(
++          {
++            sessionUpdate: "tool_call",
++            toolCallId: "call_turn2_read",
++            title: "Read",
++            kind: "read",
++            status: "in_progress",
++            rawInput: { Path: "/tmp/file.kt" },
++          } as SessionUpdate,
++          harness.ctx,
++        ),
++      ).toBe(false);
++    } finally {
++      sessionHandle?.onClose?.();
++    }
++  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index dbd750b..bbdd9cf 100644
+index dbd750b..6f036ea 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -1,5 +1,10 @@
@@ -1995,7 +2299,7 @@ index dbd750b..bbdd9cf 100644
  import type { Logger } from "pino";
  
  import type {
-@@ -8,16 +13,26 @@ import type {
+@@ -8,16 +13,27 @@ import type {
    AgentTimelineItem,
  } from "../../agent-sdk-types.js";
  import type { AgentBackgroundWorkInput } from "../../background-work/index.js";
@@ -2008,6 +2312,7 @@ index dbd750b..bbdd9cf 100644
 +} from "../acp-agent.js";
  import {
    AntigravityTranscriptLog,
++  asRecord,
    buildAntigravityRunningToolItem,
    buildAntigravitySettledToolItem,
    computeCheckpointPreTokens,
@@ -2023,7 +2328,7 @@ index dbd750b..bbdd9cf 100644
    unwrapAntigravityArgString,
    unwrapAntigravityStringArrayArg,
    type AntigravityToolCallEntry,
-@@ -26,12 +41,32 @@ import {
+@@ -26,12 +42,32 @@ import {
  
  export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
  export const HELD_ANTIGRAVITY_POLL_INTERVAL_MS = 250;
@@ -2059,7 +2364,7 @@ index dbd750b..bbdd9cf 100644
  
  interface TrackedBackgroundEntry {
    id: string;
-@@ -39,16 +74,27 @@ interface TrackedBackgroundEntry {
+@@ -39,16 +75,32 @@ interface TrackedBackgroundEntry {
    blocking: boolean;
    description: string | null;
    command?: string;
@@ -2072,6 +2377,11 @@ index dbd750b..bbdd9cf 100644
    renderedCallId: string | null;
 +  streamedCallId: string | null;
 +  fromAcpStream: boolean;
++}
++
++interface CatchupToolEntry {
++  kind: string | null;
++  target: string | null;
  }
  
  interface RenderedCallRef {
@@ -2088,7 +2398,7 @@ index dbd750b..bbdd9cf 100644
  }
  
  export interface AntigravityNativeBridgeOptions {
-@@ -59,11 +105,22 @@ export interface AntigravityNativeBridgeOptions {
+@@ -59,11 +111,22 @@ export interface AntigravityNativeBridgeOptions {
    emit: (event: AgentStreamEvent) => void;
    isForegroundTurnActive?: () => boolean;
    lastStreamedContentAt?: () => number | null;
@@ -2111,7 +2421,7 @@ index dbd750b..bbdd9cf 100644
    now?: () => number;
  }
  
-@@ -75,24 +132,42 @@ export interface AntigravityProviderHooksOptions {
+@@ -75,24 +138,42 @@ export interface AntigravityProviderHooksOptions {
    postSettleWaitMs?: number;
    postSettleToolWaitMs?: number;
    streamFlushGraceMs?: number;
@@ -2161,7 +2471,7 @@ index dbd750b..bbdd9cf 100644
    private readonly provider: AgentProvider;
    private readonly emit: (event: AgentStreamEvent) => void;
    private readonly isForegroundTurnActive: () => boolean;
-@@ -114,11 +189,14 @@ export class AntigravityNativeBridge {
+@@ -114,11 +195,14 @@ export class AntigravityNativeBridge {
    private lastForegroundEndedAt: number | null = null;
  
    private inTurnHold = false;
@@ -2176,7 +2486,7 @@ index dbd750b..bbdd9cf 100644
  
    private readonly pendingStepTools: PendingStepToolEntry[] = [];
    private readonly trackedTasks = new Map<string, TrackedBackgroundEntry>();
-@@ -128,7 +206,42 @@ export class AntigravityNativeBridge {
+@@ -128,7 +212,42 @@ export class AntigravityNativeBridge {
    private emittedAnyBackgroundWork = false;
    private syntheticCallOrdinal = 0;
  
@@ -2185,7 +2495,7 @@ index dbd750b..bbdd9cf 100644
 +  // next prompt turn (thoughts, assistant text, and tool calls arrive on independent channels).
 +  private readonly unstreamedRenderedThoughts: string[] = [];
 +  private readonly unstreamedRenderedMessages: string[] = [];
-+  private unstreamedRenderedToolCalls = 0;
++  private readonly unstreamedRenderedTools: CatchupToolEntry[] = [];
 +  private readonly droppedCatchupToolCallIds = new Set<string>();
 +  private activeCatchupFilter = false;
 +  private readonly recentStreamedToolCallIds: string[] = [];
@@ -2219,7 +2529,7 @@ index dbd750b..bbdd9cf 100644
      this.provider = options.provider;
      this.emit = options.emit;
      this.isForegroundTurnActive = options.isForegroundTurnActive ?? (() => false);
-@@ -152,6 +265,7 @@ export class AntigravityNativeBridge {
+@@ -152,6 +271,7 @@ export class AntigravityNativeBridge {
        return;
      }
      this.started = true;
@@ -2227,7 +2537,7 @@ index dbd750b..bbdd9cf 100644
      this.log.start();
      this.scheduleNextPoll();
    }
-@@ -165,6 +279,7 @@ export class AntigravityNativeBridge {
+@@ -165,6 +285,7 @@ export class AntigravityNativeBridge {
        clearTimeout(this.pollTimer);
        this.pollTimer = null;
      }
@@ -2235,7 +2545,7 @@ index dbd750b..bbdd9cf 100644
      this.log.stop();
      this.trackedTasks.clear();
      this.trackedSubagents.clear();
-@@ -181,14 +296,62 @@ export class AntigravityNativeBridge {
+@@ -181,14 +302,62 @@ export class AntigravityNativeBridge {
        return;
      }
      await this.log.pollNow();
@@ -2299,7 +2609,7 @@ index dbd750b..bbdd9cf 100644
    }
  
    hasBlockingBackgroundWork(): boolean {
-@@ -241,25 +404,53 @@ export class AntigravityNativeBridge {
+@@ -241,25 +410,53 @@ export class AntigravityNativeBridge {
      await this.pollNow();
      await this.awaitCompactCheckpoint(signal);
      if (!this.hasBlockingBackgroundWork()) {
@@ -2354,7 +2664,7 @@ index dbd750b..bbdd9cf 100644
  
          if (this.hasBlockingBackgroundWork()) {
            this.awaitingPostSettleResponse = false;
-@@ -275,16 +466,21 @@ export class AntigravityNativeBridge {
+@@ -275,16 +472,21 @@ export class AntigravityNativeBridge {
          if (nowMs >= deadline) {
            break;
          }
@@ -2376,7 +2686,7 @@ index dbd750b..bbdd9cf 100644
        this.holdEpochSawWakeup = false;
        this.awaitingPostSettleResponse = false;
        this.postSettleFinalPlannerSeen = false;
-@@ -323,7 +519,7 @@ export class AntigravityNativeBridge {
+@@ -323,7 +525,7 @@ export class AntigravityNativeBridge {
      }
      await new Promise<void>((resolve) => {
        let settled = false;
@@ -2385,7 +2695,7 @@ index dbd750b..bbdd9cf 100644
          if (settled) {
            return;
          }
-@@ -346,9 +542,12 @@ export class AntigravityNativeBridge {
+@@ -346,9 +548,12 @@ export class AntigravityNativeBridge {
    private handleRecord(record: AntigravityTranscriptRecord): void {
      if (record.source === "USER_EXPLICIT" && record.type === "USER_INPUT") {
        this.pendingStepTools.length = 0;
@@ -2400,7 +2710,7 @@ index dbd750b..bbdd9cf 100644
        }
        return;
      }
-@@ -359,7 +558,8 @@ export class AntigravityNativeBridge {
+@@ -359,7 +564,8 @@ export class AntigravityNativeBridge {
          !manualFromPrompt &&
          this.lastUserInputText !== null &&
          isCompactSlashCommand(this.lastUserInputText);
@@ -2410,7 +2720,31 @@ index dbd750b..bbdd9cf 100644
        this.pendingManualCompact = false;
        if (manualFromTranscript) {
          this.lastUserInputText = null;
-@@ -415,25 +615,52 @@ export class AntigravityNativeBridge {
+@@ -391,10 +597,19 @@ export class AntigravityNativeBridge {
+         }
+       }
+       if (this.shouldRenderCurrentStep()) {
+-        this.emitTimelineItem({
+-          type: "error",
+-          message: record.error ?? record.content ?? "Antigravity runtime error",
+-        });
++        const errorText = extractAntigravityErrorText(record);
++        if (errorText.length > 0) {
++          // `agy acp` replays unstreamed ERROR_MESSAGE records as `agent_message_chunk`
++          // formatted as `\n⚠ <error>\n` when a later prompt opens the stream.
++          this.unstreamedRenderedMessages.push(`\n⚠ ${errorText}\n`);
++        }
++        const displayError = formatAntigravityTimelineError(errorText);
++        if (displayError !== null) {
++          this.emitTimelineItem({
++            type: "error",
++            message: displayError,
++          });
++        }
+       }
+       return;
+     }
+@@ -415,25 +630,54 @@ export class AntigravityNativeBridge {
  
      const renderThisStep = this.shouldRenderCurrentStep();
      const hasToolCalls = record.toolCalls.length > 0;
@@ -2432,7 +2766,9 @@ index dbd750b..bbdd9cf 100644
      }
  
 +    if (renderThisStep && hasToolCalls) {
-+      this.unstreamedRenderedToolCalls += record.toolCalls.length;
++      for (const call of record.toolCalls) {
++        this.unstreamedRenderedTools.push(buildCatchupToolEntry(call));
++      }
 +    }
 +
      for (let idx = 0; idx < record.toolCalls.length; idx++) {
@@ -2465,7 +2801,7 @@ index dbd750b..bbdd9cf 100644
        this.emitTimelineItem({
          type: "assistant_message",
          text: record.content,
-@@ -448,46 +675,92 @@ export class AntigravityNativeBridge {
+@@ -448,46 +692,92 @@ export class AntigravityNativeBridge {
            this.postSettleFinalPlannerSeen = true;
            this.wakeHoldLoop();
          }
@@ -2577,7 +2913,7 @@ index dbd750b..bbdd9cf 100644
          }
          this.emitBackgroundWorkIfChanged();
          return;
-@@ -513,12 +786,52 @@ export class AntigravityNativeBridge {
+@@ -513,12 +803,52 @@ export class AntigravityNativeBridge {
        backgroundChanged = true;
      }
  
@@ -2634,7 +2970,7 @@ index dbd750b..bbdd9cf 100644
        }
      }
  
-@@ -545,34 +858,68 @@ export class AntigravityNativeBridge {
+@@ -545,34 +875,68 @@ export class AntigravityNativeBridge {
  
      if (renderedCallId && call) {
        const failed = record.status === "ERROR" || record.status === "INVALID";
@@ -2715,7 +3051,7 @@ index dbd750b..bbdd9cf 100644
          }
        }
      }
-@@ -598,6 +945,10 @@ export class AntigravityNativeBridge {
+@@ -598,6 +962,10 @@ export class AntigravityNativeBridge {
  
      if (!this.isForegroundTurnActive()) {
        this.idleWakeupActive = true;
@@ -2726,7 +3062,7 @@ index dbd750b..bbdd9cf 100644
      }
    }
  
-@@ -631,7 +982,73 @@ export class AntigravityNativeBridge {
+@@ -631,7 +999,73 @@ export class AntigravityNativeBridge {
      return false;
    }
  
@@ -2800,7 +3136,7 @@ index dbd750b..bbdd9cf 100644
      this.emit({
        type: "timeline",
        provider: this.provider,
-@@ -669,6 +1086,643 @@ export class AntigravityNativeBridge {
+@@ -669,6 +1103,772 @@ export class AntigravityNativeBridge {
        items,
      });
    }
@@ -3289,14 +3625,14 @@ index dbd750b..bbdd9cf 100644
 +    return (
 +      this.unstreamedRenderedThoughts.length > 0 ||
 +      this.unstreamedRenderedMessages.length > 0 ||
-+      this.unstreamedRenderedToolCalls > 0
++      this.unstreamedRenderedTools.length > 0
 +    );
 +  }
 +
 +  private clearActiveCatchupQueues(): void {
 +    this.unstreamedRenderedThoughts.length = 0;
 +    this.unstreamedRenderedMessages.length = 0;
-+    this.unstreamedRenderedToolCalls = 0;
++    this.unstreamedRenderedTools.length = 0;
 +    this.activeCatchupFilter = false;
 +  }
 +
@@ -3314,32 +3650,162 @@ index dbd750b..bbdd9cf 100644
 +    }
 +  }
 +
-+  private consumeCatchupText(queue: string[], chunk: string): boolean {
-+    if (queue.length === 0) {
++  /**
++   * Matches `chunk` against `queue` starting at `startIndex`, tolerating single-item
++   * splits, concatenated adjacent items, and trimmed newline separators without
++   * mutating `queue` unless the entire chunk is accounted for.
++   */
++  private consumeCatchupTextAtIndex(
++    queue: string[],
++    startIndex: number,
++    chunk: string,
++  ): boolean {
++    if (startIndex < 0 || startIndex >= queue.length) {
 +      return false;
 +    }
-+    const expected = queue[0];
-+    if (expected === undefined) {
-+      return false;
-+    }
-+    if (expected === chunk) {
-+      queue.shift();
-+      return true;
-+    }
-+    if (expected.startsWith(chunk)) {
-+      const rest = expected.slice(chunk.length);
-+      if (rest.trim().length === 0) {
-+        queue.shift();
-+      } else {
-+        queue[0] = rest;
++    const workQueue = queue.slice(startIndex);
++    let remaining = chunk;
++    let steps = 0;
++
++    while (remaining.length > 0 && workQueue.length > 0) {
++      const expected = workQueue[0];
++      if (expected === undefined) {
++        break;
 +      }
++
++      if (expected === remaining) {
++        workQueue.shift();
++        remaining = "";
++        break;
++      }
++
++      if (expected.startsWith(remaining)) {
++        const rest = expected.slice(remaining.length);
++        if (rest.trim().length === 0) {
++          workQueue.shift();
++        } else {
++          workQueue[0] = rest;
++        }
++        remaining = "";
++        break;
++      }
++
++      const expectedNoLead = expected.replace(/^[\r\n]+/, "");
++      if (
++        expectedNoLead.length > 0 &&
++        expectedNoLead !== expected &&
++        expectedNoLead.startsWith(remaining)
++      ) {
++        const rest = expectedNoLead.slice(remaining.length);
++        if (rest.trim().length === 0) {
++          workQueue.shift();
++        } else {
++          workQueue[0] = rest;
++        }
++        remaining = "";
++        break;
++      }
++
++      const trimmedExpected = expected.trim();
++      const trimmedRemaining = remaining.trim();
++      if (trimmedExpected.length > 0 && trimmedExpected === trimmedRemaining) {
++        workQueue.shift();
++        remaining = "";
++        break;
++      }
++
++      if (remaining.startsWith(expected)) {
++        const tail = remaining.slice(expected.length);
++        workQueue.shift();
++        remaining = tail.trim().length === 0 ? "" : tail;
++        steps += 1;
++        continue;
++      }
++
++      const remainingNoLead = remaining.replace(/^[\r\n]+/, "");
++      if (trimmedExpected.length > 0 && remainingNoLead.startsWith(trimmedExpected)) {
++        const after = remainingNoLead.slice(trimmedExpected.length);
++        if (after.length === 0 || /^[\s⚠]/.test(after)) {
++          workQueue.shift();
++          remaining = after.trim().length === 0 ? "" : after;
++          steps += 1;
++          continue;
++        }
++      }
++
++      if (steps > 0 && remaining.trim().length === 0) {
++        remaining = "";
++        break;
++      }
++      return false;
++    }
++
++    if (remaining.trim().length > 0) {
++      return false;
++    }
++
++    queue.splice(0, queue.length, ...workQueue);
++    return true;
++  }
++
++  private consumeCatchupText(queue: string[], chunk: string): boolean {
++    if (queue.length === 0 || chunk.length === 0) {
++      return false;
++    }
++    if (this.consumeCatchupTextAtIndex(queue, 0, chunk)) {
 +      return true;
 +    }
-+    const trimmedExpected = expected.trim();
++
++    // Resynchronize if ACP omitted or already flushed an earlier wakeup item.
 +    const trimmedChunk = chunk.trim();
-+    if (trimmedExpected.length > 0 && trimmedExpected === trimmedChunk) {
-+      queue.shift();
++    if (trimmedChunk.length < 4) {
++      return false;
++    }
++    for (let idx = 1; idx < queue.length; idx++) {
++      const candidate = queue[idx];
++      if (!candidate) {
++        continue;
++      }
++      const trimmedCandidate = candidate.trim();
++      const exactMatch = trimmedCandidate.length > 0 && trimmedCandidate === trimmedChunk;
++      const distinctPrefixMatch = trimmedChunk.length >= 16 && trimmedCandidate.length >= 16;
++      if ((exactMatch || distinctPrefixMatch) && this.consumeCatchupTextAtIndex(queue, idx, chunk)) {
++        return true;
++      }
++    }
++    return false;
++  }
++
++  private consumeCatchupToolCall(
++    update: Extract<SessionUpdate, { sessionUpdate: "tool_call" }>,
++  ): boolean {
++    if (this.unstreamedRenderedTools.length === 0) {
++      return false;
++    }
++    const updateKind = typeof update.kind === "string" && update.kind.length > 0 ? update.kind : null;
++    const updateTarget = extractSessionUpdateToolTarget(update);
++    const head = this.unstreamedRenderedTools[0];
++    if (head && matchesCatchupToolEntry(head, updateKind, updateTarget)) {
++      this.unstreamedRenderedTools.shift();
 +      return true;
++    }
++
++    for (let idx = 1; idx < this.unstreamedRenderedTools.length; idx++) {
++      const candidate = this.unstreamedRenderedTools[idx];
++      if (!candidate) {
++        continue;
++      }
++      if (!matchesCatchupToolEntry(candidate, updateKind, updateTarget)) {
++        continue;
++      }
++      // Only skip past unmatched earlier tools when kind or target explicitly disambiguates them.
++      if (
++        (updateTarget !== null && candidate.target === updateTarget) ||
++        (updateKind !== null && candidate.kind !== null)
++      ) {
++        this.unstreamedRenderedTools.splice(0, idx + 1);
++        return true;
++      }
 +    }
 +    return false;
 +  }
@@ -3412,8 +3878,7 @@ index dbd750b..bbdd9cf 100644
 +          return false;
 +        }
 +        case "tool_call": {
-+          if (this.unstreamedRenderedToolCalls > 0) {
-+            this.unstreamedRenderedToolCalls -= 1;
++          if (update.sessionUpdate === "tool_call" && this.consumeCatchupToolCall(update)) {
 +            if (toolCallId !== null) {
 +              this.rememberDroppedCatchupToolCallId(toolCallId);
 +            }
@@ -3444,7 +3909,7 @@ index dbd750b..bbdd9cf 100644
  }
  
  export function createAntigravityProviderHooks(
-@@ -687,11 +1741,18 @@ export function createAntigravityProviderHooks(
+@@ -687,11 +1887,18 @@ export function createAntigravityProviderHooks(
          emit: ctx.emit,
          isForegroundTurnActive: ctx.isForegroundTurnActive,
          lastStreamedContentAt: ctx.lastStreamedContentAt,
@@ -3463,7 +3928,7 @@ index dbd750b..bbdd9cf 100644
        });
        bridges.set(ctx.acpSessionId, bridge);
        bridge.start();
-@@ -706,6 +1767,10 @@ export function createAntigravityProviderHooks(
+@@ -706,6 +1913,10 @@ export function createAntigravityProviderHooks(
        const text = extractPromptText(prompt);
        bridges.get(ctx.acpSessionId)?.markPromptSubmitted(text.trim().length > 0 ? text : null);
      },
@@ -3474,7 +3939,7 @@ index dbd750b..bbdd9cf 100644
      holdTurnWhile(ctx) {
        const bridge = bridges.get(ctx.acpSessionId);
        if (!bridge) {
-@@ -713,12 +1778,74 @@ export function createAntigravityProviderHooks(
+@@ -713,12 +1924,190 @@ export function createAntigravityProviderHooks(
        }
        return bridge.waitForBackgroundSettled(holdTimeoutMs, ctx.signal);
      },
@@ -3549,8 +4014,124 @@ index dbd750b..bbdd9cf 100644
 +  }
 +  return false;
 +}
++
++/** Extracts the unprefixed error diagnostic string from an Antigravity `ERROR_MESSAGE` record. */
++function extractAntigravityErrorText(record: AntigravityTranscriptRecord): string {
++  const rawError = record.error?.trim();
++  if (rawError) {
++    return rawError;
++  }
++  const rawContent = record.content?.trim();
++  if (!rawContent) {
++    return "";
++  }
++  return rawContent.replace(/^Error:\s*/i, "").trim();
++}
++
++function isTransientAntigravityRetryError(errorText: string): boolean {
++  if (!errorText) {
++    return false;
++  }
++  return (
++    /^API error \(attempt \d+\):/i.test(errorText) ||
++    /\bRetries remaining:\s*[1-9]\d*\s*$/i.test(errorText)
++  );
++}
++
++/**
++ * Formats an Antigravity transcript error for timeline display: returns `null`
++ * for internal automatic retries (`attempt N` / `Retries remaining: >0`) and
++ * strips the echoed prompt dump from exhausted `Malformed function call` errors.
++ */
++function formatAntigravityTimelineError(errorText: string): string | null {
++  if (!errorText) {
++    return "Antigravity runtime error";
++  }
++  if (isTransientAntigravityRetryError(errorText)) {
++    return null;
++  }
++  const userEchoIdx = errorText.indexOf("\n user\n");
++  if (userEchoIdx > 0 && /Malformed function call/i.test(errorText)) {
++    const headline = errorText.slice(0, userEchoIdx).trim();
++    const retriesMatch = /\bRetries remaining:\s*\d+/i.exec(errorText);
++    return retriesMatch ? `${headline} (${retriesMatch[0]})` : headline;
++  }
++  return errorText;
++}
++
++function buildCatchupToolEntry(call: AntigravityToolCallEntry): CatchupToolEntry {
++  const args = call.args ?? {};
++  switch (call.name) {
++    case "run_command":
++      return {
++        kind: "execute",
++        target: unwrapAntigravityArgString(args.CommandLine)?.trim() || null,
++      };
++    case "read_file":
++      return {
++        kind: "read",
++        target: unwrapAntigravityArgString(args.Path)?.trim() || null,
++      };
++    case "edit_file":
++    case "write_file":
++      return {
++        kind: "edit",
++        target: unwrapAntigravityArgString(args.Path)?.trim() || null,
++      };
++    case "search_web":
++      return {
++        kind: "search",
++        target: unwrapAntigravityArgString(args.query)?.trim() || null,
++      };
++    default:
++      return { kind: null, target: null };
++  }
++}
++
++function extractSessionUpdateToolTarget(
++  update: Extract<SessionUpdate, { sessionUpdate: "tool_call" }>,
++): string | null {
++  const input = asRecord(update.rawInput);
++  if (!input) {
++    return null;
++  }
++  for (const key of [
++    "CommandLine",
++    "command",
++    "cmd",
++    "Path",
++    "filePath",
++    "file_path",
++    "path",
++    "query",
++  ]) {
++    const raw = input[key];
++    if (typeof raw === "string" && raw.trim().length > 0) {
++      return raw.trim();
++    }
++  }
++  return null;
++}
++
++function matchesCatchupToolEntry(
++  entry: CatchupToolEntry,
++  updateKind: string | null,
++  updateTarget: string | null,
++): boolean {
++  if (entry.kind && updateKind && updateKind !== "other") {
++    const kindMatches =
++      entry.kind === updateKind || (entry.kind === "search" && updateKind === "fetch");
++    if (!kindMatches) {
++      return false;
++    }
++  }
++  if (entry.target && updateTarget) {
++    return entry.target === updateTarget;
++  }
++  return true;
++}
 diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
-index 1012848..64404e4 100644
+index 1012848..c339f87 100644
 --- a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 @@ -167,6 +167,91 @@ export function unwrapAntigravityStringArrayArg(value: unknown): string[] {
@@ -3645,3 +4226,15 @@ index 1012848..64404e4 100644
  export function parseAntigravityTranscriptLine(line: string): AntigravityTranscriptRecord | null {
    const trimmed = line.trim();
    if (trimmed.length === 0) {
+@@ -632,9 +717,9 @@ export class AntigravityTranscriptLog {
+         continue;
+       }
+       if (
+-        record.type === "PLANNER_RESPONSE" &&
++        (record.type === "PLANNER_RESPONSE" || record.type === "ERROR_MESSAGE") &&
+         record.stepIndex !== null &&
+-        record.truncatedFields.some((f) => f === "content" || f === "thinking")
++        record.truncatedFields.some((f) => f === "content" || f === "thinking" || f === "error")
+       ) {
+         const full = await this.readFullRecordForStep(record.stepIndex);
+         if (full) {
