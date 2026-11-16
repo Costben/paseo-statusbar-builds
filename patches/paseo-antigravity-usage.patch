@@ -49,10 +49,10 @@ index 0000000..33cc7f3
 +{ "id": "antigravity-usage-source", "requirements": { "paseo": ">=0.11.0" } }
 diff --git a/plugins/antigravity-usage-source/server/usage.test.ts b/plugins/antigravity-usage-source/server/usage.test.ts
 new file mode 100644
-index 0000000..600b394
+index 0000000..a0e4ea4
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.test.ts
-@@ -0,0 +1,558 @@
+@@ -0,0 +1,649 @@
 +import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 +import { tmpdir } from "node:os";
 +import { join } from "node:path";
@@ -62,6 +62,7 @@ index 0000000..600b394
 +  decodeKeyringPayload,
 +  discover,
 +  fetchUsage,
++  pickFresherCredentials,
 +} from "./usage.js";
 +
 +function encodeGoKeyring(payload: unknown): string {
@@ -98,6 +99,8 @@ index 0000000..600b394
 +
 +    const lookup = {
 +      platform: "darwin" as const,
++      home: "/tmp/test-home",
++      env: {},
 +      readFileRaw: async () => null,
 +      readKeyringRaw: async () => raw,
 +    };
@@ -473,7 +476,7 @@ index 0000000..600b394
 +    ).toBe(join("/var/lib/agy-home", "antigravity-oauth-token"));
 +  });
 +
-+  test("discover prefers antigravity-oauth-token file over keyring and preserves account key", async () => {
++  test("discover emits auto route picking fresher credential and preserves account key", async () => {
 +    const tempRoot = await mkdtemp(join(tmpdir(), "paseo-agy-usage-"));
 +    try {
 +      const cliDir = join(tempRoot, ".gemini", "antigravity-cli");
@@ -489,30 +492,64 @@ index 0000000..600b394
 +        "utf8",
 +      );
 +
-+      let keyringCalled = false;
-+      const staleKeyring = encodeGoKeyring({
-+        token: { access_token: "ya29.stale-keyring" },
-+        id_token_email: "stale@example.com",
-+      });
++      const expiredFile = {
++        accessToken: "ya29.expired-file",
++        email: "stale@example.com",
++        expiresAtMs: Date.parse("2026-11-16T04:46:22.000+08:00"),
++      };
++      const freshKeyring = {
++        accessToken: "ya29.fresh-keyring",
++        email: "User@Example.com",
++        expiresAtMs: Date.parse("2026-11-16T09:51:50.000+08:00"),
++      };
++      expect(
++        pickFresherCredentials([expiredFile, freshKeyring], Date.parse("2026-11-16T09:05:00+08:00")),
++      ).toEqual(freshKeyring);
++      expect(
++        pickFresherCredentials([freshKeyring, expiredFile], Date.parse("2026-11-16T09:05:00+08:00")),
++      ).toEqual(freshKeyring);
++
++      const earlierValid = {
++        accessToken: "ya29.earlier-valid",
++        email: "user@example.com",
++        expiresAtMs: Date.parse("2026-11-16T09:30:00.000+08:00"),
++      };
++      expect(
++        pickFresherCredentials([earlierValid, freshKeyring], Date.parse("2026-11-16T09:05:00+08:00")),
++      ).toEqual(freshKeyring);
++      expect(
++        pickFresherCredentials([freshKeyring, earlierValid], Date.parse("2026-11-16T09:05:00+08:00")),
++      ).toEqual(freshKeyring);
 +
 +      const fileAccounts = await discover(
 +        { kind: "global" },
 +        {
 +          home: tempRoot,
 +          env: {},
-+          readKeyringRaw: async () => {
-+            keyringCalled = true;
-+            return staleKeyring;
-+          },
++          now: () => Date.parse("2026-11-16T09:05:00+08:00"),
++          readKeyringRaw: async () =>
++            encodeGoKeyring({
++              token: {
++                access_token: "ya29.stale-keyring",
++                expiry: "2026-11-16T04:00:00.000+08:00",
++              },
++              id_token_email: "stale@example.com",
++            }),
 +        },
 +      );
 +
-+      expect(keyringCalled).toBe(false);
 +      expect(fileAccounts).toHaveLength(1);
 +      expect(fileAccounts[0]).toMatchObject({
 +        label: "User@Example.com",
 +        harness: "Antigravity",
-+        input: { route: { store: "file", path: tokenPath } },
++        input: {
++          route: {
++            store: "auto",
++            path: tokenPath,
++            service: "gemini",
++            account: "antigravity",
++          },
++        },
 +      });
 +
 +      const keyringOnlyAccounts = await discover(
@@ -552,12 +589,66 @@ index 0000000..600b394
 +      expect(sessionAccounts[0]).toMatchObject({
 +        label: "override@example.com",
 +        input: {
-+          route: { store: "file", path: join(customHome, "antigravity-oauth-token") },
++          route: {
++            store: "auto",
++            path: join(customHome, "antigravity-oauth-token"),
++            service: "gemini",
++            account: "antigravity",
++          },
 +        },
 +      });
 +    } finally {
 +      await rm(tempRoot, { recursive: true, force: true });
 +    }
++  });
++
++  test("fetchUsage with auto route dynamically picks fresh keyring when file token is expired", async () => {
++    const expiredFileRaw = JSON.stringify({
++      token: {
++        access_token: "ya29.expired-file",
++        expiry: "2026-11-16T04:46:22.602713+08:00",
++      },
++      id_token_email: "user@example.com",
++    });
++    const freshKeyringRaw = encodeGoKeyring({
++      token: {
++        access_token: "ya29.fresh-keyring",
++        expiry: "2026-11-16T09:51:50.457764+08:00",
++      },
++      id_token_email: "user@example.com",
++      auth_method: "consumer",
++    });
++
++    const seenAuthHeaders: Array<string | null> = [];
++    const fetchApi: typeof fetch = async (input, init) => {
++      seenAuthHeaders.push(new Headers(init?.headers).get("authorization"));
++      if (String(input).endsWith("/v1internal:loadCodeAssist")) {
++        return new Response(JSON.stringify({ paidTier: { name: "Google AI Ultra" } }));
++      }
++      return new Response(JSON.stringify({ groups: [], buckets: [] }));
++    };
++
++    const report = await fetchUsage(
++      {
++        route: {
++          store: "auto",
++          path: "/tmp/antigravity-oauth-token",
++          service: "gemini",
++          account: "antigravity",
++        },
++      },
++      fetchApi,
++      {
++        platform: "darwin",
++        arch: "arm64",
++        now: () => Date.parse("2026-11-16T09:05:00+08:00"),
++        readFileRaw: async () => expiredFileRaw,
++        readKeyringRaw: async () => freshKeyringRaw,
++      },
++    );
++
++    expect(report).toMatchObject({ status: "available", planLabel: "Google AI Ultra" });
++    expect(new Set(seenAuthHeaders)).toEqual(new Set(["Bearer ya29.fresh-keyring"]));
 +  });
 +
 +  test("fetchUsage reads credentials from file route and errors when missing", async () => {
@@ -613,10 +704,10 @@ index 0000000..600b394
 +});
 diff --git a/plugins/antigravity-usage-source/server/usage.ts b/plugins/antigravity-usage-source/server/usage.ts
 new file mode 100644
-index 0000000..c4be41d
+index 0000000..161fc64
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.ts
-@@ -0,0 +1,691 @@
+@@ -0,0 +1,737 @@
 +import { execFile } from "node:child_process";
 +import { readFile } from "node:fs/promises";
 +import { arch as osArch, homedir, platform as osPlatform } from "node:os";
@@ -919,23 +1010,80 @@ index 0000000..c4be41d
 +  }
 +}
 +
-+async function readCredentials(
-+  input: AntigravityUsageInput,
++async function readFileCredentials(
++  filePath: string,
 +  lookup: AntigravityLookup = {},
 +): Promise<AntigravityCredentials | null> {
-+  if (input.route.store === "file") {
-+    const raw = lookup.readFileRaw
-+      ? await lookup.readFileRaw(input.route.path)
-+      : await readDefaultFileRaw(input.route.path);
-+    return decodeKeyringPayload(raw);
-+  }
-+  const { service, account } = input.route;
++  const raw = lookup.readFileRaw
++    ? await lookup.readFileRaw(filePath)
++    : await readDefaultFileRaw(filePath);
++  return decodeKeyringPayload(raw);
++}
++
++async function readKeyringCredentials(
++  service: string,
++  account: string,
++  lookup: AntigravityLookup = {},
++): Promise<AntigravityCredentials | null> {
 +  const platform = lookup.platform ?? osPlatform();
 +  const env = lookup.env ?? process.env;
 +  const raw = lookup.readKeyringRaw
 +    ? await lookup.readKeyringRaw(service, account)
 +    : await readDefaultKeyringRaw(service, account, platform, env);
 +  return decodeKeyringPayload(raw);
++}
++
++function isExpiredCredentials(credentials: AntigravityCredentials, now: number): boolean {
++  return credentials.expiresAtMs !== undefined && credentials.expiresAtMs <= now;
++}
++
++/**
++ * agy 的 composite_token_storage 在钥匙串写入失败时会回退到本地文件，
++ * 下个进程可能又写回钥匙串并把另一侧留成过期副本；因此两侧都读并取有效且更晚过期的一份。
++ */
++export function pickFresherCredentials(
++  candidates: Array<AntigravityCredentials | null>,
++  now: number = Date.now(),
++): AntigravityCredentials | null {
++  let best: AntigravityCredentials | null = null;
++  for (const candidate of candidates) {
++    if (!candidate) continue;
++    if (!best) {
++      best = candidate;
++      continue;
++    }
++    const candidateExpired = isExpiredCredentials(candidate, now);
++    const bestExpired = isExpiredCredentials(best, now);
++    if (candidateExpired !== bestExpired) {
++      if (!candidateExpired) best = candidate;
++      continue;
++    }
++    const candidateExpiry = candidate.expiresAtMs ?? Number.NEGATIVE_INFINITY;
++    const bestExpiry = best.expiresAtMs ?? Number.NEGATIVE_INFINITY;
++    if (candidateExpiry > bestExpiry) {
++      best = candidate;
++    }
++  }
++  return best;
++}
++
++async function readCredentials(
++  input: AntigravityUsageInput,
++  lookup: AntigravityLookup = {},
++): Promise<AntigravityCredentials | null> {
++  if (input.route.store === "file") {
++    return readFileCredentials(input.route.path, lookup);
++  }
++  if (input.route.store === "keyring") {
++    return readKeyringCredentials(input.route.service, input.route.account, lookup);
++  }
++  const { path, service, account } = input.route;
++  const now = (lookup.now ?? Date.now)();
++  const [fileCredentials, keyringCredentials] = await Promise.all([
++    readFileCredentials(path, lookup),
++    readKeyringCredentials(service, account, lookup),
++  ]);
++  return pickFresherCredentials([fileCredentials, keyringCredentials], now);
 +}
 +
 +export async function discover(
@@ -950,39 +1098,28 @@ index 0000000..c4be41d
 +      home: lookup.home ?? (scope.env.HOME?.trim() || scope.env.USERPROFILE?.trim() || homedir()),
 +    };
 +  }
-+  const candidates: AntigravityUsageInput[] = [
-+    {
-+      route: {
-+        store: "file",
-+        path: antigravityTokenFilePath(lookup),
-+      },
++  const input: AntigravityUsageInput = {
++    route: {
++      store: "auto",
++      path: antigravityTokenFilePath(lookup),
++      service: ANTIGRAVITY_KEYCHAIN_SERVICE,
++      account: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
 +    },
++  };
++  const credentials = await readCredentials(input, lookup);
++  if (!credentials) return [];
++
++  const key = credentials.email
++    ? hashAccountKey(`antigravity:${credentials.email.toLowerCase()}`)
++    : hashAccountKey(JSON.stringify(input.route));
++  return [
 +    {
-+      route: {
-+        store: "keyring",
-+        service: ANTIGRAVITY_KEYCHAIN_SERVICE,
-+        account: ANTIGRAVITY_KEYCHAIN_ACCOUNT,
-+      },
++      key,
++      ...(credentials.email ? { label: credentials.email } : {}),
++      harness: "Antigravity",
++      input,
 +    },
 +  ];
-+
-+  for (const input of candidates) {
-+    const credentials = await readCredentials(input, lookup);
-+    if (!credentials) continue;
-+
-+    const key = credentials.email
-+      ? hashAccountKey(`antigravity:${credentials.email.toLowerCase()}`)
-+      : hashAccountKey(JSON.stringify(input.route));
-+    return [
-+      {
-+        key,
-+        ...(credentials.email ? { label: credentials.email } : {}),
-+        harness: "Antigravity",
-+        input,
-+      },
-+    ];
-+  }
-+  return [];
 +}
 +
 +function pctUsedFromRemainingFraction(remainingFraction: number): number {
@@ -1310,13 +1447,21 @@ index 0000000..c4be41d
 +}
 diff --git a/plugins/antigravity-usage-source/shared/input.ts b/plugins/antigravity-usage-source/shared/input.ts
 new file mode 100644
-index 0000000..bc7112c
+index 0000000..b25318e
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/shared/input.ts
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,28 @@
 +import { z } from "zod";
 +
 +export const routeSchema = z.discriminatedUnion("store", [
++  z
++    .object({
++      store: z.literal("auto"),
++      path: z.string().min(1),
++      service: z.string().min(1),
++      account: z.string().min(1),
++    })
++    .strict(),
 +  z
 +    .object({
 +      store: z.literal("file"),

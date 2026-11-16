@@ -224,13 +224,13 @@ const PATCHES = [
     },
   },
   {
-    // Built-in `antigravity-usage-source` plugin: reads `agy` OAuth credentials
-    // from `$ANTIGRAVITY_HOME/antigravity-oauth-token` (or default
-    // `~/.gemini/antigravity-cli/antigravity-oauth-token`) with OS keyring
-    // fallback (macOS Keychain / Windows Credential Manager / Linux Secret
-    // Service) and queries CloudCode `loadCodeAssist` +
-    // `retrieveUserQuotaSummary` + `retrieveUserQuota` for plan tier, 3P 5h/weekly
-    // limits, Gemini quota, and AI Credits.
+    // Built-in `antigravity-usage-source` plugin: reads BOTH `agy` OAuth stores
+    // (`$ANTIGRAVITY_HOME/antigravity-oauth-token` or default
+    // `~/.gemini/antigravity-cli/antigravity-oauth-token`, plus OS keyring via
+    // macOS Keychain / Windows Credential Manager / Linux Secret Service) and
+    // dynamically picks the fresher valid token, then queries CloudCode
+    // `loadCodeAssist` + `retrieveUserQuotaSummary` + `retrieveUserQuota` for
+    // plan tier, 3P 5h/weekly limits, Gemini quota, and AI Credits.
     name: "antigravity-usage",
     file: "paseo-antigravity-usage.patch",
     platforms: ["mac", "win"],
@@ -899,6 +899,11 @@ const MARKERS = [
     label: "Antigravity usage source reads antigravity-oauth-token file",
     path: "plugins/antigravity-usage-source/server/usage.ts",
     needle: "antigravity-oauth-token",
+  },
+  {
+    label: "Antigravity usage source compares file and keyring freshness",
+    path: "plugins/antigravity-usage-source/server/usage.ts",
+    needle: "pickFresherCredentials",
   },
   {
     label: "Antigravity native transcript bridge hooks wired",
