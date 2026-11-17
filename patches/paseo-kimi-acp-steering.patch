@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 963ce581..1bb48e82 100644
+index 361f906..defd6e7 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -6555,6 +6555,94 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
+@@ -7331,6 +7331,94 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
      }
    });
  
@@ -98,10 +98,10 @@ index 963ce581..1bb48e82 100644
      const harness = await createKimiLogHarness();
      try {
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 3acc6ef5..e89ca991 100644
+index 00acb81..a96b966 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -184,6 +184,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
+@@ -202,6 +202,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
    return value != null && typeof value === "object" && !Array.isArray(value);
  }
  
@@ -118,7 +118,7 @@ index 3acc6ef5..e89ca991 100644
  function isACPError(value: unknown): value is ACPError {
    return isRecord(value) && typeof value.message === "string" && typeof value.code === "number";
  }
-@@ -2220,6 +2230,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2355,6 +2365,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private child: ChildProcessWithoutNullStreams | null = null;
    private connection: ClientSideConnection | null = null;
    private agentCapabilities: ACPAgentCapabilities | null = null;
@@ -127,7 +127,7 @@ index 3acc6ef5..e89ca991 100644
    private sessionId: string | null = null;
    private readonly earlySessionUpdates: SessionNotification[] = [];
    private currentMode: string | null = null;
-@@ -2351,6 +2363,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2492,6 +2504,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.child = spawned.child;
        this.connection = spawned.connection;
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
@@ -135,7 +135,7 @@ index 3acc6ef5..e89ca991 100644
  
        const response = await this.runACPRequest(() =>
          this.connection!.newSession({
-@@ -2389,6 +2402,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2530,6 +2543,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.child = spawned.child;
        this.connection = spawned.connection;
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
@@ -143,7 +143,7 @@ index 3acc6ef5..e89ca991 100644
        this.sessionId = handle.sessionId;
        this.bootstrapThreadEventPending = true;
  
-@@ -2508,14 +2522,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2649,14 +2663,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    /**
     * A steer for a provider that queues prompts. While a prompt of Paseo's own is
@@ -174,7 +174,7 @@ index 3acc6ef5..e89ca991 100644
      if (this.closed || !this.connection || !this.sessionId) {
        return { status: "unavailable" };
      }
-@@ -2527,6 +2554,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2668,6 +2695,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return this.sendQueuedPrompt(prompt, options);
    }
  

@@ -1,6 +1,6 @@
 diff --git a/packages/app/src/android/rotation-delay.ts b/packages/app/src/android/rotation-delay.ts
 new file mode 100644
-index 000000000..ed1765b7c
+index 0000000..ed1765b
 --- /dev/null
 +++ b/packages/app/src/android/rotation-delay.ts
 @@ -0,0 +1,32 @@
@@ -37,7 +37,7 @@ index 000000000..ed1765b7c
 +  }
 +}
 diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
-index 382ab350f..a0ed05443 100644
+index 382ab35..a0ed054 100644
 --- a/packages/app/src/hooks/use-settings/index.ts
 +++ b/packages/app/src/hooks/use-settings/index.ts
 @@ -1,6 +1,7 @@
@@ -64,10 +64,10 @@ index 382ab350f..a0ed05443 100644
      settings,
      isLoading: isPending,
 diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
-index 424536ac6..47ebdea76 100644
+index f04b7b6..cfcb96a 100644
 --- a/packages/app/src/hooks/use-settings/storage.ts
 +++ b/packages/app/src/hooks/use-settings/storage.ts
-@@ -103,6 +103,8 @@ export interface AppSettings {
+@@ -105,6 +105,8 @@ export interface AppSettings {
    /** How usage reads and which windows the sidebar summary shows. */
    usage: UsagePreferences;
    autoExpandReasoning: boolean;
@@ -76,7 +76,7 @@ index 424536ac6..47ebdea76 100644
    chatDisplay: ChatDisplay;
    chatOutlineEnabled: boolean;
    vimKeybindings: boolean;
-@@ -160,6 +162,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
+@@ -163,6 +165,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
    sidebarFooterItems: [],
    usage: DEFAULT_USAGE_PREFERENCES,
    autoExpandReasoning: false,
@@ -84,7 +84,7 @@ index 424536ac6..47ebdea76 100644
    chatDisplay: "collapseTurns",
    chatOutlineEnabled: true,
    vimKeybindings: false,
-@@ -257,6 +260,7 @@ const StoredAppSettingsSchema = z
+@@ -261,6 +264,7 @@ const StoredAppSettingsSchema = z
      sidebarFooterItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
      usage: UsagePreferencesSchema,
      autoExpandReasoning: z.boolean().catch(false),
@@ -93,10 +93,10 @@ index 424536ac6..47ebdea76 100644
      // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
      toolCallDetailLevel: z
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 098a49ae5..63b4d18ee 100644
+index 51250d0..97a408c 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2415,6 +2415,10 @@ export const ar: TranslationResources = {
+@@ -2472,6 +2472,10 @@ export const ar: TranslationResources = {
      },
      general: {
        title: "عام",
@@ -108,10 +108,10 @@ index 098a49ae5..63b4d18ee 100644
        setup: {
          label: "الإعداد الأولي",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index ae9e9347e..9dc3a7f0b 100644
+index f7452c2..81a91d4 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2505,6 +2505,10 @@ export const en = {
+@@ -2567,6 +2567,10 @@ export const en = {
      },
      general: {
        title: "General",
@@ -123,10 +123,10 @@ index ae9e9347e..9dc3a7f0b 100644
        setup: {
          label: "First-run setup",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 3d28cda81..73759e4d6 100644
+index 6f3c051..90a71e4 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2428,6 +2428,10 @@ export const es: TranslationResources = {
+@@ -2485,6 +2485,10 @@ export const es: TranslationResources = {
      },
      general: {
        title: "General",
@@ -138,10 +138,10 @@ index 3d28cda81..73759e4d6 100644
        setup: {
          label: "Configuración inicial",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index da19c643a..8701568dc 100644
+index 022bc3d..b48363c 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2429,6 +2429,10 @@ export const fr: TranslationResources = {
+@@ -2486,6 +2486,10 @@ export const fr: TranslationResources = {
      },
      general: {
        title: "Général",
@@ -153,10 +153,10 @@ index da19c643a..8701568dc 100644
        setup: {
          label: "Configuration initiale",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index 73e14a0b6..20553d68e 100644
+index 75f2d55..a7c3687 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2402,6 +2402,10 @@ export const ja: TranslationResources = {
+@@ -2459,6 +2459,10 @@ export const ja: TranslationResources = {
      },
      general: {
        title: "一般",
@@ -168,10 +168,10 @@ index 73e14a0b6..20553d68e 100644
        setup: {
          label: "初回セットアップ",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index 117d5d68b..fd9ede6ba 100644
+index d4ec87a..315aa2e 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2390,6 +2390,10 @@ export const ko: TranslationResources = {
+@@ -2447,6 +2447,10 @@ export const ko: TranslationResources = {
      },
      general: {
        title: "일반",
@@ -183,10 +183,10 @@ index 117d5d68b..fd9ede6ba 100644
        setup: {
          label: "초기 설정",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 4460039b7..534389a21 100644
+index 54516fc..b1f2974 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2413,6 +2413,10 @@ export const ptBR: TranslationResources = {
+@@ -2470,6 +2470,10 @@ export const ptBR: TranslationResources = {
      },
      general: {
        title: "Geral",
@@ -198,10 +198,10 @@ index 4460039b7..534389a21 100644
        setup: {
          label: "Configuração inicial",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 012e6eb47..8fa745abb 100644
+index 9ee2f17..e609adb 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2416,6 +2416,10 @@ export const ru: TranslationResources = {
+@@ -2473,6 +2473,10 @@ export const ru: TranslationResources = {
      },
      general: {
        title: "Основные",
@@ -213,10 +213,10 @@ index 012e6eb47..8fa745abb 100644
        setup: {
          label: "Первоначальная настройка",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index 1c6106553..a15895fc1 100644
+index e2b6762..5e8d293 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2355,6 +2355,10 @@ export const zhCN: TranslationResources = {
+@@ -2412,6 +2412,10 @@ export const zhCN: TranslationResources = {
      },
      general: {
        title: "通用",
@@ -228,18 +228,19 @@ index 1c6106553..a15895fc1 100644
        setup: {
          label: "首次设置",
 diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
-index fa87c28cf..d71fc3c5e 100644
+index 7fc6dbe..442b636 100644
 --- a/packages/app/src/screens/settings-screen.tsx
 +++ b/packages/app/src/screens/settings-screen.tsx
-@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+@@ -4,7 +4,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
+ import { useAddHost } from "@/hosts/add-host";
+ import { useCallback, useMemo, useRef, useState } from "react";
  import type { ComponentType, ReactNode } from "react";
- import {
-   Alert,
-+  Platform,
-   Pressable,
-   ScrollView,
-   Text,
-@@ -44,7 +45,9 @@ import {
+-import { Alert, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
++import { Alert, Platform, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
+ import { useRouter } from "expo-router";
+ import { useFocusEffect } from "expo-router/react-navigation";
+ import { useSafeAreaInsets } from "react-native-safe-area-context";
+@@ -41,7 +41,9 @@ import {
    MessageSquare,
    ChevronRight,
  } from "lucide-react-native";
@@ -249,7 +250,7 @@ index fa87c28cf..d71fc3c5e 100644
  import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
  import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
  import { HostPicker as SharedHostPicker } from "@/components/hosts/host-picker";
-@@ -390,12 +393,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
+@@ -392,12 +394,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
              </DropdownMenuContent>
            </DropdownMenu>
          </View>

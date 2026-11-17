@@ -990,6 +990,11 @@ const MARKERS = [
     needle: "notifyAllConnected",
   },
   {
+    label: "A finish a wake-up turn follows waits out the settle window",
+    path: "packages/server/src/server/agent/agent-manager.ts",
+    needle: "backgroundWorkSettledRecently(agent.id)",
+  },
+  {
     label: "Deferred finished attention while background work runs",
     path: "packages/server/src/server/agent/agent-manager.ts",
     needle: "agent.manager.attention.deferred_for_background_work",

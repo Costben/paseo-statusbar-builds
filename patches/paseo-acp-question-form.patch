@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index db2aedf..387625f 100644
+index defd6e7..395d260 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -7496,3 +7496,147 @@ describe("ACP provider hook continuation", () => {
+@@ -7766,3 +7766,147 @@ describe("ACP provider hook continuation", () => {
      expect(seen).toEqual([false]);
    });
  });
@@ -151,10 +151,10 @@ index db2aedf..387625f 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 27bfb5e..e7068eb 100644
+index a96b966..b241af9 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -3679,6 +3679,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3774,6 +3774,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        throw new Error(`No pending permission request with id '${requestId}'`);
      }
  
@@ -162,7 +162,7 @@ index 27bfb5e..e7068eb 100644
      const selectedOption = selectPermissionOption(pending.options, response);
      if (response.selectedActionId !== undefined && !selectedOption) {
        throw new Error(
-@@ -3687,16 +3688,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3782,16 +3783,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
  
      this.pendingPermissions.delete(requestId);
@@ -201,7 +201,7 @@ index 27bfb5e..e7068eb 100644
  
      this.pushEvent({
        type: "permission_resolved",
-@@ -3714,7 +3727,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3809,7 +3822,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      // request nobody is waiting on any more. Hand the answer back as a prompt
      // instead of letting it disappear.
      if (pending.turnId !== null && pending.turnId !== this.activeForegroundTurnId) {
@@ -217,7 +217,7 @@ index 27bfb5e..e7068eb 100644
        if (prompt !== null) {
          return { followUpPrompt: prompt };
        }
-@@ -3860,8 +3880,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3955,8 +3975,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
@@ -230,7 +230,7 @@ index 27bfb5e..e7068eb 100644
      if (canAutoAccept) {
        const allowOption = selectPermissionOption(params.options, { behavior: "allow" });
        if (allowOption) {
-@@ -5806,6 +5829,111 @@ function extractTerminalContent(
+@@ -5901,6 +5924,111 @@ function extractTerminalContent(
    };
  }
  
@@ -342,7 +342,7 @@ index 27bfb5e..e7068eb 100644
  function mapPermissionRequest(
    provider: string,
    requestId: string,
-@@ -5813,6 +5941,35 @@ function mapPermissionRequest(
+@@ -5908,6 +6036,35 @@ function mapPermissionRequest(
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
    const toolName = params.toolCall.title ?? snapshot.title;

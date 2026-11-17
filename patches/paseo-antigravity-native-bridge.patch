@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 89e6699..e523d3c 100644
+index 8df0865..2306c9f 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -738,6 +738,12 @@ export interface ACPProviderHooks {
+@@ -739,6 +739,12 @@ export interface ACPProviderHooks {
      error: string;
      diagnostic?: string;
    } | null;
@@ -15,7 +15,7 @@ index 89e6699..e523d3c 100644
  }
  
  export type ACPSessionMetaBuilder = (
-@@ -2682,6 +2688,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2777,6 +2783,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     * reply Kimi narrates next to it is dropped.
     */
    private pushProviderEvent(event: AgentStreamEvent): void {
@@ -31,7 +31,7 @@ index 89e6699..e523d3c 100644
      if (
        event.type === "timeline" &&
        event.item.type !== "user_message" &&
-@@ -3947,12 +3962,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4042,12 +4057,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    async canStopRuntime(): Promise<boolean> {
@@ -605,7 +605,7 @@ index 0000000..97404e3
 +});
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 new file mode 100644
-index 0000000..cd4993d
+index 0000000..60865a2
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -0,0 +1,697 @@

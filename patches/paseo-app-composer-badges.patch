@@ -1,5 +1,5 @@
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 731046489..0cd5e6040 100644
+index 7310464..0cd5e60 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -20,7 +20,7 @@ index 731046489..0cd5e6040 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f78..dd1da9eeb 100644
+index 704298f..dd1da9e 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -49,11 +49,11 @@ index 704298f78..dd1da9eeb 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index 6ce7e59ca..00451757d 100644
+index e74d12a..ee8579c 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -564,6 +564,44 @@ describe("bare URL sentence punctuation", () => {
-   );
+@@ -592,6 +592,44 @@ describe("bare URL sentence punctuation", () => {
+   });
  });
  
 +describe("bare URLs with a port", () => {
@@ -98,10 +98,10 @@ index 6ce7e59ca..00451757d 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 8b15b8ff9..46601d6e8 100644
+index 0a87dc0..6151768 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
-@@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
+@@ -25,6 +25,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
  // Bare prose paths need a known extension, a line suffix, or at least two separators.
  const PROSE_PATH = String.raw`(?:${PATH_PREFIX}${HAS_PATH_LETTER}${SEPARATED_PATH}|${HAS_PATH_LETTER}(?:${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT})*[\\/]${FILE_NAME}|${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT}){2,}|${SEPARATED_PATH}(?=:)))`;
  
@@ -138,7 +138,7 @@ index 8b15b8ff9..46601d6e8 100644
  function createTextPattern(path: string, forgeReferencePattern?: string): RegExp {
    // Forge references come before paths so `group/project#12` is not read as a path.
    const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
-@@ -158,6 +188,7 @@ export function prepareMarkdownSource(
+@@ -177,6 +207,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
@@ -146,16 +146,16 @@ index 8b15b8ff9..46601d6e8 100644
      // Match content, header, and delimiter lines; quote-only lines count as blank.
      !/^[\t >]*[^\t >\r\n][^\r\n]*(?:\r\n|\r|\n)[^\r\n]+(?:\r\n|\r|\n)(?=[\t >:|-]*\|)[\t >|]*:?-[-\t :|]*$/m.test(
        source,
-@@ -236,7 +267,7 @@ export function prepareMarkdownSource(
-       if (lineEnd < end) split(lineEnd);
-     }
+@@ -272,7 +303,7 @@ export function prepareMarkdownSource(
+     edits.push({ start, end: labelStart, text: "" });
+     edits.push({ start: labelEnd, end, text: "" });
    }
 -  function visit(node: Nodes, previous?: Nodes) {
 +  function visit(node: Nodes, previous?: Nodes, insideLink = false) {
      const position = node.position;
      if (position?.start.offset !== undefined && position.end.offset !== undefined) {
        const start = position.start.offset;
-@@ -272,18 +303,23 @@ export function prepareMarkdownSource(
+@@ -309,18 +340,23 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -186,7 +186,7 @@ index 8b15b8ff9..46601d6e8 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index c9da7d778..e4ccb63c5 100644
+index c9da7d7..e4ccb63 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -590,7 +590,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -201,7 +201,7 @@ index c9da7d778..e4ccb63c5 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..612c2a3e4
+index 0000000..612c2a3
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -381,7 +381,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index ab26fe561..1990684c2 100644
+index ab26fe5..1990684 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -502,7 +502,7 @@ index ab26fe561..1990684c2 100644
        </KeyboardTranslateView>
        {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 0456cd628..c1b645b47 100644
+index 0456cd6..c1b645b 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -607,7 +607,7 @@ index 973c7f2..4685458 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index d9be8b925..6ddd43cbd 100644
+index d9be8b9..6ddd43c 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
@@ -635,7 +635,7 @@ index d9be8b925..6ddd43cbd 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 000000000..a0de3d897
+index 0000000..a0de3d8
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -672,7 +672,7 @@ index 000000000..a0de3d897
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 000000000..cd3cc0318
+index 0000000..cd3cc03
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -712,7 +712,7 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 0815603e5..193c7ca32 100644
+index 12f3923..21c96c6 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -9,6 +9,7 @@ import invariant from "tiny-invariant";
@@ -723,7 +723,7 @@ index 0815603e5..193c7ca32 100644
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
  import { useAgentInputDraft } from "@/composer/draft/input-draft";
-@@ -563,6 +564,26 @@ export function WorkspaceDraftComposer({
+@@ -565,6 +566,26 @@ export function WorkspaceDraftComposer({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -750,7 +750,7 @@ index 0815603e5..193c7ca32 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -581,7 +602,7 @@ export function WorkspaceDraftComposer({
+@@ -583,7 +604,7 @@ export function WorkspaceDraftComposer({
          </View>
        ) : null}
        {importPillPress && !isComposerFullscreen ? (
@@ -761,7 +761,7 @@ index 0815603e5..193c7ca32 100644
            </View>
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..2c20c7f26
+index 0000000..2c20c7f
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -904,7 +904,7 @@ index 000000000..2c20c7f26
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..213410e7e
+index 0000000..213410e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -1330,7 +1330,7 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 4b31c4e0c..f79abede7 100644
+index 4b31c4e..f79abed 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -65,6 +65,8 @@ import {
@@ -1476,7 +1476,7 @@ index 4b31c4e0c..f79abede7 100644
      ...toolbarSlot(),
      flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index a3ae865..1d4b7a1 100644
+index 3e4a8f5..c5b9273 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -28,7 +28,7 @@ import {
@@ -1529,7 +1529,7 @@ index a3ae865..1d4b7a1 100644
        voiceModeContent,
        activeActionContent,
        voiceServerId,
-@@ -2235,18 +2241,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2242,18 +2248,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            {/* Right: dictation, then the trailing action (voice mode, send or stop) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
@@ -1562,7 +1562,7 @@ index a3ae865..1d4b7a1 100644
              <View style={styles.trailingDisc}>{sendButton}</View>
            </View>
          </View>
-@@ -2262,6 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2269,6 +2277,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -1570,7 +1570,7 @@ index a3ae865..1d4b7a1 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2320,6 +2329,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2327,6 +2336,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -1606,7 +1606,7 @@ index a3ae865..1d4b7a1 100644
      return (
        <View
          ref={rootRef}
-@@ -2348,7 +2386,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2354,7 +2392,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -1615,7 +1615,7 @@ index a3ae865..1d4b7a1 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2406,6 +2444,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2412,6 +2450,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -1625,7 +1625,7 @@ index a3ae865..1d4b7a1 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2421,6 +2462,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2427,6 +2468,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -1636,7 +1636,7 @@ index a3ae865..1d4b7a1 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index ad492976b..5dbb3945a 100644
+index abb271f..f377b56 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
@@ -1659,7 +1659,7 @@ index ad492976b..5dbb3945a 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 67c803074..223decbe7 100644
+index 2fe2969..05d4215 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -1679,7 +1679,7 @@ index 67c803074..223decbe7 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1694,7 +1694,7 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 625c3d8c2..1edcb4ce7 100644
+index 72ed4af..6b52297 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -36,6 +36,8 @@ import type {
@@ -1716,7 +1716,7 @@ index 625c3d8c2..1edcb4ce7 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..88a0601cc 100644
+index 4d14f10..88a0601 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,12 @@
@@ -1758,7 +1758,7 @@ index 4d14f101b..88a0601cc 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 86da628bd..88747abf0 100644
+index 86da628..88747ab 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -81,6 +81,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -1780,10 +1780,10 @@ index 86da628bd..88747abf0 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 271d3bab9..bd8579ce7 100644
+index e62cf83..d6648f1 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -465,6 +465,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -470,6 +470,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -1792,7 +1792,7 @@ index 271d3bab9..bd8579ce7 100644
    })
    .catchall(z.boolean());
  
-@@ -898,6 +900,43 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -903,6 +905,43 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -1836,7 +1836,7 @@ index 271d3bab9..bd8579ce7 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -926,6 +965,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -931,6 +970,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    /** Opaque. Changes whenever the accounts this agent reports usage for can change. */
    usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -1846,7 +1846,7 @@ index 271d3bab9..bd8579ce7 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6db2..e00c20d62 100644
+index db0aa6d..e00c20d 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {

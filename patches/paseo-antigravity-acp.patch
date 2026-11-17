@@ -178,10 +178,10 @@ index 9d8f111..b5f29ae 100644
    "mock-slow": () => new MockSlowProviderClient(),
  };
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 387625f..67e2ebd 100644
+index 395d260..aab192e 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -28,11 +28,14 @@ import {
+@@ -29,11 +29,14 @@ import {
    type SpawnedACPProcess,
    type SessionStateResponse,
    buildACPClientCapabilities,
@@ -196,7 +196,7 @@ index 387625f..67e2ebd 100644
    resolveACPModeSelection,
    resolveACPModelSelection,
    summarizeACPRequestError,
-@@ -7639,4 +7642,176 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+@@ -7909,4 +7912,176 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
        outcome: { outcome: "selected", optionId: "q0_skip" },
      });
    });
@@ -374,7 +374,7 @@ index 387625f..67e2ebd 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index e7068eb..fcc49d0 100644
+index b241af9..8df0865 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -20,11 +20,12 @@ import type {
@@ -391,7 +391,7 @@ index e7068eb..fcc49d0 100644
    type ConfigOptionUpdate,
    type ContentBlock,
    type CreateTerminalRequest,
-@@ -329,6 +330,13 @@ function acpSessionListRequest(cursor: string | null | undefined, cwd: string |
+@@ -330,6 +331,13 @@ function acpSessionListRequest(cursor: string | null | undefined, cwd: string |
    };
  }
  
@@ -405,7 +405,7 @@ index e7068eb..fcc49d0 100644
  const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
    fs: {
      readTextFile: false,
-@@ -339,6 +347,36 @@ const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
+@@ -340,6 +348,36 @@ const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
  
  export type ACPClientCapabilityMeta = Record<string, unknown>;
  
@@ -442,7 +442,7 @@ index e7068eb..fcc49d0 100644
  export function buildACPClientCapabilities(
    meta?: ACPClientCapabilityMeta,
    override?: ACPClientCapabilities,
-@@ -702,6 +740,24 @@ export interface ACPProviderHooks {
+@@ -703,6 +741,24 @@ export interface ACPProviderHooks {
    } | null;
  }
  
@@ -467,7 +467,7 @@ index e7068eb..fcc49d0 100644
  interface ACPAgentClientOptions {
    provider: string;
    // Provider id usage sources match a session against; ACP sessions without one report no usage.
-@@ -717,6 +773,10 @@ interface ACPAgentClientOptions {
+@@ -718,6 +774,10 @@ interface ACPAgentClientOptions {
    configFeatureOptions?: ACPConfigFeatureOption[];
    clientCapabilities?: ACPClientCapabilities;
    clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -478,7 +478,7 @@ index e7068eb..fcc49d0 100644
    modeIdTransformer?: (modeId: string) => string | null;
    toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    providerModeWriter?: (
-@@ -762,6 +822,10 @@ interface ACPAgentSessionOptions {
+@@ -763,6 +823,10 @@ interface ACPAgentSessionOptions {
    configFeatureOptions?: ACPConfigFeatureOption[];
    clientCapabilities?: ACPClientCapabilities;
    clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -489,7 +489,7 @@ index e7068eb..fcc49d0 100644
    modeIdTransformer?: (modeId: string) => string | null;
    toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    providerModeWriter?: (
-@@ -906,6 +970,32 @@ interface PendingPermission {
+@@ -907,6 +971,32 @@ interface PendingPermission {
    toolCallId: string;
  }
  
@@ -522,7 +522,7 @@ index e7068eb..fcc49d0 100644
  interface PendingUserMessage {
    text: string;
    messageId?: string;
-@@ -1215,6 +1305,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1310,6 +1400,10 @@ export class ACPAgentClient implements AgentClient {
    private readonly configFeatureOptions: ACPConfigFeatureOption[];
    private readonly clientCapabilities?: ACPClientCapabilities;
    private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -533,7 +533,7 @@ index e7068eb..fcc49d0 100644
    private readonly modeIdTransformer?: (modeId: string) => string | null;
    private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    private readonly providerModeWriter?: (
-@@ -1265,6 +1359,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1360,6 +1454,10 @@ export class ACPAgentClient implements AgentClient {
      this.configFeatureOptions = options.configFeatureOptions ?? [];
      this.clientCapabilities = options.clientCapabilities;
      this.clientCapabilityMeta = options.clientCapabilityMeta;
@@ -544,7 +544,7 @@ index e7068eb..fcc49d0 100644
      this.modeIdTransformer = options.modeIdTransformer;
      this.toolSnapshotTransformer = options.toolSnapshotTransformer;
      this.providerModeWriter = options.providerModeWriter;
-@@ -1301,8 +1399,15 @@ export class ACPAgentClient implements AgentClient {
+@@ -1396,8 +1494,15 @@ export class ACPAgentClient implements AgentClient {
          sessionResponseTransformer: this.sessionResponseTransformer,
          configOptionsTransformer: this.configOptionsTransformer,
          configFeatureOptions: this.configFeatureOptions,
@@ -561,7 +561,7 @@ index e7068eb..fcc49d0 100644
          supportsAutoAccept: this.supportsAutoAccept,
          modeIdTransformer: this.modeIdTransformer,
          toolSnapshotTransformer: this.toolSnapshotTransformer,
-@@ -1361,8 +1466,15 @@ export class ACPAgentClient implements AgentClient {
+@@ -1456,8 +1561,15 @@ export class ACPAgentClient implements AgentClient {
        sessionResponseTransformer: this.sessionResponseTransformer,
        configOptionsTransformer: this.configOptionsTransformer,
        configFeatureOptions: this.configFeatureOptions,
@@ -578,7 +578,7 @@ index e7068eb..fcc49d0 100644
        supportsAutoAccept: this.supportsAutoAccept,
        modeIdTransformer: this.modeIdTransformer,
        toolSnapshotTransformer: this.toolSnapshotTransformer,
-@@ -1907,7 +2019,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -2002,7 +2114,7 @@ export class ACPAgentClient implements AgentClient {
        const initialize = await this.initializeTransport(
          transport,
          options?.initializeTimeoutMs,
@@ -587,7 +587,7 @@ index e7068eb..fcc49d0 100644
        );
        const initializedProbe: SpawnedACPProcess = {
          ...probe,
-@@ -2022,6 +2134,12 @@ export class ACPAgentClient implements AgentClient {
+@@ -2117,6 +2229,12 @@ export class ACPAgentClient implements AgentClient {
        async createTerminal() {
          throw new Error("ACP model probe does not support terminal execution");
        },
@@ -600,7 +600,7 @@ index e7068eb..fcc49d0 100644
      };
    }
  
-@@ -2238,6 +2356,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2333,6 +2451,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private readonly configuredModelIds: ReadonlySet<string>;
    private readonly clientCapabilities?: ACPClientCapabilities;
    private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -611,7 +611,7 @@ index e7068eb..fcc49d0 100644
    private readonly modeIdTransformer?: (modeId: string) => string | null;
    private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    private readonly providerModeWriter?: (
-@@ -2258,6 +2380,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2353,6 +2475,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private readonly harnessEnvironment: Record<string, string>;
    private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
    private readonly pendingPermissions = new Map<string, PendingPermission>();
@@ -619,7 +619,7 @@ index e7068eb..fcc49d0 100644
    private pendingUserMessage: PendingUserMessage | null = null;
    private submittedUserMessageTurnId: string | null = null;
    private readonly toolCalls = new Map<string, ACPToolSnapshot>();
-@@ -2356,6 +2479,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2451,6 +2574,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.configuredModelIds = new Set(options.configuredModelIds);
      this.clientCapabilities = options.clientCapabilities;
      this.clientCapabilityMeta = options.clientCapabilityMeta;
@@ -630,7 +630,7 @@ index e7068eb..fcc49d0 100644
      this.modeIdTransformer = options.modeIdTransformer;
      this.toolSnapshotTransformer = options.toolSnapshotTransformer;
      this.providerModeWriter = options.providerModeWriter;
-@@ -2411,10 +2538,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2506,10 +2633,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
        this.agentSteers = advertisesSteering(spawned.initialize);
  
@@ -643,7 +643,7 @@ index e7068eb..fcc49d0 100644
          }),
        );
        this.sessionId = response.sessionId;
-@@ -2452,6 +2581,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2547,6 +2676,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.sessionId = handle.sessionId;
        this.bootstrapThreadEventPending = true;
  
@@ -651,7 +651,7 @@ index e7068eb..fcc49d0 100644
        const sessionCapabilities = this.agentCapabilities?.sessionCapabilities;
        if (this.agentCapabilities?.loadSession) {
          this.replayingHistory = true;
-@@ -2460,6 +2590,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2555,6 +2685,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              sessionId: handle.sessionId,
              cwd: this.config.cwd,
              mcpServers: this.acpMcpServers(),
@@ -659,7 +659,7 @@ index e7068eb..fcc49d0 100644
            }),
          );
          this.deliverTranslatedEvents(this.flushPendingUserMessage());
-@@ -2472,6 +2603,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2567,6 +2698,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              sessionId: handle.sessionId,
              cwd: this.config.cwd,
              mcpServers: this.acpMcpServers(),
@@ -667,7 +667,7 @@ index e7068eb..fcc49d0 100644
            }),
          );
          this.applySessionState(response);
-@@ -3357,7 +3489,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3452,7 +3584,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return { model: this.currentModel };
      }
  
@@ -690,7 +690,7 @@ index e7068eb..fcc49d0 100644
      return { model: this.currentModel };
    }
  
-@@ -3667,13 +3813,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3762,13 +3908,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    getPendingPermissions(): AgentPermissionRequest[] {
@@ -713,7 +713,7 @@ index e7068eb..fcc49d0 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -3881,8 +4035,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3976,8 +4130,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
      const isQuestionRequest = extractACPQuestionPrompts(params) !== null;
@@ -725,7 +725,7 @@ index e7068eb..fcc49d0 100644
        !isACPChooserRequest(params.options) &&
        !isQuestionRequest;
      if (canAutoAccept) {
-@@ -3928,6 +4084,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4023,6 +4179,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return promise;
    }
  
@@ -816,7 +816,7 @@ index e7068eb..fcc49d0 100644
    async sessionUpdate(params: SessionNotification): Promise<void> {
      this.logger.trace(
        {
-@@ -4364,7 +4604,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4459,7 +4699,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        const selection = this.resolveModeSelection(configuredModeId);
        await this.setModeWithSelection({ modeId: configuredModeId, selection });
      }
@@ -836,7 +836,7 @@ index e7068eb..fcc49d0 100644
      let switchedModel = false;
      if (configuredModelId && configuredModelId !== this.currentModel) {
        try {
-@@ -4383,8 +4634,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4478,8 +4729,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          );
        }
      }
@@ -848,7 +848,7 @@ index e7068eb..fcc49d0 100644
      }
      const configuredFeatureValues = this.config.providerOptions ?? {};
      for (const featureOption of this.configFeatureOptions) {
-@@ -4699,7 +4951,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4794,7 +5046,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        });
        // Copilot config updates name real modes; Hermes config values are a separate policy namespace.
        if (configMode && modes.availableModes.some((mode) => mode.id === configMode.currentValue)) {
@@ -862,7 +862,7 @@ index e7068eb..fcc49d0 100644
        }
        modes = { ...modes, currentModeId };
      }
-@@ -5163,7 +5420,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5258,7 +5515,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private cancelPendingPermissions(
@@ -871,7 +871,7 @@ index e7068eb..fcc49d0 100644
    ): void {
      for (const [requestId, pending] of this.pendingPermissions) {
        if (!matches(pending)) continue;
-@@ -5177,6 +5434,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5272,6 +5529,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          turnId: pending.turnId ?? undefined,
        });
      }
@@ -890,7 +890,7 @@ index e7068eb..fcc49d0 100644
    }
  
    private emitBootstrapThreadEvent(): void {
-@@ -6233,3 +6502,284 @@ async function terminateChildProcess(
+@@ -6328,3 +6597,284 @@ async function terminateChildProcess(
      child.stderr.destroy();
    }
  }
@@ -1177,7 +1177,7 @@ index e7068eb..fcc49d0 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 new file mode 100644
-index 0000000..377dfd0
+index 0000000..c8203c7
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 @@ -0,0 +1,301 @@

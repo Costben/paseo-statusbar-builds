@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index ae79fc6..5e19a2f 100644
+index 1b5273f..db07d62 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -237,6 +237,7 @@ function createSessionWithConfig(
+@@ -238,6 +238,7 @@ function createSessionWithConfig(
      providerOptions?: Record<string, unknown>;
      featureValues?: Record<string, unknown>;
      lateTimelineGraceMs?: number;
@@ -10,7 +10,7 @@ index ae79fc6..5e19a2f 100644
    } = {},
    logger: ReturnType<typeof createTestLogger> = createTestLogger(),
    capabilityOverrides: Partial<AgentCapabilityFlags> = {},
-@@ -258,6 +259,9 @@ function createSessionWithConfig(
+@@ -259,6 +260,9 @@ function createSessionWithConfig(
        ...(config.lateTimelineGraceMs !== undefined
          ? { lateTimelineGraceMs: config.lateTimelineGraceMs }
          : {}),
@@ -20,7 +20,7 @@ index ae79fc6..5e19a2f 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -7830,4 +7834,227 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+@@ -8100,4 +8104,227 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
        terminal: true,
      });
    });
@@ -249,10 +249,10 @@ index ae79fc6..5e19a2f 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index f5dfe99..240a54f 100644
+index a3b3ed0..ce6248a 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -599,8 +599,18 @@ export interface ACPProviderHookContext {
+@@ -600,8 +600,18 @@ export interface ACPProviderHookContext {
    emit: (event: AgentStreamEvent) => void;
    /** True while this session has a foreground turn open. */
    isForegroundTurnActive?: () => boolean;
@@ -271,7 +271,7 @@ index f5dfe99..240a54f 100644
  }
  
  /**
-@@ -683,6 +693,11 @@ export interface ACPProviderHooks {
+@@ -684,6 +694,11 @@ export interface ACPProviderHooks {
     * as it will be sent. Not called for a prompt queued through steering.
     */
    onForegroundTurnStarting?(ctx: ACPProviderHookContext, prompt: AgentPromptInput): void;
@@ -283,7 +283,7 @@ index f5dfe99..240a54f 100644
    /**
     * Checked once the turn hold has settled, before the turn is reported. A
     * provider that knows the prompt never ran returns the failure to report even
-@@ -705,7 +720,7 @@ export interface ACPProviderHooks {
+@@ -706,7 +721,7 @@ export interface ACPProviderHooks {
     * update is dropped before it reaches the timeline and does not count as
     * output of the turn.
     */
@@ -292,7 +292,7 @@ index f5dfe99..240a54f 100644
    /**
     * Consume an update that belongs to a subagent the agent spawned. Return the
     * events to emit in its place — `provider_subagent` events, normally — or null
-@@ -744,6 +759,17 @@ export interface ACPProviderHooks {
+@@ -745,6 +760,17 @@ export interface ACPProviderHooks {
     * when no foreground turn is active.
     */
    canStopRuntime?(ctx: ACPProviderHookContext): boolean;
@@ -310,7 +310,7 @@ index f5dfe99..240a54f 100644
  }
  
  export type ACPSessionMetaBuilder = (
-@@ -798,6 +824,7 @@ interface ACPAgentClientOptions {
+@@ -799,6 +825,7 @@ interface ACPAgentClientOptions {
    extensionCommandsParser?: ACPExtensionCommandsParser;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -318,7 +318,7 @@ index f5dfe99..240a54f 100644
    terminateProcess?: ProcessTerminator;
    providerHooks?: ACPProviderHooks;
    /**
-@@ -853,6 +880,7 @@ interface ACPAgentSessionOptions {
+@@ -854,6 +881,7 @@ interface ACPAgentSessionOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    lateTimelineGraceMs?: number;
@@ -326,7 +326,7 @@ index f5dfe99..240a54f 100644
    terminateProcess?: ProcessTerminator;
    providerHooks?: ACPProviderHooks;
    supportsAutoAccept?: boolean;
-@@ -1330,6 +1358,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1425,6 +1453,7 @@ export class ACPAgentClient implements AgentClient {
    ) => Promise<void>;
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
@@ -334,7 +334,7 @@ index f5dfe99..240a54f 100644
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
    private readonly providerHooks?: ACPProviderHooks;
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
-@@ -1376,6 +1405,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1471,6 +1500,7 @@ export class ACPAgentClient implements AgentClient {
      this.thinkingOptionWriter = options.thinkingOptionWriter;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -342,7 +342,7 @@ index f5dfe99..240a54f 100644
      this.extensionCommandsParser = options.extensionCommandsParser;
      this.providerHooks = options.providerHooks;
      this.catalogCacheKey = options.catalogCacheKey;
-@@ -1385,6 +1415,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1480,6 +1510,10 @@ export class ACPAgentClient implements AgentClient {
      this.now = options.now ?? Date.now;
    }
  
@@ -353,7 +353,7 @@ index f5dfe99..240a54f 100644
    async createSession(
      config: AgentSessionConfig,
      launchContext?: AgentLaunchContext,
-@@ -1399,7 +1433,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1494,7 +1528,7 @@ export class ACPAgentClient implements AgentClient {
          usageProvider: this.usageProvider,
          logger: this.logger,
          runtimeSettings: this.runtimeSettings,
@@ -362,7 +362,7 @@ index f5dfe99..240a54f 100644
          defaultModes: this.defaultModes,
          modelTransformer: this.modelTransformer,
          sessionResponseTransformer: this.sessionResponseTransformer,
-@@ -1431,6 +1465,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1526,6 +1560,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -370,7 +370,7 @@ index f5dfe99..240a54f 100644
          providerHooks: this.providerHooks,
        },
      );
-@@ -1466,7 +1501,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1561,7 +1596,7 @@ export class ACPAgentClient implements AgentClient {
        usageProvider: this.usageProvider,
        logger: this.logger,
        runtimeSettings: this.runtimeSettings,
@@ -379,7 +379,7 @@ index f5dfe99..240a54f 100644
        defaultModes: this.defaultModes,
        modelTransformer: this.modelTransformer,
        sessionResponseTransformer: this.sessionResponseTransformer,
-@@ -1500,6 +1535,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1595,6 +1630,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -387,7 +387,7 @@ index f5dfe99..240a54f 100644
        providerHooks: this.providerHooks,
      });
      await session.initializeResumedSession();
-@@ -2390,6 +2426,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2485,6 +2521,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private pendingUserMessage: PendingUserMessage | null = null;
    private submittedUserMessageTurnId: string | null = null;
    private readonly toolCalls = new Map<string, ACPToolSnapshot>();
@@ -395,7 +395,7 @@ index f5dfe99..240a54f 100644
    private readonly terminalEntries = new Map<string, TerminalEntry>();
    private readonly persistedHistory: AgentTimelineItem[] = [];
    private readonly initialHandle?: AgentPersistenceHandle;
-@@ -2440,6 +2477,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2535,6 +2572,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private providerSessionCleanup: (() => void) | null = null;
    private currentTurnUsage: AgentUsage | undefined;
    private activeForegroundTurnId: string | null = null;
@@ -412,7 +412,7 @@ index f5dfe99..240a54f 100644
    /**
     * A turn the provider opened on its own. ACP carries no prompt request for it,
     * so Paseo never receives a `turn_started` and the session stays "completed"
-@@ -2467,6 +2514,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2562,6 +2609,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private historyPending = false;
    private historyRuntimeReleased = false;
    private replayingHistory = false;
@@ -421,7 +421,7 @@ index f5dfe99..240a54f 100644
    private bootstrapThreadEventPending = false;
    private readonly terminateProcess: ProcessTerminator;
  
-@@ -2513,12 +2562,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2608,12 +2657,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.requiresTimelineOutput = options.capabilities.kimiReliableQueue === true;
      this.lateTimelineGraceMs = options.lateTimelineGraceMs ?? ACP_LATE_TIMELINE_GRACE_MS;
@@ -438,7 +438,7 @@ index f5dfe99..240a54f 100644
      }
    }
  
-@@ -2591,6 +2644,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2686,6 +2739,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        const sessionCapabilities = this.agentCapabilities?.sessionCapabilities;
        if (this.agentCapabilities?.loadSession) {
          this.replayingHistory = true;
@@ -446,7 +446,7 @@ index f5dfe99..240a54f 100644
          const response = await this.runACPRequest(() =>
            this.connection!.loadSession({
              sessionId: handle.sessionId,
-@@ -2599,6 +2653,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2694,6 +2748,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              ...(sessionMeta ? { _meta: sessionMeta } : {}),
            }),
          );
@@ -454,7 +454,7 @@ index f5dfe99..240a54f 100644
          this.deliverTranslatedEvents(this.flushPendingUserMessage());
          this.replayingHistory = false;
          this.historyPending = this.persistedHistory.length > 0;
-@@ -2628,6 +2683,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2723,6 +2778,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -494,7 +494,7 @@ index f5dfe99..240a54f 100644
    // History resumes exist to replay persisted events into the canonical
    // timeline; the provider process is released once replay finishes so
    // archived agents hold no resident runtime. Interactive work goes through
-@@ -2674,7 +2762,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2769,7 +2857,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        logger: this.logger,
        emit: (event) => this.pushProviderEvent(event),
        isForegroundTurnActive: () => this.activeForegroundTurnId !== null,
@@ -506,7 +506,7 @@ index f5dfe99..240a54f 100644
      };
    }
  
-@@ -2688,6 +2780,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2783,6 +2875,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
     * reply Kimi narrates next to it is dropped.
     */
    private pushProviderEvent(event: AgentStreamEvent): void {
@@ -521,7 +521,7 @@ index f5dfe99..240a54f 100644
      if (
        event.type === "turn_completed" &&
        event.turnId === undefined &&
-@@ -2740,13 +2840,132 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2835,13 +2935,132 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return { status: "unavailable" };
      }
      // Anything already held goes first, so a steer never overtakes it.
@@ -655,7 +655,7 @@ index f5dfe99..240a54f 100644
    /**
     * Inject a message into the turn Paseo's own prompt is driving. False when the
     * agent left it `unconsumed` (no turn of the client's was live by the time it
-@@ -2797,6 +3016,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2892,6 +3111,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
      const outgoing = this.applyProviderPromptTransform(prompt);
      const messageId = options.clientMessageId ?? randomUUID();
@@ -663,7 +663,7 @@ index f5dfe99..240a54f 100644
      void (async () => {
        try {
          const response = await connection.prompt({
-@@ -2821,6 +3041,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2916,6 +3136,15 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              }),
            );
          }
@@ -679,7 +679,7 @@ index f5dfe99..240a54f 100644
        }
      })();
      return { status: "accepted" };
-@@ -3095,6 +3324,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3190,6 +3419,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -703,7 +703,7 @@ index f5dfe99..240a54f 100644
    /**
     * The failure to report for a turn that produced no timeline output, carrying
     * the provider's explanation when it has one.
-@@ -3184,13 +3430,38 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3279,13 +3525,38 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.closeAutonomousTurn("superseded");
      }
      if (this.activeForegroundTurnId) {
@@ -743,7 +743,7 @@ index f5dfe99..240a54f 100644
      this.activeForegroundTurnId = turnId;
      this.turnAbort = new AbortController();
      this.currentTurnSawTimeline = false;
-@@ -3198,37 +3469,97 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3293,37 +3564,97 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTurnUpdateCount = 0;
      this.currentTurnMismatchedUpdateCount = 0;
      this.currentTurnStartedAt = Date.now();
@@ -844,7 +844,7 @@ index f5dfe99..240a54f 100644
                activeTurnId: this.activeForegroundTurnId ?? undefined,
                err: error,
              },
-@@ -3236,6 +3567,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3331,6 +3662,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            );
            return;
          }
@@ -873,7 +873,7 @@ index f5dfe99..240a54f 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -3247,8 +3600,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3342,8 +3695,6 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          });
        })
        .finally(() => connection.signal?.removeEventListener("abort", failOnDisconnect));
@@ -882,7 +882,7 @@ index f5dfe99..240a54f 100644
    }
  
    // The SDK aborts the connection without rejecting the pending prompt, and before the child's
-@@ -4243,6 +4594,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4338,6 +4689,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
  
@@ -892,7 +892,7 @@ index f5dfe99..240a54f 100644
      const events = this.translateSessionUpdate(params.update);
      this.currentTurnUpdateCount += 1;
      if (
-@@ -4723,7 +5077,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4818,7 +5172,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
@@ -904,7 +904,7 @@ index f5dfe99..240a54f 100644
        return [];
      }
      // Before the prompt-echo branch: a child's prompt belongs to the child, and
-@@ -4808,19 +5165,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -4903,19 +5260,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
        case "tool_call":
          this.fallbackAssistantMessageId = null;
@@ -945,7 +945,7 @@ index f5dfe99..240a54f 100644
        case "plan":
          this.fallbackAssistantMessageId = null;
          return [...pendingUserEvents, this.wrapTimeline(mapPlanToTimeline(update))];
-@@ -5312,7 +5681,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5407,7 +5776,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private pushEvent(event: AgentStreamEvent): void {
@@ -975,7 +975,7 @@ index f5dfe99..240a54f 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -5350,9 +5741,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5445,9 +5836,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.closed) {
        return;
      }
@@ -991,7 +991,7 @@ index f5dfe99..240a54f 100644
        return;
      }
      if (this.activeForegroundTurnId) {
-@@ -5365,6 +5760,37 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5460,6 +5855,37 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      ) {
        return;
      }
@@ -1029,7 +1029,7 @@ index f5dfe99..240a54f 100644
      const turnId = `auto-${Date.now().toString(36)}-${this.autonomousOrdinal++}`;
      this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
      this.activeForegroundTurnId = turnId;
-@@ -5372,6 +5798,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5467,6 +5893,22 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.armAutonomousIdle();
    }
  
@@ -1052,7 +1052,7 @@ index f5dfe99..240a54f 100644
    /** 静默收尾：没有新事件就认为这一轮结束了。 */
    private armAutonomousIdle(): void {
      if (this.autonomousIdleTimer) {
-@@ -5442,12 +5884,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5537,12 +5979,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private finishTurn(
      event: Extract<AgentStreamEvent, { type: "turn_completed" | "turn_failed" | "turn_canceled" }>,
    ): void {
@@ -1069,7 +1069,7 @@ index f5dfe99..240a54f 100644
      this.activeForegroundTurnId = null;
      this.turnAbort = null;
      this.fallbackAssistantMessageId = null;
-@@ -5757,7 +6203,7 @@ export function extractPromptText(prompt: AgentPromptInput): string {
+@@ -5852,7 +6298,7 @@ export function extractPromptText(prompt: AgentPromptInput): string {
      .join("");
  }
  

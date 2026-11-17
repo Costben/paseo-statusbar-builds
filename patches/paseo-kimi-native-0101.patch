@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd9b..da4038a72 100644
+index 4bc21fd..da4038a 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd9b..da4038a72 100644
  app-example
  
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 731046489..0cd5e6040 100644
+index 7310464..0cd5e60 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -32,7 +32,7 @@ index 731046489..0cd5e6040 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f78..dd1da9eeb 100644
+index 704298f..dd1da9e 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -61,11 +61,11 @@ index 704298f78..dd1da9eeb 100644
 +  return formatControlLabel({ id: option.id, label }, true);
  }
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index 6ce7e59ca..00451757d 100644
+index e74d12a..ee8579c 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
-@@ -564,6 +564,44 @@ describe("bare URL sentence punctuation", () => {
-   );
+@@ -592,6 +592,44 @@ describe("bare URL sentence punctuation", () => {
+   });
  });
  
 +describe("bare URLs with a port", () => {
@@ -110,10 +110,10 @@ index 6ce7e59ca..00451757d 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index 8b15b8ff9..46601d6e8 100644
+index 0a87dc0..6151768 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
-@@ -24,6 +24,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
+@@ -25,6 +25,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
  // Bare prose paths need a known extension, a line suffix, or at least two separators.
  const PROSE_PATH = String.raw`(?:${PATH_PREFIX}${HAS_PATH_LETTER}${SEPARATED_PATH}|${HAS_PATH_LETTER}(?:${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT})*[\\/]${FILE_NAME}|${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT}){2,}|${SEPARATED_PATH}(?=:)))`;
  
@@ -150,7 +150,7 @@ index 8b15b8ff9..46601d6e8 100644
  function createTextPattern(path: string, forgeReferencePattern?: string): RegExp {
    // Forge references come before paths so `group/project#12` is not read as a path.
    const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
-@@ -158,6 +188,7 @@ export function prepareMarkdownSource(
+@@ -177,6 +207,7 @@ export function prepareMarkdownSource(
      !source.includes("![") &&
      !source.includes("||") &&
      !source.includes("&") &&
@@ -158,16 +158,16 @@ index 8b15b8ff9..46601d6e8 100644
      // Match content, header, and delimiter lines; quote-only lines count as blank.
      !/^[\t >]*[^\t >\r\n][^\r\n]*(?:\r\n|\r|\n)[^\r\n]+(?:\r\n|\r|\n)(?=[\t >:|-]*\|)[\t >|]*:?-[-\t :|]*$/m.test(
        source,
-@@ -236,7 +267,7 @@ export function prepareMarkdownSource(
-       if (lineEnd < end) split(lineEnd);
-     }
+@@ -272,7 +303,7 @@ export function prepareMarkdownSource(
+     edits.push({ start, end: labelStart, text: "" });
+     edits.push({ start: labelEnd, end, text: "" });
    }
 -  function visit(node: Nodes, previous?: Nodes) {
 +  function visit(node: Nodes, previous?: Nodes, insideLink = false) {
      const position = node.position;
      if (position?.start.offset !== undefined && position.end.offset !== undefined) {
        const start = position.start.offset;
-@@ -272,18 +303,23 @@ export function prepareMarkdownSource(
+@@ -309,18 +340,23 @@ export function prepareMarkdownSource(
          collectImage(node, start, end);
          return;
        }
@@ -198,7 +198,7 @@ index 8b15b8ff9..46601d6e8 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/components/question-form-card-core.test.ts b/packages/app/src/components/question-form-card-core.test.ts
-index 293bf24ba..e82b8ab20 100644
+index 293bf24..e82b8ab 100644
 --- a/packages/app/src/components/question-form-card-core.test.ts
 +++ b/packages/app/src/components/question-form-card-core.test.ts
 @@ -31,7 +31,7 @@ describe("question form card core", () => {
@@ -252,7 +252,7 @@ index 293bf24ba..e82b8ab20 100644
  
    test("keeps checked options and appends the other answer for multi-select", () => {
 diff --git a/packages/app/src/components/question-form-card-core.ts b/packages/app/src/components/question-form-card-core.ts
-index 78007dba2..b037afcdf 100644
+index 78007db..b037afc 100644
 --- a/packages/app/src/components/question-form-card-core.ts
 +++ b/packages/app/src/components/question-form-card-core.ts
 @@ -64,8 +64,17 @@ export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion
@@ -276,7 +276,7 @@ index 78007dba2..b037afcdf 100644
  
  export function isQuestionAnswered(
 diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
-index a91ba4121..302128254 100644
+index a91ba41..3021282 100644
 --- a/packages/app/src/components/question-form-card.browser.test.tsx
 +++ b/packages/app/src/components/question-form-card.browser.test.tsx
 @@ -116,6 +116,14 @@ const singleSelectQuestion = {
@@ -311,7 +311,7 @@ index a91ba4121..302128254 100644
  
  describe("QuestionFormCard explicit navigation", () => {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index c9da7d778..e4ccb63c5 100644
+index c9da7d7..e4ccb63 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
 @@ -590,7 +590,8 @@ const styles = StyleSheet.create((theme) => ({
@@ -326,7 +326,7 @@ index c9da7d778..e4ccb63c5 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..612c2a3e4
+index 0000000..612c2a3
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -506,7 +506,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index ab26fe561..1990684c2 100644
+index ab26fe5..1990684 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -627,7 +627,7 @@ index ab26fe561..1990684c2 100644
        </KeyboardTranslateView>
        {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 0456cd628..c1b645b47 100644
+index 0456cd6..c1b645b 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -732,7 +732,7 @@ index 973c7f2..4685458 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index d9be8b925..6ddd43cbd 100644
+index d9be8b9..6ddd43c 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
@@ -760,7 +760,7 @@ index d9be8b925..6ddd43cbd 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 000000000..a0de3d897
+index 0000000..a0de3d8
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -797,7 +797,7 @@ index 000000000..a0de3d897
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 000000000..cd3cc0318
+index 0000000..cd3cc03
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -837,7 +837,7 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 0815603e5..193c7ca32 100644
+index 12f3923..21c96c6 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -9,6 +9,7 @@ import invariant from "tiny-invariant";
@@ -848,7 +848,7 @@ index 0815603e5..193c7ca32 100644
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
  import { useAgentInputDraft } from "@/composer/draft/input-draft";
-@@ -563,6 +564,26 @@ export function WorkspaceDraftComposer({
+@@ -565,6 +566,26 @@ export function WorkspaceDraftComposer({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -875,7 +875,7 @@ index 0815603e5..193c7ca32 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -581,7 +602,7 @@ export function WorkspaceDraftComposer({
+@@ -583,7 +604,7 @@ export function WorkspaceDraftComposer({
          </View>
        ) : null}
        {importPillPress && !isComposerFullscreen ? (
@@ -886,7 +886,7 @@ index 0815603e5..193c7ca32 100644
            </View>
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 000000000..1f04f6797
+index 0000000..1f04f67
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -1060,7 +1060,7 @@ index 000000000..1f04f6797
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..2c20c7f26
+index 0000000..2c20c7f
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -1203,7 +1203,7 @@ index 000000000..2c20c7f26
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..213410e7e
+index 0000000..213410e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -1629,7 +1629,7 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 4b31c4e0c..f79abede7 100644
+index 4b31c4e..f79abed 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -65,6 +65,8 @@ import {
@@ -1775,7 +1775,7 @@ index 4b31c4e0c..f79abede7 100644
      ...toolbarSlot(),
      flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index a3ae865..1d4b7a1 100644
+index 3e4a8f5..c5b9273 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -28,7 +28,7 @@ import {
@@ -1828,7 +1828,7 @@ index a3ae865..1d4b7a1 100644
        voiceModeContent,
        activeActionContent,
        voiceServerId,
-@@ -2235,18 +2241,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2242,18 +2248,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            {/* Right: dictation, then the trailing action (voice mode, send or stop) */}
            <View style={styles.rightButtonGroup}>
              {beforeVoiceContent}
@@ -1861,7 +1861,7 @@ index a3ae865..1d4b7a1 100644
              <View style={styles.trailingDisc}>{sendButton}</View>
            </View>
          </View>
-@@ -2262,6 +2270,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2269,6 +2277,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -1869,7 +1869,7 @@ index a3ae865..1d4b7a1 100644
          mode.showVoice,
          handleVoicePress,
          isDictationStartEnabled,
-@@ -2320,6 +2329,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2327,6 +2336,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -1905,7 +1905,7 @@ index a3ae865..1d4b7a1 100644
      return (
        <View
          ref={rootRef}
-@@ -2348,7 +2386,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2354,7 +2392,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -1914,7 +1914,7 @@ index a3ae865..1d4b7a1 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2406,6 +2444,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2412,6 +2450,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -1924,7 +1924,7 @@ index a3ae865..1d4b7a1 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2421,6 +2462,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2427,6 +2468,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -1935,7 +1935,7 @@ index a3ae865..1d4b7a1 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index ad492976b..5dbb3945a 100644
+index abb271f..f377b56 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
@@ -1958,7 +1958,7 @@ index ad492976b..5dbb3945a 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 67c803074..223decbe7 100644
+index 2fe2969..05d4215 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -1978,7 +1978,7 @@ index 67c803074..223decbe7 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -1993,7 +1993,7 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 625c3d8c2..1edcb4ce7 100644
+index 72ed4af..6b52297 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
 @@ -36,6 +36,8 @@ import type {
@@ -2016,7 +2016,7 @@ index 625c3d8c2..1edcb4ce7 100644
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.test.ts b/packages/app/src/utils/agent-directory-update-policy.test.ts
 new file mode 100644
-index 000000000..9622ed9e4
+index 0000000..9622ed9
 --- /dev/null
 +++ b/packages/app/src/utils/agent-directory-update-policy.test.ts
 @@ -0,0 +1,34 @@
@@ -2055,7 +2055,7 @@ index 000000000..9622ed9e4
 +  });
 +});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 4d14f101b..88a0601cc 100644
+index 4d14f10..88a0601 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,9 +1,12 @@
@@ -2097,7 +2097,7 @@ index 4d14f101b..88a0601cc 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
-index 49c4bcb98..65ccfb03b 100644
+index 49c4bcb..65ccfb0 100644
 --- a/packages/app/src/utils/agent-snapshots.test.ts
 +++ b/packages/app/src/utils/agent-snapshots.test.ts
 @@ -32,6 +32,8 @@ function createSnapshot(
@@ -2134,7 +2134,7 @@ index 49c4bcb98..65ccfb03b 100644
    });
  
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 86da628bd..88747abf0 100644
+index 86da628..88747ab 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -81,6 +81,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -2156,10 +2156,10 @@ index 86da628bd..88747abf0 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 271d3bab9..bd8579ce7 100644
+index e62cf83..d6648f1 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -465,6 +465,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -470,6 +470,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -2168,7 +2168,7 @@ index 271d3bab9..bd8579ce7 100644
    })
    .catchall(z.boolean());
  
-@@ -898,6 +900,43 @@ const AgentActiveTurnPayloadSchema = z.object({
+@@ -903,6 +905,43 @@ const AgentActiveTurnPayloadSchema = z.object({
    startedAt: z.string().nullable(),
  });
  
@@ -2212,7 +2212,7 @@ index 271d3bab9..bd8579ce7 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -926,6 +965,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -931,6 +970,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    /** Opaque. Changes whenever the accounts this agent reports usage for can change. */
    usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
@@ -2222,7 +2222,7 @@ index 271d3bab9..bd8579ce7 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eba0..606e97b7f 100644
+index 0dd49eb..606e97b 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -2247,7 +2247,7 @@ index 0dd49eba0..606e97b7f 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6db2..e00c20d62 100644
+index db0aa6d..e00c20d 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
@@ -2264,7 +2264,7 @@ index db0aa6db2..e00c20d62 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index fac28946d..18a0aa4f1 100644
+index fac2894..18a0aa4 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -2299,7 +2299,7 @@ index fac28946d..18a0aa4f1 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 5cdbc7c19..0f864eb93 100644
+index 81d25be..0aba451 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -37,6 +37,8 @@ import {
@@ -2320,7 +2320,7 @@ index 5cdbc7c19..0f864eb93 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -3128,7 +3132,7 @@ export class AgentManager {
+@@ -3141,7 +3145,7 @@ export class AgentManager {
          this.runs.settleForegroundStart(pendingRun, { status: "failed", error: error.message });
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -2329,7 +2329,7 @@ index 5cdbc7c19..0f864eb93 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -3149,7 +3153,7 @@ export class AgentManager {
+@@ -3162,7 +3166,7 @@ export class AgentManager {
          this.finalizeForegroundTurn(agent);
        } finally {
          // A steer waiting on this start is released only once the run is cleared.
@@ -2338,7 +2338,7 @@ index 5cdbc7c19..0f864eb93 100644
        }
        throw error;
      }
-@@ -3330,7 +3334,7 @@ export class AgentManager {
+@@ -3343,7 +3347,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -2347,7 +2347,7 @@ index 5cdbc7c19..0f864eb93 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -3392,6 +3396,24 @@ export class AgentManager {
+@@ -3405,6 +3409,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -2372,7 +2372,7 @@ index 5cdbc7c19..0f864eb93 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3811,7 +3833,7 @@ export class AgentManager {
+@@ -3870,7 +3892,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -2381,7 +2381,7 @@ index 5cdbc7c19..0f864eb93 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -3958,7 +3980,7 @@ export class AgentManager {
+@@ -4017,7 +4039,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -2390,7 +2390,7 @@ index 5cdbc7c19..0f864eb93 100644
      }
    }
  
-@@ -4458,7 +4480,13 @@ export class AgentManager {
+@@ -4529,7 +4551,13 @@ export class AgentManager {
        owner: options?.owner,
        launchEnv: options?.launchEnv,
        session,
@@ -2405,7 +2405,7 @@ index 5cdbc7c19..0f864eb93 100644
        config,
        // What the session opened with. Provider defaults edited later reach it when it next opens.
        effectiveOptions,
-@@ -4597,9 +4625,28 @@ export class AgentManager {
+@@ -4668,9 +4696,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -2434,7 +2434,7 @@ index 5cdbc7c19..0f864eb93 100644
            return;
          }
          this.logger.trace(
-@@ -5146,46 +5193,9 @@ export class AgentManager {
+@@ -5217,46 +5264,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -2483,7 +2483,7 @@ index 5cdbc7c19..0f864eb93 100644
        case "options_changed":
          this.onStreamOptionsChanged({ agent, patch: event.patch, flags });
          return undefined;
-@@ -5232,7 +5242,68 @@ export class AgentManager {
+@@ -5303,7 +5313,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2554,7 +2554,7 @@ index 5cdbc7c19..0f864eb93 100644
      const previousSessionId = agent.persistence?.sessionId ?? null;
      this.refreshSessionPersistence(agent);
 diff --git a/packages/server/src/server/agent/agent-messages/envelope.ts b/packages/server/src/server/agent/agent-messages/envelope.ts
-index a0aa880fc..63a1c78d9 100644
+index a0aa880..63a1c78 100644
 --- a/packages/server/src/server/agent/agent-messages/envelope.ts
 +++ b/packages/server/src/server/agent/agent-messages/envelope.ts
 @@ -223,7 +223,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
@@ -2575,7 +2575,7 @@ index a0aa880fc..63a1c78d9 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index 5e4fa77ea..cda5bc8ad 100644
+index 5e4fa77..cda5bc8 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -497,6 +497,32 @@ describe("toAgentPayload", () => {
@@ -2612,7 +2612,7 @@ index 5e4fa77ea..cda5bc8ad 100644
      const agent = createManagedAgent({
        lastUsage: {
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 09d946185..d05f098eb 100644
+index 09d9461..d05f098 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
 @@ -178,6 +178,14 @@ export function toAgentPayload(
@@ -2631,7 +2631,7 @@ index 09d946185..d05f098eb 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 2c150bd2e..6fc3a859c 100644
+index 2c150bd..6fc3a85 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -14,7 +14,11 @@ import { join } from "node:path";
@@ -2726,7 +2726,7 @@ index 2c150bd2e..6fc3a859c 100644
  const EXPECTED_RUN_START_BUDGET_MS = 60_000;
  // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 0267876d0..32570ec1b 100644
+index 0267876..32570ec 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
 @@ -179,6 +179,11 @@ export interface AgentCapabilityFlags {
@@ -2806,7 +2806,7 @@ index 0267876d0..32570ec1b 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index 2449b9a90..146be9517 100644
+index 2449b9a..146be95 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -37,7 +37,10 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -2834,7 +2834,7 @@ index 2449b9a90..146be9517 100644
          contract:
            providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index b94a6de..cf58143 100644
+index 004e4cb..e7ebba0 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2845,7 +2845,7 @@ index b94a6de..cf58143 100644
  import { createRequire } from "node:module";
  import { tmpdir } from "node:os";
  import path from "node:path";
-@@ -24,10 +24,12 @@ import {
+@@ -25,10 +25,12 @@ import {
  import {
    ACPAgentClient,
    ACPAgentSession,
@@ -2858,7 +2858,7 @@ index b94a6de..cf58143 100644
    deriveModelDefinitionsFromACP,
    deriveModesFromACP,
    mapACPUsage,
-@@ -48,13 +50,15 @@ import {
+@@ -49,13 +51,15 @@ import {
    transformCopilotSessionResponse,
    writeCopilotProviderMode,
  } from "./copilot-acp-agent.js";
@@ -2875,7 +2875,7 @@ index b94a6de..cf58143 100644
    AgentSession,
    ProviderRefreshContext,
  } from "../agent-sdk-types.js";
-@@ -102,6 +106,7 @@ interface ACPSessionInternals {
+@@ -103,6 +107,7 @@ interface ACPSessionInternals {
    connection: {
      prompt: (...args: unknown[]) => Promise<PromptResponse>;
      signal: AbortSignal;
@@ -2883,7 +2883,7 @@ index b94a6de..cf58143 100644
    };
    activeForegroundTurnId: string | null;
    configOptions: SessionConfigOption[];
-@@ -215,14 +220,24 @@ class FakeTerminator {
+@@ -216,14 +221,24 @@ class FakeTerminator {
    }
  }
  
@@ -2908,7 +2908,7 @@ index b94a6de..cf58143 100644
  ): ACPAgentSession {
    return new ACPAgentSession(
      {
-@@ -237,6 +252,9 @@ function createSessionWithConfig(
+@@ -238,6 +253,9 @@ function createSessionWithConfig(
        logger,
        defaultCommand: ["claude", "--acp"],
        defaultModes: [],
@@ -2918,7 +2918,7 @@ index b94a6de..cf58143 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -244,7 +262,9 @@ function createSessionWithConfig(
+@@ -245,7 +263,9 @@ function createSessionWithConfig(
          supportsMcpServers: true,
          supportsReasoningStream: true,
          supportsToolInvocations: true,
@@ -2928,7 +2928,7 @@ index b94a6de..cf58143 100644
      },
    );
  }
-@@ -892,6 +912,117 @@ describe("ACPAgentSession terminal tools", () => {
+@@ -893,6 +913,117 @@ describe("ACPAgentSession terminal tools", () => {
        exitStatus: { exitCode: 0, signal: null },
      });
    });
@@ -3046,7 +3046,7 @@ index b94a6de..cf58143 100644
  });
  
  describe("mapACPUsage", () => {
-@@ -1483,6 +1614,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1484,6 +1615,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3111,7 +3111,7 @@ index b94a6de..cf58143 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -1536,6 +1725,203 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1537,6 +1726,203 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3315,10 +3315,14 @@ index b94a6de..cf58143 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -2930,6 +3316,112 @@ describe("ACPAgentSession", () => {
+@@ -3200,14 +3586,120 @@ describe("ACPAgentSession", () => {
      );
    });
  
+-  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
+-    const session = createKiroSession({
+-      waitForInitialCommands: true,
+-      initialCommandsWaitTimeoutMs: 1500,
 +  test("maps the compaction extension notification into a timeline marker", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
@@ -3329,7 +3333,7 @@ index b94a6de..cf58143 100644
 +      sessionId: "session-1",
 +      status: "in_progress",
 +      trigger: "auto",
-+    });
+     });
 +    await session.extNotification("_paseo.dev/session/compaction", {
 +      sessionId: "session-1",
 +      status: "completed",
@@ -3356,9 +3360,10 @@ index b94a6de..cf58143 100644
 +  test("ignores a compaction notification for another session or without a status", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" });
 +    const events: AgentStreamEvent[] = [];
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    const listCommandsPromise = session.listCommands();
 +    await session.extNotification("_paseo.dev/session/compaction", {
 +      sessionId: "session-2",
 +      status: "completed",
@@ -3425,52 +3430,103 @@ index b94a6de..cf58143 100644
 +    ]);
 +  });
 +
-   test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
-     const session = createKiroSession({
-       waitForInitialCommands: true,
-@@ -3240,6 +3732,500 @@ describe("ACPAgentSession", () => {
++  test("maps the Kiro _kiro.dev/commands/available notification into slash commands and skills", async () => {
++    const session = createKiroSession({
++      waitForInitialCommands: true,
++      initialCommandsWaitTimeoutMs: 1500,
++    });
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++
++    const listCommandsPromise = session.listCommands();
+ 
+     await session.extNotification("_kiro.dev/commands/available", {
+       sessionId: "session-1",
+@@ -3510,128 +4002,266 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
+-  test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
+-    const session = createSession();
+-    const events: AgentStreamEvent[] = [];
+-    let resolvePrompt!: (value: PromptResponse) => void;
+-    const prompt = vi.fn(
+-      () =>
+-        new Promise<PromptResponse>((resolve) => {
+-          resolvePrompt = resolve;
+-        }),
 +  test("Kimi reliable mode fails explicitly when completion produces no timeline output", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 0 },
 +      createTestLogger(),
 +      { kimiReliableQueue: true },
-+    );
+     );
+-
 +    const events: AgentStreamEvent[] = [];
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: async () => ({ stopReason: "end_turn" }),
 +      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    session.subscribe((event) => {
+-      events.push(event);
+-    });
 +    const { turnId } = await session.startTurn("hello");
 +    await Promise.resolve();
 +    await Promise.resolve();
-+
+ 
+-    const { turnId } = await session.startTurn("hello", {
+-      clientMessageId: "msg-client-1",
 +    const failure = events.find((event) => event.type === "turn_failed");
 +    expect(failure).toMatchObject({
 +      type: "turn_failed",
 +      code: "kimi_timeline_missing",
 +      turnId,
-+    });
+     });
 +    expect(JSON.stringify(failure)).not.toContain("proxy");
 +  });
-+
+ 
+-    expect(prompt).toHaveBeenCalledWith({
+-      sessionId: "session-1",
+-      messageId: "msg-client-1",
+-      prompt: [{ type: "text", text: "hello" }],
+-    });
+-    expect(
+-      events
+-        .filter(
+-          (event) =>
+-            event.type === "turn_started" ||
+-            (event.type === "timeline" && event.item.type === "user_message"),
+-        )
+-        .map((event) => event.type),
+-    ).toEqual(["turn_started", "timeline"]);
+-    expect(
+-      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+-    ).toEqual([
 +  test("Kimi reliable mode reports the provider's explanation for a missing timeline", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 0 },
 +      createTestLogger(),
 +      { kimiReliableQueue: true },
-+      {
+       {
+-        type: "timeline",
+-        provider: "claude-acp",
+-        turnId,
+-        item: {
+-          type: "user_message",
+-          text: "hello",
+-          messageId: "msg-client-1",
+-          clientMessageId: "msg-client-1",
+-        },
 +        describeMissingTimeline: () => ({
 +          code: "kimi_prompt_not_accepted",
 +          error: "custom",
 +          diagnostic: "why",
 +        }),
-+      },
+       },
+-    ]);
 +    );
 +    const events: AgentStreamEvent[] = [];
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
@@ -3479,7 +3535,8 @@ index b94a6de..cf58143 100644
 +      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    resolvePrompt({ stopReason: "end_turn" });
 +    const { turnId } = await session.startTurn("hello");
 +    await Promise.resolve();
 +    await Promise.resolve();
@@ -3490,8 +3547,10 @@ index b94a6de..cf58143 100644
 +      error: "custom",
 +      turnId,
 +    });
-+  });
-+
+   });
+ 
+-  test("startTurn dedupes ACP user echo chunks for the submitted message", async () => {
+-    const session = createSession();
 +  test("Kimi accepted task notification with no timeline does not report a dropped prompt", async () => {
 +    const home = await mkdtemp(path.join(tmpdir(), "paseo-kimi-notification-"));
 +    const sessionId = "session_notification-test";
@@ -3500,7 +3559,8 @@ index b94a6de..cf58143 100644
 +    const wire = path.join(logDir, "wire.jsonl");
 +    await writeFile(wire, "");
 +    const hooks = createKimiProviderHooks({ kimiHome: home, pollIntervalMs: 10 });
-+    const events: AgentStreamEvent[] = [];
+     const events: AgentStreamEvent[] = [];
+-    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
 +    const logger = createTestLogger();
 +    let observeLog!: () => void;
 +    const logObserved = new Promise<void>((resolve) => {
@@ -3579,7 +3639,7 @@ index b94a6de..cf58143 100644
 +      await rm(home, { recursive: true, force: true });
 +    }
 +  });
-+
+ 
 +  test("a dropped provider notice neither shows up nor counts as output of the turn", async () => {
 +    const hooks: ACPProviderHooks = {
 +      shouldDropSessionUpdate: (update) =>
@@ -3594,7 +3654,12 @@ index b94a6de..cf58143 100644
 +      hooks,
 +    );
 +    const events: AgentStreamEvent[] = [];
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
+-
+-    session.subscribe((event) => {
+-      events.push(event);
+-    });
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      signal: new AbortController().signal,
 +      prompt: async () => {
@@ -3610,25 +3675,40 @@ index b94a6de..cf58143 100644
 +      },
 +    };
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
+-    await session.sessionUpdate({
+-      sessionId: "session-1",
+-      update: {
+-        sessionUpdate: "user_message_chunk",
+-        messageId: "msg-client-1",
+-        content: { type: "text", text: "hello" },
+-      } as SessionUpdate,
+-    });
 +    const { turnId } = await session.startTurn("hello");
 +    await flushMicrotasks();
-+
-+    expect(
+ 
+     expect(
+-      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+-    ).toHaveLength(1);
 +      events.filter((event) => event.type === "timeline" && event.item.type !== "user_message"),
 +    ).toEqual([]);
 +    expect(events).toContainEqual(
 +      expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
 +    );
-+  });
-+
+   });
+ 
+-  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
+-    const session = createSession();
 +  test("Kimi reliable mode keeps a turn alive when its prompt resolves before the turn's updates", async () => {
 +    const session = createSessionWithConfig(
 +      { provider: "kimi", lateTimelineGraceMs: 1_000 },
 +      createTestLogger(),
 +      { kimiReliableQueue: true },
 +    );
-+    const events: AgentStreamEvent[] = [];
+     const events: AgentStreamEvent[] = [];
+-    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
+-
 +    let resolvePrompt!: (value: PromptResponse) => void;
 +    const prompt = vi.fn(
 +      () =>
@@ -3636,31 +3716,55 @@ index b94a6de..cf58143 100644
 +          resolvePrompt = resolve;
 +        }),
 +    );
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt,
 +      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    session.subscribe((event) => {
+-      events.push(event);
+-    });
 +    const { turnId } = await session.startTurn("hello");
 +    resolvePrompt({ stopReason: "end_turn" });
 +    await new Promise<void>((resolve) => setImmediate(resolve));
-+
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
+ 
+-    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+-        sessionUpdate: "user_message_chunk",
+-        content: { type: "text", text: "hello" },
 +        sessionUpdate: "agent_message_chunk",
 +        messageId: "assistant-late",
 +        content: { type: "text", text: "late output" },
-+      } as SessionUpdate,
-+    });
+       } as SessionUpdate,
+     });
 +    await new Promise<void>((resolve) => setImmediate(resolve));
-+
+ 
+-    expect(
+-      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+-    ).toEqual([
+-      {
+-        type: "timeline",
+-        provider: "claude-acp",
+-        item: {
+-          type: "user_message",
+-          text: "hello",
+-          messageId: "msg-client-1",
+-          clientMessageId: "msg-client-1",
+-        },
+-        turnId: expect.any(String),
+-      },
+-    ]);
 +    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
 +    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
-+  });
-+
+   });
+ 
+-  test("startTurn dedupes ACP user echo chunks without message ids across turns", async () => {
+-    const session = createSession();
 +  test("Kimi reliable mode fails once the late-timeline grace expires with no output", async () => {
 +    vi.useFakeTimers();
 +    try {
@@ -3692,26 +3796,33 @@ index b94a6de..cf58143 100644
 +    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
 +      kimiReliableQueue: true,
 +    });
-+    const events: AgentStreamEvent[] = [];
-+    let resolvePrompt!: (value: PromptResponse) => void;
-+    const prompt = vi.fn(
-+      () =>
-+        new Promise<PromptResponse>((resolve) => {
-+          resolvePrompt = resolve;
-+        }),
-+    );
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     const events: AgentStreamEvent[] = [];
+     let resolvePrompt!: (value: PromptResponse) => void;
+     const prompt = vi.fn(
+@@ -3640,103 +4270,288 @@ describe("ACPAgentSession", () => {
+           resolvePrompt = resolve;
+         }),
+     );
+-
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt,
 +      signal: new AbortController().signal,
 +    };
 +    session.subscribe((event) => events.push(event));
-+
+ 
+-    session.subscribe((event) => {
+-      events.push(event);
+-    });
 +    const { turnId } = await session.startTurn("hello");
-+
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
+ 
+-    await session.startTurn("first", { clientMessageId: "msg-client-1" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+-        sessionUpdate: "user_message_chunk",
+-        content: { type: "text", text: "first" },
 +        sessionUpdate: "agent_thought_chunk",
 +        messageId: "thought-1",
 +        content: { type: "text", text: "Working on it" },
@@ -3725,13 +3836,14 @@ index b94a6de..cf58143 100644
 +        title: "Read file",
 +        kind: "read",
 +        status: "in_progress",
-+      } as SessionUpdate,
-+    });
+       } as SessionUpdate,
+     });
 +
-+    resolvePrompt({ stopReason: "end_turn" });
-+    await Promise.resolve();
-+    await Promise.resolve();
-+
+     resolvePrompt({ stopReason: "end_turn" });
+     await Promise.resolve();
+     await Promise.resolve();
+ 
+-    await session.startTurn("second", { clientMessageId: "msg-client-2" });
 +    expect(events).toContainEqual(expect.objectContaining({ type: "turn_completed", turnId }));
 +    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
 +  });
@@ -3744,16 +3856,45 @@ index b94a6de..cf58143 100644
 +
 +    // Kimi opens the call with the tool's own name and only afterwards replaces
 +    // the title with a sentence describing what the tool is doing.
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+-        sessionUpdate: "user_message_chunk",
+-        content: { type: "text", text: "second" },
 +        sessionUpdate: "tool_call",
 +        toolCallId: "tool-1",
 +        title: "AskUserQuestion",
 +        kind: "other",
 +        status: "pending",
-+      } as SessionUpdate,
-+    });
+       } as SessionUpdate,
+     });
+-
+-    expect(
+-      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+-    ).toEqual([
+-      {
+-        type: "timeline",
+-        provider: "claude-acp",
+-        item: {
+-          type: "user_message",
+-          text: "first",
+-          messageId: "msg-client-1",
+-          clientMessageId: "msg-client-1",
+-        },
+-        turnId: expect.any(String),
+-      },
+-      {
+-        type: "timeline",
+-        provider: "claude-acp",
+-        item: {
+-          type: "user_message",
+-          text: "second",
+-          messageId: "msg-client-2",
+-          clientMessageId: "msg-client-2",
+-        },
+-        turnId: expect.any(String),
+-      },
+-    ]);
 +    await session.sessionUpdate({
 +      sessionId: "session-1",
 +      update: {
@@ -3774,13 +3915,16 @@ index b94a6de..cf58143 100644
 +      name: "AskUserQuestion",
 +      metadata: { kind: "other", title: "Asking user questions" },
 +    });
-+  });
-+
+   });
+ 
+-  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
+-    const session = createSession();
 +  test("Kimi reliable mode does not fail a cancelled turn that produced no output", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
 +      kimiReliableQueue: true,
 +    });
-+    const events: AgentStreamEvent[] = [];
+     const events: AgentStreamEvent[] = [];
+-    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
 +    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
 +    asInternals<ACPSessionInternals>(session).connection = {
 +      prompt: async () => ({ stopReason: "cancelled" }),
@@ -3795,13 +3939,16 @@ index b94a6de..cf58143 100644
 +    expect(events).toContainEqual(expect.objectContaining({ type: "turn_canceled", turnId }));
 +    expect(events.some((event) => event.type === "turn_failed")).toBe(false);
 +  });
-+
+ 
 +  test("Kimi reliable mode buffers mismatched-session assistant updates for history replay", async () => {
 +    const session = createSessionWithConfig({ provider: "kimi" }, createTestLogger(), {
 +      kimiReliableQueue: true,
 +    });
-+    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
-+
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+-    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
+ 
+-    session.subscribe((event) => {
+-      events.push(event);
 +    await session.sessionUpdate({
 +      sessionId: "session-2",
 +      update: {
@@ -3809,8 +3956,9 @@ index b94a6de..cf58143 100644
 +        messageId: "assistant-recovered",
 +        content: { type: "text", text: "recovered" },
 +      } as SessionUpdate,
-+    });
-+
+     });
+ 
+-    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
 +    const history = [];
 +    for await (const event of session.streamHistory()) {
 +      history.push(event);
@@ -3892,14 +4040,15 @@ index b94a6de..cf58143 100644
 +    const { turnId } = await session.startTurn("hello");
 +    internals.submittedUserMessageTurnId = null;
 +
-+    await session.sessionUpdate({
-+      sessionId: "session-1",
-+      update: {
-+        sessionUpdate: "user_message_chunk",
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+         sessionUpdate: "user_message_chunk",
+-        messageId: "msg-provider-1",
 +        messageId: "user-1",
-+        content: { type: "text", text: "hello" },
-+      } as SessionUpdate,
-+    });
+         content: { type: "text", text: "hello" },
+       } as SessionUpdate,
+     });
 +    await session.sessionUpdate({
 +      sessionId: "session-1",
 +      update: {
@@ -3926,10 +4075,367 @@ index b94a6de..cf58143 100644
 +    );
 +  });
 +
-   test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
++  test("startTurn emits the submitted user message even when ACP does not echo it", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    let resolvePrompt!: (value: PromptResponse) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise<PromptResponse>((resolve) => {
++          resolvePrompt = resolve;
++        }),
++    );
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    const { turnId } = await session.startTurn("hello", {
++      clientMessageId: "msg-client-1",
++    });
+ 
++    expect(prompt).toHaveBeenCalledWith({
++      sessionId: "session-1",
++      messageId: "msg-client-1",
++      prompt: [{ type: "text", text: "hello" }],
++    });
++    expect(
++      events
++        .filter(
++          (event) =>
++            event.type === "turn_started" ||
++            (event.type === "timeline" && event.item.type === "user_message"),
++        )
++        .map((event) => event.type),
++    ).toEqual(["turn_started", "timeline"]);
+     expect(
+       events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
+     ).toEqual([
+       {
+         type: "timeline",
+         provider: "claude-acp",
++        turnId,
+         item: {
+           type: "user_message",
+           text: "hello",
+           messageId: "msg-client-1",
+           clientMessageId: "msg-client-1",
+         },
+-        turnId: expect.any(String),
+       },
+     ]);
++
++    resolvePrompt({ stopReason: "end_turn" });
+   });
+ 
+-  test("startTurn dedupes a provider-owned user echo streamed as text and image chunks", async () => {
++  test("startTurn dedupes ACP user echo chunks for the submitted message", async () => {
      const session = createSession();
      const events: AgentStreamEvent[] = [];
-@@ -5198,3 +6184,1051 @@ describe("custom ACP provider with configured models", () => {
+     const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
+@@ -3748,27 +4563,39 @@ describe("ACPAgentSession", () => {
+       events.push(event);
+     });
+ 
+-    await session.startTurn(
+-      [
+-        { type: "text", text: "hey" },
+-        { type: "image", data: "AA==", mimeType: "image/png" },
+-      ],
+-      { clientMessageId: "msg-client-1" },
+-    );
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+         sessionUpdate: "user_message_chunk",
+-        messageId: "msg-provider-1",
+-        content: { type: "text", text: "hey" },
++        messageId: "msg-client-1",
++        content: { type: "text", text: "hello" },
+       } as SessionUpdate,
+     });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toHaveLength(1);
++  });
++
++  test("startTurn dedupes ACP user echo chunks without message ids for the submitted message", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+         sessionUpdate: "user_message_chunk",
+-        messageId: "msg-provider-1",
+-        content: { type: "image", data: "AA==", mimeType: "image/png" },
++        content: { type: "text", text: "hello" },
+       } as SessionUpdate,
+     });
+ 
+@@ -3777,10 +4604,10 @@ describe("ACPAgentSession", () => {
+     ).toEqual([
+       {
+         type: "timeline",
+-        provider: session.provider,
++        provider: "claude-acp",
+         item: {
+           type: "user_message",
+-          text: "hey",
++          text: "hello",
+           messageId: "msg-client-1",
+           clientMessageId: "msg-client-1",
+         },
+@@ -3789,10 +4616,16 @@ describe("ACPAgentSession", () => {
+     ]);
+   });
+ 
+-  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
++  test("startTurn dedupes ACP user echo chunks without message ids across turns", async () => {
+     const session = createSession();
+     const events: AgentStreamEvent[] = [];
+-    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++    let resolvePrompt!: (value: PromptResponse) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise<PromptResponse>((resolve) => {
++          resolvePrompt = resolve;
++        }),
++    );
+ 
+     asInternals<ACPSessionInternals>(session).sessionId = "session-1";
+     asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
+@@ -3801,22 +4634,24 @@ describe("ACPAgentSession", () => {
+       events.push(event);
+     });
+ 
+-    await session.startTurn([{ type: "image", data: "AA==", mimeType: "image/png" }], {
+-      clientMessageId: "msg-client-1",
+-    });
++    await session.startTurn("first", { clientMessageId: "msg-client-1" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+         sessionUpdate: "user_message_chunk",
+-        content: { type: "image", data: "AA==", mimeType: "image/png" },
++        content: { type: "text", text: "first" },
+       } as SessionUpdate,
+     });
++    resolvePrompt({ stopReason: "end_turn" });
++    await Promise.resolve();
++    await Promise.resolve();
++
++    await session.startTurn("second", { clientMessageId: "msg-client-2" });
+     await session.sessionUpdate({
+       sessionId: "session-1",
+       update: {
+-        sessionUpdate: "agent_message_chunk",
+-        messageId: "assistant-1",
+-        content: { type: "text", text: "I see it" },
++        sessionUpdate: "user_message_chunk",
++        content: { type: "text", text: "second" },
+       } as SessionUpdate,
+     });
+ 
+@@ -3825,20 +4660,171 @@ describe("ACPAgentSession", () => {
+     ).toEqual([
+       {
+         type: "timeline",
+-        provider: session.provider,
+-        item: { type: "user_message", text: "[image]" },
++        provider: "claude-acp",
++        item: {
++          type: "user_message",
++          text: "first",
++          messageId: "msg-client-1",
++          clientMessageId: "msg-client-1",
++        },
+         turnId: expect.any(String),
+       },
+-    ]);
+-  });
+-
+-  test("startTurn converts background prompt rejections into turn_failed events", async () => {
+-    const session = createSession();
+-    const events: Array<{ type: string; turnId?: string; error?: string }> = [];
+-    let rejectPrompt!: (error: Error) => void;
+-    const prompt = vi.fn(
+-      () =>
+-        new Promise((_, reject) => {
++      {
++        type: "timeline",
++        provider: "claude-acp",
++        item: {
++          type: "user_message",
++          text: "second",
++          messageId: "msg-client-2",
++          clientMessageId: "msg-client-2",
++        },
++        turnId: expect.any(String),
++      },
++    ]);
++  });
++
++  test("startTurn dedupes ACP user echo chunks with provider-owned ids for the submitted message", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn("hello", { clientMessageId: "msg-client-1" });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        messageId: "msg-provider-1",
++        content: { type: "text", text: "hello" },
++      } as SessionUpdate,
++    });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toEqual([
++      {
++        type: "timeline",
++        provider: "claude-acp",
++        item: {
++          type: "user_message",
++          text: "hello",
++          messageId: "msg-client-1",
++          clientMessageId: "msg-client-1",
++        },
++        turnId: expect.any(String),
++      },
++    ]);
++  });
++
++  test("startTurn dedupes a provider-owned user echo streamed as text and image chunks", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn(
++      [
++        { type: "text", text: "hey" },
++        { type: "image", data: "AA==", mimeType: "image/png" },
++      ],
++      { clientMessageId: "msg-client-1" },
++    );
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        messageId: "msg-provider-1",
++        content: { type: "text", text: "hey" },
++      } as SessionUpdate,
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        messageId: "msg-provider-1",
++        content: { type: "image", data: "AA==", mimeType: "image/png" },
++      } as SessionUpdate,
++    });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toEqual([
++      {
++        type: "timeline",
++        provider: session.provider,
++        item: {
++          type: "user_message",
++          text: "hey",
++          messageId: "msg-client-1",
++          clientMessageId: "msg-client-1",
++        },
++        turnId: expect.any(String),
++      },
++    ]);
++  });
++
++  test("startTurn keeps an image-only provider echo when no canonical user message was emitted", async () => {
++    const session = createSession();
++    const events: AgentStreamEvent[] = [];
++    const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
++
++    asInternals<ACPSessionInternals>(session).sessionId = "session-1";
++    asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
++
++    session.subscribe((event) => {
++      events.push(event);
++    });
++
++    await session.startTurn([{ type: "image", data: "AA==", mimeType: "image/png" }], {
++      clientMessageId: "msg-client-1",
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "user_message_chunk",
++        content: { type: "image", data: "AA==", mimeType: "image/png" },
++      } as SessionUpdate,
++    });
++    await session.sessionUpdate({
++      sessionId: "session-1",
++      update: {
++        sessionUpdate: "agent_message_chunk",
++        messageId: "assistant-1",
++        content: { type: "text", text: "I see it" },
++      } as SessionUpdate,
++    });
++
++    expect(
++      events.filter((event) => event.type === "timeline" && event.item.type === "user_message"),
++    ).toEqual([
++      {
++        type: "timeline",
++        provider: session.provider,
++        item: { type: "user_message", text: "[image]" },
++        turnId: expect.any(String),
++      },
++    ]);
++  });
++
++  test("startTurn converts background prompt rejections into turn_failed events", async () => {
++    const session = createSession();
++    const events: Array<{ type: string; turnId?: string; error?: string }> = [];
++    let rejectPrompt!: (error: Error) => void;
++    const prompt = vi.fn(
++      () =>
++        new Promise((_, reject) => {
+           rejectPrompt = reject;
+         }),
+     );
+@@ -5468,3 +6454,1051 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -4982,10 +5488,10 @@ index b94a6de..cf58143 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 33664f7ad..e1d928397 100644
+index 0086e9b..8aa21ef 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -79,13 +79,17 @@ import {
+@@ -80,13 +80,17 @@ import {
    type AgentPermissionRequest,
    type AgentPermissionRequestKind,
    type AgentPermissionResponse,
@@ -5003,7 +5509,7 @@ index 33664f7ad..e1d928397 100644
    type AgentRunResult,
    type AgentRuntimeInfo,
    type AgentSession,
-@@ -95,6 +99,7 @@ import {
+@@ -96,6 +100,7 @@ import {
    type AgentTimelineItem,
    type AgentUsage,
    type AgentUsageSession,
@@ -5011,7 +5517,7 @@ index 33664f7ad..e1d928397 100644
    type FetchCatalogOptions,
    type ProviderRefreshContext,
    type ImportableProviderSession,
-@@ -141,6 +146,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+@@ -142,6 +147,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
  
  const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
  
@@ -5028,7 +5534,7 @@ index 33664f7ad..e1d928397 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -334,6 +349,11 @@ export function buildACPClientCapabilities(
+@@ -335,6 +350,11 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -5040,7 +5546,7 @@ index 33664f7ad..e1d928397 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  // Archive and delete await close(). The ACP SDK does not reject a pending
  // request when the provider never answers, so these calls must be bounded
-@@ -482,6 +502,105 @@ export type ACPCatalogModelResolver = (
+@@ -483,6 +503,105 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -5146,7 +5652,7 @@ index 33664f7ad..e1d928397 100644
  interface ACPAgentClientOptions {
    provider: string;
    // Provider id usage sources match a session against; ACP sessions without one report no usage.
-@@ -513,6 +632,7 @@ interface ACPAgentClientOptions {
+@@ -514,6 +633,7 @@ interface ACPAgentClientOptions {
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
    terminateProcess?: ProcessTerminator;
@@ -5154,7 +5660,7 @@ index 33664f7ad..e1d928397 100644
    now?: () => number;
  }
  
-@@ -549,7 +669,9 @@ interface ACPAgentSessionOptions {
+@@ -550,7 +670,9 @@ interface ACPAgentSessionOptions {
    launchEnv?: Record<string, string>;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -5164,7 +5670,7 @@ index 33664f7ad..e1d928397 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -646,6 +768,13 @@ class ACPImportHistoryCollector {
+@@ -647,6 +769,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -5178,7 +5684,7 @@ index 33664f7ad..e1d928397 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -680,6 +809,8 @@ interface TerminalEntry {
+@@ -681,6 +810,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -5187,7 +5693,7 @@ index 33664f7ad..e1d928397 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -986,6 +1117,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1081,6 +1212,7 @@ export class ACPAgentClient implements AgentClient {
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
    private readonly extensionCommandsParser?: ACPExtensionCommandsParser;
@@ -5195,7 +5701,7 @@ index 33664f7ad..e1d928397 100644
    private readonly importPromptCache = new Map<string, ACPImportPromptCacheEntry>();
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
-@@ -1017,6 +1149,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1112,6 +1244,7 @@ export class ACPAgentClient implements AgentClient {
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
      this.extensionCommandsParser = options.extensionCommandsParser;
@@ -5203,7 +5709,7 @@ index 33664f7ad..e1d928397 100644
      this.now = options.now ?? Date.now;
    }
  
-@@ -1058,6 +1191,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1153,6 +1286,7 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -5211,7 +5717,7 @@ index 33664f7ad..e1d928397 100644
        },
      );
      await session.initializeNewSession();
-@@ -1118,6 +1252,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1213,6 +1347,7 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -5219,7 +5725,7 @@ index 33664f7ad..e1d928397 100644
      });
      await session.initializeResumedSession();
      return session;
-@@ -1733,6 +1868,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1828,6 +1963,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -5239,7 +5745,7 @@ index 33664f7ad..e1d928397 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1805,11 +1953,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1900,11 +2048,35 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -5275,7 +5781,7 @@ index 33664f7ad..e1d928397 100644
    private historyPending = false;
    private historyRuntimeReleased = false;
    private replayingHistory = false;
-@@ -1853,7 +2025,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1948,7 +2120,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -5290,7 +5796,7 @@ index 33664f7ad..e1d928397 100644
    }
  
    get id(): string | null {
-@@ -1890,6 +2069,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1985,6 +2164,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -5298,7 +5804,7 @@ index 33664f7ad..e1d928397 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -1944,6 +2124,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2039,6 +2219,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -5306,7 +5812,7 @@ index 33664f7ad..e1d928397 100644
  
        if (this.resumePurpose === "history") {
          await this.releaseHistoryRuntime();
-@@ -1988,6 +2169,352 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2083,6 +2264,352 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -5659,7 +6165,7 @@ index 33664f7ad..e1d928397 100644
    async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
      const result = await runProviderTurn({
        prompt,
-@@ -2008,6 +2535,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2103,6 +2630,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    async startTurn(
      prompt: AgentPromptInput,
      options?: AgentRunOptions,
@@ -5679,7 +6185,7 @@ index 33664f7ad..e1d928397 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2025,28 +2565,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2120,28 +2660,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.deliverTranslatedEvents(this.flushPendingUserMessage());
      const turnId = randomUUID();
      const messageId = options?.clientMessageId ?? randomUUID();
@@ -5736,7 +6242,7 @@ index 33664f7ad..e1d928397 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2057,7 +2620,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2152,7 +2715,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            turnId,
          });
        })
@@ -5745,7 +6251,7 @@ index 33664f7ad..e1d928397 100644
  
      return { turnId };
    }
-@@ -2628,7 +3191,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2723,7 +3286,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return Array.from(this.pendingPermissions.values(), (entry) => entry.request);
    }
  
@@ -5757,7 +6263,7 @@ index 33664f7ad..e1d928397 100644
      const pending = this.pendingPermissions.get(requestId);
      if (!pending) {
        throw new Error(`No pending permission request with id '${requestId}'`);
-@@ -2664,6 +3230,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2759,6 +3325,16 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -5774,7 +6280,7 @@ index 33664f7ad..e1d928397 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2690,7 +3266,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2785,7 +3361,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.cancelPendingPermissions();
  
      if (this.activeForegroundTurnId) {
@@ -5798,7 +6304,7 @@ index 33664f7ad..e1d928397 100644
      }
    }
  
-@@ -2708,9 +3300,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2803,9 +3395,25 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      this.closed = true;
@@ -5824,7 +6330,7 @@ index 33664f7ad..e1d928397 100644
  
      this.cancelPendingPermissions();
  
-@@ -2757,6 +3365,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2852,6 +3460,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -5832,7 +6338,7 @@ index 33664f7ad..e1d928397 100644
    }
  
    async requestPermission(params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-@@ -2820,10 +3429,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2915,10 +3524,51 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -5884,7 +6390,7 @@ index 33664f7ad..e1d928397 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2840,6 +3490,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2935,6 +3585,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -5903,7 +6409,7 @@ index 33664f7ad..e1d928397 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2865,6 +3527,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2960,6 +3622,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -5951,7 +6457,7 @@ index 33664f7ad..e1d928397 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -2956,6 +3659,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3051,6 +3754,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -5959,7 +6465,7 @@ index 33664f7ad..e1d928397 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3230,11 +3934,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3325,11 +4029,29 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
@@ -5990,7 +6496,7 @@ index 33664f7ad..e1d928397 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3505,9 +4227,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3600,9 +4322,158 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -6150,7 +6656,7 @@ index 33664f7ad..e1d928397 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3533,6 +4404,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3628,6 +4499,43 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -6194,7 +6700,7 @@ index 33664f7ad..e1d928397 100644
    private wrapTimeline(item: AgentTimelineItem): AgentStreamEvent {
      return {
        type: "timeline",
-@@ -3606,11 +4514,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3701,11 +4609,13 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        (pending) => event.type !== "turn_completed" || pending.turnId === event.turnId,
      );
      this.activeForegroundTurnId = null;
@@ -6208,7 +6714,7 @@ index 33664f7ad..e1d928397 100644
    }
  
    private cancelPendingPermissions(
-@@ -3876,7 +4786,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -3971,7 +4881,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -6229,7 +6735,7 @@ index 33664f7ad..e1d928397 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3942,6 +4864,7 @@ function mergeToolSnapshot(
+@@ -4037,6 +4959,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -6237,7 +6743,7 @@ index 33664f7ad..e1d928397 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -3951,6 +4874,27 @@ function mergeToolSnapshot(
+@@ -4046,6 +4969,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -6265,7 +6771,7 @@ index 33664f7ad..e1d928397 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -3967,10 +4911,18 @@ function mapToolSnapshotToTimeline(
+@@ -4062,10 +5006,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -6285,7 +6791,7 @@ index 33664f7ad..e1d928397 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -4212,7 +5164,17 @@ function mapPermissionRequest(
+@@ -4307,7 +5259,17 @@ function mapPermissionRequest(
    params: RequestPermissionRequest,
    snapshot: ACPToolSnapshot,
  ): AgentPermissionRequest {
@@ -6304,7 +6810,7 @@ index 33664f7ad..e1d928397 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -4221,11 +5183,11 @@ function mapPermissionRequest(
+@@ -4316,11 +5278,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -6318,7 +6824,7 @@ index 33664f7ad..e1d928397 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -4239,6 +5201,7 @@ function mapPermissionRequest(
+@@ -4334,6 +5296,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -6326,7 +6832,7 @@ index 33664f7ad..e1d928397 100644
      },
    };
  }
-@@ -4267,6 +5230,65 @@ function selectPermissionOption(
+@@ -4362,6 +5325,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -6392,7 +6898,7 @@ index 33664f7ad..e1d928397 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4283,19 +5305,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4378,19 +5400,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
  
  function appendTerminalOutput(entry: TerminalEntry, chunk: string): void {
    entry.output += chunk;
@@ -6424,10 +6930,10 @@ index 33664f7ad..e1d928397 100644
  }
  
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index 3aa96635f..ecd891eca 100644
+index ff76e51..73428e3 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -4487,6 +4487,634 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -4524,6 +4524,634 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -7063,10 +7569,10 @@ index 3aa96635f..ecd891eca 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index bee13ed78..391619550 100644
+index 8bafb4e..6490561 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
-@@ -39,9 +39,12 @@ import {
+@@ -41,9 +41,12 @@ import {
  } from "./task-notification-tool-call.js";
  import { isClaudeInterruptPlaceholderText } from "./interrupt-placeholder.js";
  import {
@@ -7079,7 +7585,7 @@ index bee13ed78..391619550 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -124,6 +127,7 @@ import {
+@@ -126,6 +129,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -7087,7 +7593,7 @@ index bee13ed78..391619550 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2321,6 +2325,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2323,6 +2327,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -7119,7 +7625,7 @@ index bee13ed78..391619550 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2431,7 +2460,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2433,7 +2462,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -7128,7 +7634,7 @@ index bee13ed78..391619550 100644
      );
      const handle = options.handle;
  
-@@ -2816,7 +2845,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2818,7 +2847,7 @@ class ClaudeAgentSession implements AgentSession {
        this.cachedRuntimeInfo = null;
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -7137,7 +7643,7 @@ index bee13ed78..391619550 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3724,6 +3753,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3726,6 +3755,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -7162,7 +7668,7 @@ index bee13ed78..391619550 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4706,6 +4753,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4708,6 +4755,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -7175,7 +7681,7 @@ index bee13ed78..391619550 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4723,6 +4776,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4725,6 +4778,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -7183,7 +7689,7 @@ index bee13ed78..391619550 100644
          break;
        }
        case "stream_event":
-@@ -4749,6 +4803,200 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4751,6 +4805,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7384,7 +7890,7 @@ index bee13ed78..391619550 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -5083,6 +5331,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5085,6 +5333,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7392,7 +7898,7 @@ index bee13ed78..391619550 100644
      const usage = this.convertUsage(message);
      // Claude Code reports a turn that stopped on an API error (a usage limit, an overloaded or
      // rejected request) as `success` with `is_error`, carrying the error text in `result`.
-@@ -6529,6 +6778,146 @@ function readClaudeReplayTaskDeclaration(
+@@ -6545,6 +6794,146 @@ function readClaudeReplayTaskDeclaration(
    };
  }
  
@@ -7540,7 +8046,7 @@ index bee13ed78..391619550 100644
    return /agentId:\s*([\w-]+)/.exec(JSON.stringify(content))?.[1];
  }
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 1287fd633..91da06681 100644
+index 1287fd6..91da066 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -20,6 +20,8 @@ import {
@@ -7631,7 +8137,7 @@ index 1287fd633..91da06681 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 80f5a38e6..3f0ebee71 100644
+index 80f5a38..3f0ebee 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -7716,7 +8222,7 @@ index 80f5a38e6..3f0ebee71 100644
    logger: Logger,
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 37db4d02d..292901814 100644
+index 37db4d0..2929018 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -7785,7 +8291,7 @@ index 37db4d02d..292901814 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb01..89de568b4 100644
+index b388fdb..89de568 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -1,9 +1,18 @@
@@ -8053,7 +8559,7 @@ index b388fdb01..89de568b4 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f65..03c94e383 100644
+index 7ae144f..03c94e3 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,25 @@
@@ -8342,7 +8848,7 @@ index 7ae144f65..03c94e383 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 new file mode 100644
-index 000000000..ee6c43c90
+index 0000000..ee6c43c
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 @@ -0,0 +1,410 @@
@@ -8758,7 +9264,7 @@ index 000000000..ee6c43c90
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 new file mode 100644
-index 000000000..9e5764353
+index 0000000..9e57643
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 @@ -0,0 +1,521 @@
@@ -9285,7 +9791,7 @@ index 000000000..9e5764353
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 000000000..df5991772
+index 0000000..df59917
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -0,0 +1,255 @@
@@ -9546,7 +10052,7 @@ index 000000000..df5991772
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 000000000..1c304496a
+index 0000000..1c30449
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 @@ -0,0 +1,2035 @@
@@ -11587,7 +12093,7 @@ index 000000000..1c304496a
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 000000000..8bc6adf65
+index 0000000..8bc6adf
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
 @@ -0,0 +1,2058 @@
@@ -13651,7 +14157,7 @@ index 000000000..8bc6adf65
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 000000000..38364a3a5
+index 0000000..38364a3
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,449 @@
@@ -14106,7 +14612,7 @@ index 000000000..38364a3a5
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 000000000..936b1b445
+index 0000000..936b1b4
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,340 @@
@@ -14452,7 +14958,7 @@ index 000000000..936b1b445
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
 new file mode 100644
-index 000000000..bb16a2b83
+index 0000000..bb16a2b
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
 @@ -0,0 +1,62 @@
@@ -14520,7 +15026,7 @@ index 000000000..bb16a2b83
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
 new file mode 100644
-index 000000000..99488f6d8
+index 0000000..99488f6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
 @@ -0,0 +1,45 @@
@@ -14570,7 +15076,7 @@ index 000000000..99488f6d8
 +  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 98cbf8fcf..1a5d9fe72 100644
+index fad1b78..60d7f76 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -10,7 +10,7 @@ import {
@@ -14592,7 +15098,7 @@ index 98cbf8fcf..1a5d9fe72 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96b9..7136338b7 100644
+index 1f0fa96..7136338 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -14611,7 +15117,7 @@ index 1f0fa96b9..7136338b7 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index b26104c63..5efa1df0b 100644
+index b26104c..5efa1df 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,4 @@

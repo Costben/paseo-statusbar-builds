@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 67e2ebd..ae79fc6 100644
+index aab192e..1b5273f 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -3871,7 +3871,12 @@ describe("ACPAgentSession", () => {
+@@ -4141,7 +4141,12 @@ describe("ACPAgentSession", () => {
        const { turnId } = await session.startTurn(notification);
        await finished;
        expect(
@@ -16,7 +16,7 @@ index 67e2ebd..ae79fc6 100644
        ).toEqual([]);
        expect(events).toContainEqual(
          expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
-@@ -3919,7 +3924,12 @@ describe("ACPAgentSession", () => {
+@@ -4189,7 +4194,12 @@ describe("ACPAgentSession", () => {
      await flushMicrotasks();
  
      expect(
@@ -30,7 +30,7 @@ index 67e2ebd..ae79fc6 100644
      ).toEqual([]);
      expect(events).toContainEqual(
        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
-@@ -6922,6 +6932,12 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
+@@ -7192,6 +7202,12 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
        );
  
        expect(terminal).toMatchObject({ type: "turn_failed", code: "kimi_prompt_not_accepted" });
@@ -44,10 +44,10 @@ index 67e2ebd..ae79fc6 100644
        await harness.dispose();
      }
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index e523d3c..f5dfe99 100644
+index 2306c9f..a3b3ed0 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -5212,6 +5212,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5307,6 +5307,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      ) {
        const explained = this.describeMissingTimeline();
        const failure = this.missingTimelineFailure(explained, response);
@@ -55,7 +55,7 @@ index e523d3c..f5dfe99 100644
        this.finishTurn({
          type: "turn_failed",
          provider: this.provider,
-@@ -5249,6 +5250,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5344,6 +5345,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -76,7 +76,7 @@ index e523d3c..f5dfe99 100644
    /**
     * Ends a turn that was held after its response when the hold itself decided
     * the outcome, and reports whether it did.
-@@ -5275,6 +5290,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -5370,6 +5385,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (refuted === null) {
        return false;
      }

@@ -170,10 +170,10 @@ index 98b3a4d..c2a1446 100644
  
 diff --git a/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts b/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts
 new file mode 100644
-index 0000000..12af94d
+index 0000000..1bae40a
 --- /dev/null
 +++ b/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,389 @@
 +import { randomUUID } from "node:crypto";
 +import { mkdtempSync, rmSync } from "node:fs";
 +import { tmpdir } from "node:os";
@@ -389,10 +389,19 @@ index 0000000..12af94d
 +    activeSession?.pushEvent({ type: "turn_started", provider: "codex", turnId: "wakeup-1" });
 +    await vi.waitFor(() => expect(manager.getAgent(agent.id)?.lifecycle).toBe("running"));
 +
++    vi.useFakeTimers();
 +    activeSession?.pushEvent({ type: "background_work", provider: "codex", items: [] });
 +    activeSession?.pushEvent({ type: "turn_completed", provider: "codex", turnId: "wakeup-1" });
++    await vi.advanceTimersByTimeAsync(50);
 +
-+    await vi.waitFor(() => expect(attentionReasons).toEqual(["finished"]));
++    // The work settled in the same instant this turn ended, so the finish waits
++    // out the settle window before it is announced.
++    expect(manager.getAgent(agent.id)?.lifecycle).toBe("idle");
++    expect(attentionReasons).toEqual([]);
++
++    await vi.advanceTimersByTimeAsync(6_050);
++    expect(attentionReasons).toEqual(["finished"]);
++    vi.useRealTimers();
 +    expect(manager.getAgent(agent.id)?.lifecycle).toBe("idle");
 +    expect(manager.getAgent(agent.id)?.attention).toMatchObject({
 +      requiresAttention: true,
@@ -476,20 +485,111 @@ index 0000000..12af94d
 +    rmSync(workdir, { recursive: true, force: true });
 +  }
 +});
++
++test("a finish that a background task wake-up follows is announced once, after that turn", async () => {
++  const workdir = mkdtempSync(join(tmpdir(), "agent-manager-deferred-race-"));
++  const storage = new AgentStorage(join(workdir, "agents"), logger);
++  let activeSession: TestAgentSession | null = null;
++  class RaceClient extends TestAgentClient {
++    override async createSession(config: AgentSessionConfig): Promise<AgentSession> {
++      activeSession = new (class extends TestAgentSession {
++        override async startTurn(): Promise<{ turnId: string }> {
++          const turnId = "turn-race";
++          setTimeout(() => {
++            this.pushEvent({ type: "turn_started", provider: this.provider, turnId });
++            this.pushEvent({
++              type: "background_tasks_updated",
++              provider: this.provider,
++              backgroundTasks: {
++                count: 1,
++                tasks: [{ id: "task-race", command: "sleep 1", status: "running" }],
++              },
++            });
++            this.pushEvent({ type: "turn_completed", provider: this.provider, turnId });
++          }, 0);
++          return { turnId };
++        }
++      })(config);
++      return activeSession;
++    }
++  }
++  const attentionReasons: Array<"finished" | "error" | "permission"> = [];
++  const manager = new AgentManager({
++    clients: { codex: new RaceClient() },
++    registry: storage,
++    logger,
++    onAgentAttention: ({ reason }) => attentionReasons.push(reason),
++  });
++  try {
++    const agent = await manager.createAgent({ provider: "codex", cwd: workdir }, undefined, {
++      workspaceId: undefined,
++    });
++    await drainAsyncGenerator(
++      manager.streamAgent(agent.id, "start a task that finishes with the turn", {
++        clientMessageId: "m1",
++      }),
++    );
++    expect(manager.getAgent(agent.id)?.lifecycle).toBe("idle");
++    expect(attentionReasons).toEqual([]);
++
++    vi.useFakeTimers();
++    // The task settles and the turn ends in the same instant.
++    activeSession?.pushEvent({
++      type: "background_tasks_updated",
++      provider: "codex",
++      backgroundTasks: { count: 0, tasks: [] },
++    });
++    await vi.advanceTimersByTimeAsync(20);
++    expect(attentionReasons).toEqual([]);
++
++    // The task's completion notification starts the next turn before the settle
++    // window is out, so the finish it woke is never announced.
++    activeSession?.pushEvent({ type: "turn_started", provider: "codex", turnId: "wakeup-race" });
++    await vi.advanceTimersByTimeAsync(6_050);
++    expect(manager.getAgent(agent.id)?.lifecycle).toBe("running");
++    expect(attentionReasons).toEqual([]);
++
++    activeSession?.pushEvent({ type: "turn_completed", provider: "codex", turnId: "wakeup-race" });
++    await vi.advanceTimersByTimeAsync(50);
++    // That turn cleared the task well before it ended, so nothing holds its finish.
++    await vi.advanceTimersByTimeAsync(6_050);
++    expect(attentionReasons).toEqual(["finished"]);
++    vi.useRealTimers();
++
++    await manager.closeAgent(agent.id);
++  } finally {
++    vi.useRealTimers();
++    await storage.flush();
++    rmSync(workdir, { recursive: true, force: true });
++  }
++});
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index a32ab57..e31fa8f 100644
+index 6a42d9e..331b5de 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
-@@ -858,6 +858,8 @@ export class AgentManager {
+@@ -829,6 +829,11 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
+  */
+ const RETIRED_INTERNAL_AGENT_TTL_MS = 10 * 60 * 1000;
+ const RETIRED_INTERNAL_AGENT_LIMIT = 500;
++// A background task that settles as its turn ends can wake the agent in the same
++// instant, so announcing the finish would buzz for a turn that is already running
++// again. A finish landing within this window of the last background work settling
++// waits it out; a wake-up turn inside the window cancels the announcement.
++const COMPLETION_SETTLE_MS = 6_000;
+ 
+ export interface RetiredInternalAgent {
+   record: ArchivedStoredAgentRecord;
+@@ -859,6 +864,9 @@ export class AgentManager {
    private readonly registry?: AgentStorage;
    private readonly durableTimelineStore?: AgentTimelineStore;
    private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
 +  private readonly deferredCompletionAgents = new Set<string>();
 +  private readonly deferredCompletionTimers = new Map<string, ReturnType<typeof setTimeout>>();
++  private readonly lastBackgroundWorkSettledAt = new Map<string, number>();
    private readonly backgroundTasks = new Set<Promise<void>>();
    private readonly agentRegistrationTasks = new Set<Promise<void>>();
    private readonly inFlightAgentCloses = new Map<string, Promise<void>>();
-@@ -2423,6 +2425,18 @@ export class AgentManager {
+@@ -2428,6 +2436,18 @@ export class AgentManager {
    async setAgentMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null> {
      return this.runLifecycleMutation(agentId, async () => {
        const agent = await this.ensureInteractiveSessionUnlocked(agentId);
@@ -508,7 +608,7 @@ index a32ab57..e31fa8f 100644
        const notice = (await agent.session.setMode(modeId)) ?? null;
        await this.drainSessionEvents(agentId);
        const currentMode = (await agent.session.getCurrentMode()) ?? modeId;
-@@ -4561,6 +4575,7 @@ export class AgentManager {
+@@ -4628,6 +4648,7 @@ export class AgentManager {
      this.agentStreamCoalescer.flushAndDiscard(agent.id);
      this.agents.delete(agent.id);
      this.previousStatuses.delete(agent.id);
@@ -516,7 +616,7 @@ index a32ab57..e31fa8f 100644
      if (agent.unsubscribeSession) {
        agent.unsubscribeSession();
        agent.unsubscribeSession = null;
-@@ -4731,6 +4746,7 @@ export class AgentManager {
+@@ -4798,6 +4819,7 @@ export class AgentManager {
            ? this.backgroundWork.clear(agent.id)
            : this.backgroundWork.apply(agent.id, event.items);
        if (items) this.dispatch({ type: "background_work", agentId: agent.id, items });
@@ -524,7 +624,7 @@ index a32ab57..e31fa8f 100644
        return;
      }
      const turnId = getAgentStreamEventTurnId(event);
-@@ -5285,6 +5301,7 @@ export class AgentManager {
+@@ -5352,6 +5374,7 @@ export class AgentManager {
          return true;
        case "background_tasks_updated":
          agent.backgroundTasks = event.backgroundTasks;
@@ -532,7 +632,7 @@ index a32ab57..e31fa8f 100644
          flags.shouldDispatchEvent = false;
          this.emitState(agent);
          return true;
-@@ -5785,6 +5802,76 @@ export class AgentManager {
+@@ -5852,6 +5875,97 @@ export class AgentManager {
      }
    }
  
@@ -565,6 +665,7 @@ index a32ab57..e31fa8f 100644
 +  }
 +
 +  private reconcileDeferredCompletionForBackgroundUpdate(agent: ManagedAgent): void {
++    this.noteBackgroundWorkSettled(agent);
 +    if (!this.deferredCompletionAgents.has(agent.id)) {
 +      return;
 +    }
@@ -575,22 +676,42 @@ index a32ab57..e31fa8f 100644
 +    if (agent.lifecycle !== "idle" || Boolean(agent.activeForegroundTurnId)) {
 +      return;
 +    }
-+    if (this.deferredCompletionTimers.has(agent.id)) {
++    this.scheduleDeferredCompletion(agent.id);
++  }
++
++  // When this agent's blocking background work last went quiet. A finish that
++  // lands in the same instant as its own background task is not the end of the
++  // work — the task's completion notification is about to start the next turn.
++  private noteBackgroundWorkSettled(agent: ManagedAgent): void {
++    if (this.hasActiveBlockingBackgroundWork(agent)) {
++      this.lastBackgroundWorkSettledAt.delete(agent.id);
++      return;
++    }
++    this.lastBackgroundWorkSettledAt.set(agent.id, Date.now());
++  }
++
++  private backgroundWorkSettledRecently(agentId: string): boolean {
++    const settledAt = this.lastBackgroundWorkSettledAt.get(agentId);
++    return settledAt !== undefined && Date.now() - settledAt < COMPLETION_SETTLE_MS;
++  }
++
++  private scheduleDeferredCompletion(agentId: string): void {
++    if (this.deferredCompletionTimers.has(agentId)) {
 +      return;
 +    }
 +    const timer = setTimeout(() => {
-+      this.deferredCompletionTimers.delete(agent.id);
-+      const latest = this.agents.get(agent.id);
++      this.deferredCompletionTimers.delete(agentId);
++      const latest = this.agents.get(agentId);
 +      if (
 +        !latest ||
-+        !this.deferredCompletionAgents.has(agent.id) ||
++        !this.deferredCompletionAgents.has(agentId) ||
 +        latest.lifecycle !== "idle" ||
 +        Boolean(latest.activeForegroundTurnId) ||
 +        this.hasActiveBlockingBackgroundWork(latest)
 +      ) {
 +        return;
 +      }
-+      this.deferredCompletionAgents.delete(agent.id);
++      this.deferredCompletionAgents.delete(agentId);
 +      if (!raisesAttention(latest) || latest.attention.requiresAttention) {
 +        return;
 +      }
@@ -601,15 +722,15 @@ index a32ab57..e31fa8f 100644
 +      };
 +      this.broadcastAgentAttention(latest, "finished");
 +      this.emitState(latest);
-+    }, 6000);
++    }, COMPLETION_SETTLE_MS);
 +    timer.unref();
-+    this.deferredCompletionTimers.set(agent.id, timer);
++    this.deferredCompletionTimers.set(agentId, timer);
 +  }
 +
    private checkAndSetAttention(agent: ManagedAgent): void {
      const previousStatus = this.previousStatuses.get(agent.id);
      const currentStatus = agent.lifecycle;
-@@ -5792,11 +5879,17 @@ export class AgentManager {
+@@ -5859,11 +5973,17 @@ export class AgentManager {
      // Track the new status
      this.previousStatuses.set(agent.id, currentStatus);
  
@@ -627,19 +748,27 @@ index a32ab57..e31fa8f 100644
        this.raiseErrorAttention(agent);
        return;
      }
-@@ -5806,6 +5899,18 @@ export class AgentManager {
+@@ -5873,6 +5993,26 @@ export class AgentManager {
      }
  
      if (previousStatus === "running" && currentStatus === "idle") {
-+      if (this.hasActiveBlockingBackgroundWork(agent)) {
++      const backgroundWorkLive = this.hasActiveBlockingBackgroundWork(agent);
++      const backgroundWorkSettled =
++        !backgroundWorkLive && this.backgroundWorkSettledRecently(agent.id);
++      if (backgroundWorkLive || backgroundWorkSettled) {
 +        this.deferredCompletionAgents.add(agent.id);
 +        this.logger.info(
 +          {
 +            agentId: agent.id,
 +            provider: agent.provider,
++            backgroundWorkLive,
++            backgroundWorkSettled,
 +          },
 +          "agent.manager.attention.deferred_for_background_work",
 +        );
++        if (backgroundWorkSettled) {
++          this.scheduleDeferredCompletion(agent.id);
++        }
 +        return;
 +      }
 +      this.clearDeferredCompletion(agent.id);
@@ -747,10 +876,10 @@ index c16a079..64c043d 100644
 +  });
  });
 diff --git a/packages/server/src/server/websocket-server.ts b/packages/server/src/server/websocket-server.ts
-index 50c5eda..876104b 100644
+index cbbdd96..24eeacd 100644
 --- a/packages/server/src/server/websocket-server.ts
 +++ b/packages/server/src/server/websocket-server.ts
-@@ -2939,11 +2939,13 @@ export class VoiceAssistantWebSocketServer {
+@@ -2941,11 +2941,13 @@ export class VoiceAssistantWebSocketServer {
        permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
      });
  
@@ -764,7 +893,7 @@ index 50c5eda..876104b 100644
      });
  
      if (plan.shouldPush) {
-@@ -2953,9 +2955,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -2955,9 +2957,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
@@ -778,7 +907,7 @@ index 50c5eda..876104b 100644
        const timestamp = new Date().toISOString();
        const connection = this.sessions.get(ws);
        const attentionPayload = {
-@@ -3034,11 +3037,13 @@ export class VoiceAssistantWebSocketServer {
+@@ -3036,11 +3039,13 @@ export class VoiceAssistantWebSocketServer {
      const nowMs = Date.now();
      const workspaceId = params.workspaceId;
  
@@ -792,7 +921,7 @@ index 50c5eda..876104b 100644
      });
  
      const title = terminalAttentionTitle(params.reason);
-@@ -3065,9 +3070,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -3067,9 +3072,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
