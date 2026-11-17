@@ -29,7 +29,7 @@ To keep this main page lightweight and mobile-friendly, detailed guides and refe
 - [🔄 **CI Workflows & Architecture**](docs/workflows.md)  
   Watcher & dispatch flow, stage matrix, patch vs upstream rebuild triggers, concurrency control.
 - [🖥 **Desktop Auto-Updates & Code Signing**](docs/desktop-updates.md)  
-  GitHub provider hijack, macOS self-signed certificates & trust, Hardened Runtime entitlements.
+  GitHub provider hijack, Windows silent install/update script, macOS self-signed certificates & trust, Hardened Runtime entitlements.
 - [🔧 **Maintenance & Configuration Knobs**](docs/maintenance.md)  
   Troubleshooting common build/patch failures, schedule cron settings, rebuild flags, timeouts.
 

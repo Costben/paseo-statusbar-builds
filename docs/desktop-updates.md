@@ -26,6 +26,60 @@ electron-builder serialises that `publish` block into `Contents/Resources/app-up
 
 ---
 
+## Windows: silent install and scripted updates
+
+The Windows artifact is an NSIS installer built with `oneClick: false, perMachine: false`
+(upstream's `packages/desktop/electron-builder.yml`), so double-clicking it walks through the
+usual Next/Install pages. Two ways to skip that:
+
+**Let the app update itself.** `resources/app-update.yml` in this build names this repo, so a
+copy installed from a Release here downloads later versions on its own (`autoDownload = true`)
+and installs them on quit or from the updater's restart prompt — only the first install needs
+the `.exe`. A copy installed from `getpaseo/paseo` keeps updating from upstream instead and
+never gains the patches: replace it once with this repo's installer.
+
+**Run it silently from a script.**
+[`scripts/windows/Update-Paseo.ps1`](../scripts/windows/Update-Paseo.ps1) does the whole round —
+pick the newest Release, verify the installer's `sha512` against `latest.yml`, stop Paseo,
+run `Setup.exe /S`, confirm the installed `Paseo.exe` reports the manifest's version, relaunch:
+
+```powershell
+irm https://raw.githubusercontent.com/Costben/paseo-statusbar-builds/main/scripts/windows/Update-Paseo.ps1 -OutFile "$env:TEMP\Update-Paseo.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\Update-Paseo.ps1"
+```
+
+| Switch | Effect |
+| --- | --- |
+| `-Channel beta` | read `beta.yml` and accept prerelease Releases |
+| `-DryRun` | download and verify only — no app shutdown, no install, no elevation |
+| `-NoLaunch` | install but do not relaunch Paseo |
+| `-Force` | reinstall even when the installed version already matches |
+
+Four details that follow from the installer and the app:
+
+- **Silent mode is a supported path, not a hack.** electron-builder's NSIS templates branch on
+  `${Silent}` and give the "app is running" prompt `/SD IDOK`, so `/S` closes a running Paseo
+  by itself. The script stops it first anyway, so the outcome does not depend on that.
+- **The version comes back as four parts.** `Paseo.exe` reports `0.16.0.0` for a `0.16.0`
+  build, so versions are compared after normalising, never as strings.
+- **A per-machine install needs elevation.** An existing install under `Program Files` cannot
+  be replaced without admin rights, so the script re-launches itself with `-Verb RunAs`. With
+  no prior copy it installs per-user into `%LOCALAPPDATA%\Programs\Paseo` and needs no
+  elevation.
+- **The install path is not in the registry.** electron-builder writes
+  `DisplayName = "Paseo <version>"` and leaves `InstallLocation` empty, so the script derives
+  the directory from `UninstallString` and falls back to the standard directories.
+
+Log and installer cache live in `%LOCALAPPDATA%\PaseoUpdate\`. To run it on a schedule, save
+the script there first and register the task:
+
+```powershell
+schtasks /Create /TN "Paseo update" /SC WEEKLY /D SUN /ST 04:00 ^
+  /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"%LOCALAPPDATA%\PaseoUpdate\Update-Paseo.ps1\""
+```
+
+---
+
 ## macOS: auto-update needs a certificate, but not an Apple one
 
 `electron-updater`'s JS never verifies signatures on macOS — it hands the zip to Electron's built-in `autoUpdater` (Squirrel.Mac). Squirrel validates the *new* bundle against the **designated requirement of the app being replaced** (`SQRLInstaller.m`):
