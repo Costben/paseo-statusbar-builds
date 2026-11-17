@@ -23,6 +23,11 @@
 .PARAMETER NoLaunch
    装完不自动启动 Paseo。
 
+.PARAMETER PerUser
+   如果现有安装是「按机器安装」（Program Files），先卸载它、再以「按用户安装」重装到
+   %LOCALAPPDATA%\Programs\Paseo。按用户安装的 App 不需要管理员权限，之后它自己的
+   自动更新才能真正做到零点击（按机器安装每次都会卡在 UAC）。
+
 .PARAMETER DryRun
    只下载与校验，不退出 App、不安装、不要求管理员权限。
 
@@ -39,6 +44,7 @@ param(
     [string]$Channel = 'latest',
     [switch]$Force,
     [switch]$NoLaunch,
+    [switch]$PerUser,
     [switch]$DryRun
 )
 
@@ -290,18 +296,71 @@ function Show-UpdateFeed {
     }
 }
 
+function Get-PaseoUninstaller {
+    param([string]$Dir)
+    if ($Dir) {
+        foreach ($name in @('Uninstall Paseo.exe', 'Uninstall.exe', 'Uninstall Paseo')) {
+            $candidate = Join-Path $Dir $name
+            if (Test-Path $candidate) { return $candidate }
+        }
+    }
+    foreach ($props in Get-RegistryEntries) {
+        $prop = $props.PSObject.Properties['UninstallString']
+        if ($null -eq $prop) { continue }
+        $match = [regex]::Match([string]$prop.Value, '^\s*"([^"]+)"')
+        if ($match.Success -and (Test-Path $match.Groups[1].Value)) { return $match.Groups[1].Value }
+    }
+    return $null
+}
+
+function Wait-PathGone {
+    param([string]$Path, [int]$Seconds = 90)
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    while ((Test-Path $Path) -and (Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+    }
+    -not (Test-Path $Path)
+}
+
+function Invoke-PerUserMigration {
+    param([string]$Installer, [string]$ExistingDir)
+    Write-Step '切换为按用户安装：先卸载 Program Files 里的副本，再装到 %LOCALAPPDATA%\Programs\Paseo'
+    Stop-PaseoApp
+
+    $uninstaller = Get-PaseoUninstaller -Dir $ExistingDir
+    if (-not $uninstaller) { throw '找不到卸载程序，无法切换到按用户安装' }
+    Write-Step "卸载 $(Split-Path -Leaf $uninstaller) /S"
+    $proc = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -Wait
+    Write-Step "卸载器退出码 $($proc.ExitCode)"
+
+    if (-not (Wait-PathGone -Path $ExistingDir -Seconds 90)) {
+        Write-Step '旧目录还在，尝试直接删除'
+        try {
+            Remove-Item -Recurse -Force $ExistingDir -ErrorAction Stop
+        } catch {
+            throw "旧目录删不掉（$($_.Exception.Message)），请手动卸载后重跑 -PerUser"
+        }
+    }
+
+    Write-Step '按用户安装：/S /currentuser'
+    $install = Start-Process -FilePath $Installer -ArgumentList '/S', '/currentuser' -PassThru -Wait
+    if ($install.ExitCode -ne 0) { throw "安装器退出码 $($install.ExitCode)" }
+    Write-Step '按用户安装完成'
+}
+
 function Restart-Elevated {
     Write-Step '现有安装位于 Program Files（按机器安装），以管理员权限重新启动本脚本'
     $relay = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $PSCommandPath),
                '-Repo', $Repo, '-Channel', $Channel)
     if ($Force) { $relay += '-Force' }
     if ($NoLaunch) { $relay += '-NoLaunch' }
+    if ($PerUser) { $relay += '-PerUser' }
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $relay | Out-Null
     exit 0
 }
 
 try {
-    Write-Step "=== 开始：Repo=$Repo Channel=$Channel Force=$([bool]$Force) DryRun=$([bool]$DryRun) Admin=$(Test-IsAdmin) ==="
+    Write-Step "=== 开始：Repo=$Repo Channel=$Channel Force=$([bool]$Force) PerUser=$([bool]$PerUser) DryRun=$([bool]$DryRun) Admin=$(Test-IsAdmin) ==="
 
     $installDir = Get-PaseoInstallDir
     $installedVersion = Get-PaseoVersion $installDir
@@ -316,7 +375,10 @@ try {
 
     $assetName = if ($manifest.AssetName) { $manifest.AssetName } else { $release.AssetName }
 
-    if (-not $Force -and $installedVersion -and $installedVersion -eq $targetVersion) {
+    $needsMigration = ($PerUser -and $perMachine)
+    if ($needsMigration) { Write-Step '当前是按机器安装，-PerUser 要求切到按用户安装' }
+
+    if (-not $Force -and -not $needsMigration -and $installedVersion -and $installedVersion -eq $targetVersion) {
         Write-Step "=== 已是目标版本 $($manifest.Version)，跳过 ==="
         Show-UpdateFeed $installDir
         exit 0
@@ -333,8 +395,12 @@ try {
         exit 0
     }
 
-    Stop-PaseoApp
-    Invoke-SilentInstall -Installer $installer
+    if ($needsMigration) {
+        Invoke-PerUserMigration -Installer $installer -ExistingDir $installDir
+    } else {
+        Stop-PaseoApp
+        Invoke-SilentInstall -Installer $installer
+    }
 
     $afterDir = Get-PaseoInstallDir
     if (-not $afterDir) { $afterDir = $installDir }

@@ -54,6 +54,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\Update-Paseo.ps1"
 | `-DryRun` | download and verify only — no app shutdown, no install, no elevation |
 | `-NoLaunch` | install but do not relaunch Paseo |
 | `-Force` | reinstall even when the installed version already matches |
+| `-PerUser` | uninstall a `Program Files` copy and reinstall per-user, so later updates need no elevation |
 
 Four details that follow from the installer and the app:
 
@@ -66,6 +67,15 @@ Four details that follow from the installer and the app:
   be replaced without admin rights, so the script re-launches itself with `-Verb RunAs`. With
   no prior copy it installs per-user into `%LOCALAPPDATA%\Programs\Paseo` and needs no
   elevation.
+- **The app already updates itself; a per-machine install is what blocks it.** With
+  `autoDownload = true` the app checks on launch and every 30 minutes, downloads in the
+  background, and installs **silently** when you quit — `quitAndInstall(isSilent=true)`, which
+  is `Setup.exe /S --updated` on Windows, no wizard. That only works without elevation when the
+  copy lives in `%LOCALAPPDATA%\Programs\Paseo`: these installers are built with
+  `perMachine: false`, so electron-builder leaves `isAdminRightsRequired` out of the update
+  manifest and the updater starts the installer with the user's own token. A copy under
+  `Program Files` therefore cannot be replaced silently — run the script once with `-PerUser`
+  to convert it.
 - **The install path is not in the registry.** electron-builder writes
   `DisplayName = "Paseo <version>"` and leaves `InstallLocation` empty, so the script derives
   the directory from `UninstallString` and falls back to the standard directories.
