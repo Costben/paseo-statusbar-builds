@@ -319,6 +319,21 @@ const PATCHES = [
       needle: "export function BackgroundWorkVoicePill(",
     },
   },
+  {
+    // The Windows artifact is an assisted NSIS installer (`oneClick: false`),
+    // so a non-silent launch renders its install-mode page. Upstream asks for
+    // that non-silent run whenever the user presses the in-app "install and
+    // restart" button, turning a one-click update into a wizard; the restart
+    // path asks for a silent run like the on-quit path does, and `--force-run`
+    // still relaunches the app.
+    name: "windows-silent-update",
+    file: "paseo-windows-silent-update.patch",
+    platforms: ["mac", "win"],
+    marker: {
+      path: "packages/desktop/src/features/app-update-service.ts",
+      needle: "the explicit restart must stay click-free",
+    },
+  },
 ];
 
 // Post-checks. `git apply` succeeding only proves the text landed; these prove
@@ -983,6 +998,11 @@ const MARKERS = [
     label: "Antigravity manage_task list id parser",
     path: "packages/server/src/server/agent/providers/antigravity/transcript-log.ts",
     needle: "parseManageTaskListIds",
+  },
+  {
+    label: "Windows update installs silently on an explicit restart",
+    path: "packages/desktop/src/features/app-update-service.ts",
+    needle: "the explicit restart must stay click-free",
   },
   {
     label: "No-push-token in-app attention fanout flag",

@@ -1,0 +1,29 @@
+diff --git a/packages/desktop/src/features/app-update-service.test.ts b/packages/desktop/src/features/app-update-service.test.ts
+index 5f55ff6..4e90f03 100644
+--- a/packages/desktop/src/features/app-update-service.test.ts
++++ b/packages/desktop/src/features/app-update-service.test.ts
+@@ -497,7 +497,7 @@ describe("app update service", () => {
+     expect(result.installed).toBe(true);
+     expect(runtime.installedVersions).toEqual(["1.2.5"]);
+     expect(runtime.installModes).toEqual([
+-      { targetVersion: "1.2.5", isSilent: false, isForceRunAfter: true },
++      { targetVersion: "1.2.5", isSilent: true, isForceRunAfter: true },
+     ]);
+   });
+ 
+diff --git a/packages/desktop/src/features/app-update-service.ts b/packages/desktop/src/features/app-update-service.ts
+index 2178995..8c6f6cb 100644
+--- a/packages/desktop/src/features/app-update-service.ts
++++ b/packages/desktop/src/features/app-update-service.ts
+@@ -119,7 +119,10 @@ async function performQuitAndInstall(
+   if (onBeforeQuit) await onBeforeQuit();
+   runtime.quitAndInstall({
+     targetVersion,
+-    isSilent: !restart,
++    // The Windows artifact is an assisted NSIS installer (`oneClick: false`),
++    // which renders its install-mode page unless it is asked for a silent run;
++    // the explicit restart must stay click-free exactly like the on-quit path.
++    isSilent: true,
+     isForceRunAfter: restart,
+   });
+ }

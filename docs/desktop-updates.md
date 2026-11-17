@@ -76,6 +76,7 @@ Four details that follow from the installer and the app:
   manifest and the updater starts the installer with the user's own token. A copy under
   `Program Files` therefore cannot be replaced silently — run the script once with `-PerUser`
   to convert it.
+- **The in-app “install and restart” is silent as well.** Upstream passes `isSilent: !restart`, so pressing the restart button launched this assisted installer into its install-mode wizard. `patches/paseo-windows-silent-update.patch` always asks for the silent run and keeps `--force-run`, so the button installs and relaunches without a page — the wizard remains only for a manual double-click.
 - **The install path is not in the registry.** electron-builder writes
   `DisplayName = "Paseo <version>"` and leaves `InstallLocation` empty, so the script derives
   the directory from `UninstallString` and falls back to the standard directories.
