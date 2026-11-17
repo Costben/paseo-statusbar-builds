@@ -71,11 +71,11 @@ Four details that follow from the installer and the app:
   the directory from `UninstallString` and falls back to the standard directories.
 
 Log and installer cache live in `%LOCALAPPDATA%\PaseoUpdate\`. To run it on a schedule, save
-the script there first and register the task:
+the script there first and register the task (keep `/RL HIGHEST` only when the existing install
+sits in `Program Files` — an unattended task cannot answer a UAC prompt):
 
 ```powershell
-schtasks /Create /TN "Paseo update" /SC WEEKLY /D SUN /ST 04:00 ^
-  /TR "powershell -NoProfile -ExecutionPolicy Bypass -File \"%LOCALAPPDATA%\PaseoUpdate\Update-Paseo.ps1\""
+schtasks /Create /TN "Paseo update" /SC WEEKLY /D SUN /ST 04:00 /RL HIGHEST /TR "powershell -NoProfile -ExecutionPolicy Bypass -File %LOCALAPPDATA%\PaseoUpdate\Update-Paseo.ps1"
 ```
 
 ---
