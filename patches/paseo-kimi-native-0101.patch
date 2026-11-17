@@ -311,10 +311,10 @@ index a91ba41..3021282 100644
  
  describe("QuestionFormCard explicit navigation", () => {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index c9da7d7..e4ccb63 100644
+index 95f25dd..52c2914 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -590,7 +590,8 @@ const styles = StyleSheet.create((theme) => ({
+@@ -586,7 +586,8 @@ const styles = StyleSheet.create((theme) => ({
      flexShrink: 0,
    },
    triggerThinking: {
@@ -2299,7 +2299,7 @@ index fac2894..18a0aa4 100644
          env: workerEnv,
          execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 81d25be..0aba451 100644
+index 7e0af04..c131142 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -37,6 +37,8 @@ import {
@@ -2390,7 +2390,7 @@ index 81d25be..0aba451 100644
      }
    }
  
-@@ -4529,7 +4551,13 @@ export class AgentManager {
+@@ -4521,7 +4543,13 @@ export class AgentManager {
        owner: options?.owner,
        launchEnv: options?.launchEnv,
        session,
@@ -2405,7 +2405,7 @@ index 81d25be..0aba451 100644
        config,
        // What the session opened with. Provider defaults edited later reach it when it next opens.
        effectiveOptions,
-@@ -4668,9 +4696,28 @@ export class AgentManager {
+@@ -4660,9 +4688,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -2434,7 +2434,7 @@ index 81d25be..0aba451 100644
            return;
          }
          this.logger.trace(
-@@ -5217,46 +5264,9 @@ export class AgentManager {
+@@ -5209,46 +5256,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -2483,7 +2483,7 @@ index 81d25be..0aba451 100644
        case "options_changed":
          this.onStreamOptionsChanged({ agent, patch: event.patch, flags });
          return undefined;
-@@ -5303,7 +5313,68 @@ export class AgentManager {
+@@ -5295,7 +5305,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2834,7 +2834,7 @@ index 2449b9a..146be95 100644
          contract:
            providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 004e4cb..e7ebba0 100644
+index 748d2b4..eb8c42e 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -2858,7 +2858,7 @@ index 004e4cb..e7ebba0 100644
    deriveModelDefinitionsFromACP,
    deriveModesFromACP,
    mapACPUsage,
-@@ -49,13 +51,15 @@ import {
+@@ -49,12 +51,14 @@ import {
    transformCopilotSessionResponse,
    writeCopilotProviderMode,
  } from "./copilot-acp-agent.js";
@@ -2866,7 +2866,6 @@ index 004e4cb..e7ebba0 100644
 +import { ACP_AGENT_PRESET_FEATURE_OPTION, GenericACPAgentClient } from "./generic-acp-agent.js";
 +import { createKimiProviderHooks, parseKimiGoalCommand } from "./kimi-acp-agent.js";
  import { parseKiroExtensionCommands } from "./kiro-acp-agent.js";
- import { transformPiModels } from "./pi/agent.js";
  import type { AgentStreamEvent } from "../agent-sdk-types.js";
  import type {
    AgentCapabilityFlags,
@@ -2875,7 +2874,7 @@ index 004e4cb..e7ebba0 100644
    AgentSession,
    ProviderRefreshContext,
  } from "../agent-sdk-types.js";
-@@ -103,6 +107,7 @@ interface ACPSessionInternals {
+@@ -102,6 +106,7 @@ interface ACPSessionInternals {
    connection: {
      prompt: (...args: unknown[]) => Promise<PromptResponse>;
      signal: AbortSignal;
@@ -2883,7 +2882,7 @@ index 004e4cb..e7ebba0 100644
    };
    activeForegroundTurnId: string | null;
    configOptions: SessionConfigOption[];
-@@ -216,14 +221,24 @@ class FakeTerminator {
+@@ -215,14 +220,24 @@ class FakeTerminator {
    }
  }
  
@@ -2908,7 +2907,7 @@ index 004e4cb..e7ebba0 100644
  ): ACPAgentSession {
    return new ACPAgentSession(
      {
-@@ -238,6 +253,9 @@ function createSessionWithConfig(
+@@ -237,6 +252,9 @@ function createSessionWithConfig(
        logger,
        defaultCommand: ["claude", "--acp"],
        defaultModes: [],
@@ -2918,7 +2917,7 @@ index 004e4cb..e7ebba0 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -245,7 +263,9 @@ function createSessionWithConfig(
+@@ -244,7 +262,9 @@ function createSessionWithConfig(
          supportsMcpServers: true,
          supportsReasoningStream: true,
          supportsToolInvocations: true,
@@ -2928,7 +2927,7 @@ index 004e4cb..e7ebba0 100644
      },
    );
  }
-@@ -893,6 +913,117 @@ describe("ACPAgentSession terminal tools", () => {
+@@ -892,6 +912,117 @@ describe("ACPAgentSession terminal tools", () => {
        exitStatus: { exitCode: 0, signal: null },
      });
    });
@@ -3046,7 +3045,7 @@ index 004e4cb..e7ebba0 100644
  });
  
  describe("mapACPUsage", () => {
-@@ -1484,6 +1615,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1483,6 +1614,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3111,7 +3110,7 @@ index 004e4cb..e7ebba0 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -1537,6 +1726,203 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1536,6 +1725,203 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -3315,7 +3314,7 @@ index 004e4cb..e7ebba0 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -3200,14 +3586,120 @@ describe("ACPAgentSession", () => {
+@@ -3150,14 +3536,120 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -3441,7 +3440,7 @@ index 004e4cb..e7ebba0 100644
  
      await session.extNotification("_kiro.dev/commands/available", {
        sessionId: "session-1",
-@@ -3510,128 +4002,266 @@ describe("ACPAgentSession", () => {
+@@ -3460,128 +3952,266 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -3799,7 +3798,7 @@ index 004e4cb..e7ebba0 100644
      const events: AgentStreamEvent[] = [];
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
-@@ -3640,103 +4270,288 @@ describe("ACPAgentSession", () => {
+@@ -3590,103 +4220,288 @@ describe("ACPAgentSession", () => {
            resolvePrompt = resolve;
          }),
      );
@@ -4136,7 +4135,7 @@ index 004e4cb..e7ebba0 100644
      const session = createSession();
      const events: AgentStreamEvent[] = [];
      const prompt = vi.fn(() => new Promise<PromptResponse>(() => {}));
-@@ -3748,27 +4563,39 @@ describe("ACPAgentSession", () => {
+@@ -3698,27 +4513,39 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -4187,7 +4186,7 @@ index 004e4cb..e7ebba0 100644
        } as SessionUpdate,
      });
  
-@@ -3777,10 +4604,10 @@ describe("ACPAgentSession", () => {
+@@ -3727,10 +4554,10 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -4200,7 +4199,7 @@ index 004e4cb..e7ebba0 100644
            messageId: "msg-client-1",
            clientMessageId: "msg-client-1",
          },
-@@ -3789,10 +4616,16 @@ describe("ACPAgentSession", () => {
+@@ -3739,10 +4566,16 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
@@ -4219,7 +4218,7 @@ index 004e4cb..e7ebba0 100644
  
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
      asInternals<ACPSessionInternals>(session).connection = openPromptConnection(prompt);
-@@ -3801,22 +4634,24 @@ describe("ACPAgentSession", () => {
+@@ -3751,22 +4584,24 @@ describe("ACPAgentSession", () => {
        events.push(event);
      });
  
@@ -4251,7 +4250,7 @@ index 004e4cb..e7ebba0 100644
        } as SessionUpdate,
      });
  
-@@ -3825,20 +4660,171 @@ describe("ACPAgentSession", () => {
+@@ -3775,20 +4610,171 @@ describe("ACPAgentSession", () => {
      ).toEqual([
        {
          type: "timeline",
@@ -4435,7 +4434,7 @@ index 004e4cb..e7ebba0 100644
            rejectPrompt = reject;
          }),
      );
-@@ -5468,3 +6454,1051 @@ describe("custom ACP provider with configured models", () => {
+@@ -5418,3 +6404,1051 @@ describe("custom ACP provider with configured models", () => {
      expect((await created.getRuntimeInfo()).model).toBe("advertised-default");
    });
  });
@@ -7569,10 +7568,10 @@ index ff76e51..73428e3 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 8bafb4e..6490561 100644
+index e49b484..afe84d2 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
-@@ -41,9 +41,12 @@ import {
+@@ -42,9 +42,12 @@ import {
  } from "./task-notification-tool-call.js";
  import { isClaudeInterruptPlaceholderText } from "./interrupt-placeholder.js";
  import {
@@ -7585,7 +7584,7 @@ index 8bafb4e..6490561 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -126,6 +129,7 @@ import {
+@@ -127,6 +130,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -7593,7 +7592,7 @@ index 8bafb4e..6490561 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2323,6 +2327,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2328,6 +2332,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -7625,7 +7624,7 @@ index 8bafb4e..6490561 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2433,7 +2462,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2438,7 +2467,7 @@ class ClaudeAgentSession implements AgentSession {
      this.resolveBinary = options.resolveBinary;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -7634,7 +7633,7 @@ index 8bafb4e..6490561 100644
      );
      const handle = options.handle;
  
-@@ -2818,7 +2847,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2823,7 +2852,7 @@ class ClaudeAgentSession implements AgentSession {
        this.cachedRuntimeInfo = null;
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -7643,7 +7642,7 @@ index 8bafb4e..6490561 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3726,6 +3755,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3731,6 +3760,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -7668,7 +7667,7 @@ index 8bafb4e..6490561 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4708,6 +4755,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4713,6 +4760,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -7681,7 +7680,7 @@ index 8bafb4e..6490561 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4725,6 +4778,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4730,6 +4783,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -7689,7 +7688,7 @@ index 8bafb4e..6490561 100644
          break;
        }
        case "stream_event":
-@@ -4751,6 +4805,200 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4756,6 +4810,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7890,7 +7889,7 @@ index 8bafb4e..6490561 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -5085,6 +5333,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5090,6 +5338,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7898,7 +7897,7 @@ index 8bafb4e..6490561 100644
      const usage = this.convertUsage(message);
      // Claude Code reports a turn that stopped on an API error (a usage limit, an overloaded or
      // rejected request) as `success` with `is_error`, carrying the error text in `result`.
-@@ -6545,6 +6794,146 @@ function readClaudeReplayTaskDeclaration(
+@@ -6548,6 +6797,146 @@ function readClaudeReplayTaskDeclaration(
    };
  }
  
@@ -8046,10 +8045,10 @@ index 8bafb4e..6490561 100644
    return /agentId:\s*([\w-]+)/.exec(JSON.stringify(content))?.[1];
  }
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index 1287fd6..91da066 100644
+index d9a7ddc..36c348c 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
-@@ -20,6 +20,8 @@ import {
+@@ -21,6 +21,8 @@ import {
    getClaudeContextWindowMaxTokens,
    getClaudeModels,
    normalizeClaudeRuntimeModelId,
@@ -8058,11 +8057,10 @@ index 1287fd6..91da066 100644
  } from "./models.js";
  
  describe("getClaudeContextWindowMaxTokens", () => {
-@@ -1174,3 +1176,77 @@ describe("Claude model discovery process", () => {
-     expect(closed).toBe(true);
+@@ -1298,3 +1300,76 @@ describe("Claude model discovery process", () => {
+     });
    });
  });
-+
 +describe("resolveClaudeContextWindowMaxTokens", () => {
 +  it("uses the manifest window for a model it knows", () => {
 +    expect(resolveClaudeContextWindowMaxTokens("claude-opus-4-8", undefined)).toBe(200_000);
