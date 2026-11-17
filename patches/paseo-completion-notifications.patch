@@ -564,7 +564,7 @@ index 0000000..1bae40a
 +  }
 +});
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 6a42d9e..331b5de 100644
+index 6a42d9e..8d98ec8 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -829,6 +829,11 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
@@ -632,7 +632,7 @@ index 6a42d9e..331b5de 100644
          flags.shouldDispatchEvent = false;
          this.emitState(agent);
          return true;
-@@ -5852,6 +5875,97 @@ export class AgentManager {
+@@ -5852,6 +5875,98 @@ export class AgentManager {
      }
    }
  
@@ -662,6 +662,7 @@ index 6a42d9e..331b5de 100644
 +  private clearDeferredCompletion(agentId: string): void {
 +    this.clearDeferredCompletionTimer(agentId);
 +    this.deferredCompletionAgents.delete(agentId);
++    this.lastBackgroundWorkSettledAt.delete(agentId);
 +  }
 +
 +  private reconcileDeferredCompletionForBackgroundUpdate(agent: ManagedAgent): void {
@@ -730,7 +731,7 @@ index 6a42d9e..331b5de 100644
    private checkAndSetAttention(agent: ManagedAgent): void {
      const previousStatus = this.previousStatuses.get(agent.id);
      const currentStatus = agent.lifecycle;
-@@ -5859,11 +5973,17 @@ export class AgentManager {
+@@ -5859,11 +5974,17 @@ export class AgentManager {
      // Track the new status
      this.previousStatuses.set(agent.id, currentStatus);
  
@@ -748,7 +749,7 @@ index 6a42d9e..331b5de 100644
        this.raiseErrorAttention(agent);
        return;
      }
-@@ -5873,6 +5993,26 @@ export class AgentManager {
+@@ -5873,6 +5994,26 @@ export class AgentManager {
      }
  
      if (previousStatus === "running" && currentStatus === "idle") {
