@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index defd6e7..395d260 100644
+index c15aa2ab1..acb38e9b9 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -7766,3 +7766,147 @@ describe("ACP provider hook continuation", () => {
+@@ -7716,3 +7716,147 @@ describe("ACP provider hook continuation", () => {
      expect(seen).toEqual([false]);
    });
  });
@@ -151,7 +151,7 @@ index defd6e7..395d260 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index a96b966..b241af9 100644
+index a96b96614..b241af9fc 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -3774,6 +3774,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {

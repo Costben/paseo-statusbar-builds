@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index aab192e..1b5273f 100644
+index b5a633b2c..b0154f2ce 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -4141,7 +4141,12 @@ describe("ACPAgentSession", () => {
+@@ -4091,7 +4091,12 @@ describe("ACPAgentSession", () => {
        const { turnId } = await session.startTurn(notification);
        await finished;
        expect(
@@ -16,7 +16,7 @@ index aab192e..1b5273f 100644
        ).toEqual([]);
        expect(events).toContainEqual(
          expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
-@@ -4189,7 +4194,12 @@ describe("ACPAgentSession", () => {
+@@ -4139,7 +4144,12 @@ describe("ACPAgentSession", () => {
      await flushMicrotasks();
  
      expect(
@@ -30,7 +30,7 @@ index aab192e..1b5273f 100644
      ).toEqual([]);
      expect(events).toContainEqual(
        expect.objectContaining({ type: "turn_failed", code: "kimi_timeline_missing", turnId }),
-@@ -7192,6 +7202,12 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
+@@ -7142,6 +7152,12 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
        );
  
        expect(terminal).toMatchObject({ type: "turn_failed", code: "kimi_prompt_not_accepted" });
@@ -44,7 +44,7 @@ index aab192e..1b5273f 100644
        await harness.dispose();
      }
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 2306c9f..a3b3ed0 100644
+index 2306c9f71..a3b3ed017 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -5307,6 +5307,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
@@ -85,7 +85,7 @@ index 2306c9f..a3b3ed0 100644
        type: "turn_failed",
        provider: this.provider,
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
-index ee6c43c..6fd5581 100644
+index ee6c43c90..6fd558122 100644
 --- a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 @@ -174,6 +174,44 @@ describe("KimiMainTurnRenderer", () => {
@@ -134,7 +134,7 @@ index ee6c43c..6fd5581 100644
      const { renderer, events } = createHarness();
      const start = ATTACHED_AT + 1_000;
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
-index 9e57643..40b8a27 100644
+index 9e5764353..40b8a27b4 100644
 --- a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 @@ -267,11 +267,16 @@ export class KimiMainTurnRenderer {
@@ -195,7 +195,7 @@ index 9e57643..40b8a27 100644
      if (this.prompts.size > 64) {
        const oldest = this.prompts.keys().next().value;
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
-index df59917..dd69669 100644
+index df5991772..dd69669b8 100644
 --- a/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -183,6 +183,11 @@ export class KimiNativeBridge {
@@ -280,7 +280,7 @@ index df59917..dd69669 100644
            return "not_accepted";
          }
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
-index 1c30449..38af58b 100644
+index 1c304496a..38af58b0b 100644
 --- a/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 @@ -1521,6 +1521,84 @@ describe("KimiSessionLog", () => {
@@ -369,7 +369,7 @@ index 1c30449..38af58b 100644
      const { home, file } = createSessionHome(SESSION_ID);
      appendFileSync(file, `${userPromptLine("hi")}\n${injectionLine("reminder")}\n`);
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
-index 8bc6adf..d771115 100644
+index 8bc6adf65..d771115c2 100644
 --- a/packages/server/src/server/agent/providers/kimi/session-log.ts
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
 @@ -199,10 +199,16 @@ export interface KimiSessionLogState {

@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 361f906..defd6e7 100644
+index ff452ce3b..c15aa2ab1 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -7331,6 +7331,94 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
+@@ -7281,6 +7281,94 @@ describe("ACPAgentSession with Kimi turns not streamed over ACP", () => {
      }
    });
  
@@ -98,7 +98,7 @@ index 361f906..defd6e7 100644
      const harness = await createKimiLogHarness();
      try {
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 00acb81..a96b966 100644
+index 00acb81e7..a96b96614 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -202,6 +202,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {

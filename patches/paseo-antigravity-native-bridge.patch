@@ -1,5 +1,5 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 8df0865..2306c9f 100644
+index 8df086535..2306c9f71 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -739,6 +739,12 @@ export interface ACPProviderHooks {
@@ -59,7 +59,7 @@ index 8df0865..2306c9f 100644
  
    async close(): Promise<void> {
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
-index 98ac07e..b1e06f3 100644
+index 98ac07eeb..b1e06f362 100644
 --- a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 @@ -31,6 +31,7 @@ import {
@@ -80,7 +80,7 @@ index 98ac07e..b1e06f3 100644
  
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 new file mode 100644
-index 0000000..97404e3
+index 000000000..97404e374
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -0,0 +1,519 @@
@@ -605,7 +605,7 @@ index 0000000..97404e3
 +});
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 new file mode 100644
-index 0000000..60865a2
+index 000000000..60865a292
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -0,0 +1,697 @@
@@ -1308,7 +1308,7 @@ index 0000000..60865a2
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 new file mode 100644
-index 0000000..a7db2ea
+index 000000000..a7db2eabf
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 @@ -0,0 +1,627 @@

@@ -1,5 +1,5 @@
 diff --git a/packages/desktop/src/features/app-update-service.test.ts b/packages/desktop/src/features/app-update-service.test.ts
-index 5f55ff6..4e90f03 100644
+index 5f55ff609..4e90f030e 100644
 --- a/packages/desktop/src/features/app-update-service.test.ts
 +++ b/packages/desktop/src/features/app-update-service.test.ts
 @@ -497,7 +497,7 @@ describe("app update service", () => {
@@ -12,7 +12,7 @@ index 5f55ff6..4e90f03 100644
    });
  
 diff --git a/packages/desktop/src/features/app-update-service.ts b/packages/desktop/src/features/app-update-service.ts
-index 2178995..8c6f6cb 100644
+index 21789950b..8c6f6cbb2 100644
 --- a/packages/desktop/src/features/app-update-service.ts
 +++ b/packages/desktop/src/features/app-update-service.ts
 @@ -119,7 +119,10 @@ async function performQuitAndInstall(

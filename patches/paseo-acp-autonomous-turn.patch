@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index e264e95..361f906 100644
+index ffa36a304..ff452ce3b 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -3928,7 +3928,7 @@ describe("ACPAgentSession", () => {
+@@ -3878,7 +3878,7 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
@@ -11,7 +11,7 @@ index e264e95..361f906 100644
      const session = createSession();
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
  
-@@ -3946,22 +3946,23 @@ describe("ACPAgentSession", () => {
+@@ -3896,22 +3896,23 @@ describe("ACPAgentSession", () => {
        } as SessionUpdate,
      });
  
@@ -50,7 +50,7 @@ index e264e95..361f906 100644
    });
  
    test("startTurn returns before the ACP prompt settles and completes later via subscribers", async () => {
-@@ -6387,6 +6388,10 @@ describe("ACP idle runtime cleanup", () => {
+@@ -6337,6 +6338,10 @@ describe("ACP idle runtime cleanup", () => {
            content: { type: "text", text: "flush" },
          },
        });
@@ -62,7 +62,7 @@ index e264e95..361f906 100644
        const terminal = await session.createTerminal({
          sessionId: candidate.sessionId,
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 283c473..00acb81 100644
+index 283c47300..00acb81e7 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -363,6 +363,12 @@ const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;

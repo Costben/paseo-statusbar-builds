@@ -1,5 +1,5 @@
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 97404e3..93d6925 100644
+index 97404e374..93d6925f5 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -205,6 +205,100 @@ describe("AntigravityNativeBridge & provider hooks", () => {
@@ -104,7 +104,7 @@ index 97404e3..93d6925 100644
      const harness = createHarness();
      const sessionHandle = harness.attach();
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index 60865a2..dbd750b 100644
+index 60865a292..dbd750b30 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -28,6 +28,8 @@ export const DEFAULT_ANTIGRAVITY_POLL_INTERVAL_MS = 500;
@@ -156,7 +156,7 @@ index 60865a2..dbd750b 100644
        this.lastForegroundEndedAt = this.now();
        return;
 diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
-index a7db2ea..1012848 100644
+index a7db2eabf..10128482e 100644
 --- a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 @@ -220,6 +220,15 @@ export function parseAntigravityTranscriptLine(line: string): AntigravityTranscr

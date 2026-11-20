@@ -1,5 +1,5 @@
 diff --git a/packages/protocol/src/provider-config.ts b/packages/protocol/src/provider-config.ts
-index c94f8ca..60c01f7 100644
+index c94f8ca96..60c01f7b5 100644
 --- a/packages/protocol/src/provider-config.ts
 +++ b/packages/protocol/src/provider-config.ts
 @@ -53,6 +53,8 @@ export const ProviderOverrideSchema = z.object({
@@ -13,7 +13,7 @@ index c94f8ca..60c01f7 100644
    // COMPAT(providerParams): added in v0.10.0, remove after 2027-03-30 once configs use options.
 diff --git a/packages/server/src/server/agent/provider-icon.ts b/packages/server/src/server/agent/provider-icon.ts
 new file mode 100644
-index 0000000..1a298d5
+index 000000000..1a298d5c2
 --- /dev/null
 +++ b/packages/server/src/server/agent/provider-icon.ts
 @@ -0,0 +1,83 @@
@@ -101,7 +101,7 @@ index 0000000..1a298d5
 +  }
 +}
 diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
-index f1fda21..4251b2d 100644
+index d9096d2fd..0c09e590c 100644
 --- a/packages/server/src/server/agent/provider-registry.test.ts
 +++ b/packages/server/src/server/agent/provider-registry.test.ts
 @@ -506,6 +506,9 @@ vi.mock("./providers/kimi-acp-agent.js", () => ({
@@ -172,7 +172,7 @@ index f1fda21..4251b2d 100644
    const registry = buildProviderRegistry(logger, {
      providerOverrides: {
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index 146be95..16dad26 100644
+index caf7972f9..acd8c6366 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -25,6 +25,7 @@ import {
@@ -262,7 +262,7 @@ index 146be95..16dad26 100644
    };
  }
  
-@@ -660,8 +671,10 @@ function createRegistryEntry(
+@@ -663,8 +674,10 @@ function createRegistryEntry(
    const hasStaticModes = resolved.definition.modes.length > 0;
  
    const { createBaseClient: _createBaseClient, contract: _contract, ...configuration } = resolved;

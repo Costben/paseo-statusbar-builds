@@ -1,6 +1,6 @@
 diff --git a/packages/app/src/android/rotation-delay.ts b/packages/app/src/android/rotation-delay.ts
 new file mode 100644
-index 0000000..ed1765b
+index 000000000..ed1765b7c
 --- /dev/null
 +++ b/packages/app/src/android/rotation-delay.ts
 @@ -0,0 +1,32 @@
@@ -37,7 +37,7 @@ index 0000000..ed1765b
 +  }
 +}
 diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
-index 382ab35..a0ed054 100644
+index 382ab350f..a0ed05443 100644
 --- a/packages/app/src/hooks/use-settings/index.ts
 +++ b/packages/app/src/hooks/use-settings/index.ts
 @@ -1,6 +1,7 @@
@@ -64,7 +64,7 @@ index 382ab35..a0ed054 100644
      settings,
      isLoading: isPending,
 diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
-index f04b7b6..cfcb96a 100644
+index f04b7b6d9..cfcb96ab4 100644
 --- a/packages/app/src/hooks/use-settings/storage.ts
 +++ b/packages/app/src/hooks/use-settings/storage.ts
 @@ -105,6 +105,8 @@ export interface AppSettings {
@@ -93,10 +93,10 @@ index f04b7b6..cfcb96a 100644
      // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
      toolCallDetailLevel: z
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 51250d0..97a408c 100644
+index 483b09ce4..9fe186e33 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2472,6 +2472,10 @@ export const ar: TranslationResources = {
+@@ -2508,6 +2508,10 @@ export const ar: TranslationResources = {
      },
      general: {
        title: "عام",
@@ -108,10 +108,10 @@ index 51250d0..97a408c 100644
        setup: {
          label: "الإعداد الأولي",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index f7452c2..81a91d4 100644
+index 7fcd23009..365e225c2 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2567,6 +2567,10 @@ export const en = {
+@@ -2603,6 +2603,10 @@ export const en = {
      },
      general: {
        title: "General",
@@ -123,10 +123,10 @@ index f7452c2..81a91d4 100644
        setup: {
          label: "First-run setup",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 6f3c051..90a71e4 100644
+index b7bf6c6eb..3fe180ce9 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2485,6 +2485,10 @@ export const es: TranslationResources = {
+@@ -2521,6 +2521,10 @@ export const es: TranslationResources = {
      },
      general: {
        title: "General",
@@ -138,10 +138,10 @@ index 6f3c051..90a71e4 100644
        setup: {
          label: "Configuración inicial",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 022bc3d..b48363c 100644
+index b223321b8..cbd4f6055 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2486,6 +2486,10 @@ export const fr: TranslationResources = {
+@@ -2522,6 +2522,10 @@ export const fr: TranslationResources = {
      },
      general: {
        title: "Général",
@@ -153,10 +153,10 @@ index 022bc3d..b48363c 100644
        setup: {
          label: "Configuration initiale",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index 75f2d55..a7c3687 100644
+index 1aa50bbfa..701e04726 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2459,6 +2459,10 @@ export const ja: TranslationResources = {
+@@ -2495,6 +2495,10 @@ export const ja: TranslationResources = {
      },
      general: {
        title: "一般",
@@ -168,10 +168,10 @@ index 75f2d55..a7c3687 100644
        setup: {
          label: "初回セットアップ",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index d4ec87a..315aa2e 100644
+index 27ae440db..d341199dc 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2447,6 +2447,10 @@ export const ko: TranslationResources = {
+@@ -2483,6 +2483,10 @@ export const ko: TranslationResources = {
      },
      general: {
        title: "일반",
@@ -183,10 +183,10 @@ index d4ec87a..315aa2e 100644
        setup: {
          label: "초기 설정",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 54516fc..b1f2974 100644
+index c07d1479b..84a82d788 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2470,6 +2470,10 @@ export const ptBR: TranslationResources = {
+@@ -2506,6 +2506,10 @@ export const ptBR: TranslationResources = {
      },
      general: {
        title: "Geral",
@@ -198,10 +198,10 @@ index 54516fc..b1f2974 100644
        setup: {
          label: "Configuração inicial",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 9ee2f17..e609adb 100644
+index 263e4e4f2..dc1c5f4e7 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2473,6 +2473,10 @@ export const ru: TranslationResources = {
+@@ -2510,6 +2510,10 @@ export const ru: TranslationResources = {
      },
      general: {
        title: "Основные",
@@ -213,10 +213,10 @@ index 9ee2f17..e609adb 100644
        setup: {
          label: "Первоначальная настройка",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index e2b6762..5e8d293 100644
+index 2440c00f0..cb99af340 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2412,6 +2412,10 @@ export const zhCN: TranslationResources = {
+@@ -2448,6 +2448,10 @@ export const zhCN: TranslationResources = {
      },
      general: {
        title: "通用",
@@ -228,7 +228,7 @@ index e2b6762..5e8d293 100644
        setup: {
          label: "首次设置",
 diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
-index 7fc6dbe..442b636 100644
+index 7fc6dbe24..442b636fb 100644
 --- a/packages/app/src/screens/settings-screen.tsx
 +++ b/packages/app/src/screens/settings-screen.tsx
 @@ -4,7 +4,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";

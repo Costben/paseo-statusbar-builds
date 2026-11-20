@@ -1,5 +1,5 @@
 diff --git a/packages/server/src/server/plugins/builtin/index.ts b/packages/server/src/server/plugins/builtin/index.ts
-index ca80c95..2630e11 100644
+index ca80c95fd..2630e1169 100644
 --- a/packages/server/src/server/plugins/builtin/index.ts
 +++ b/packages/server/src/server/plugins/builtin/index.ts
 @@ -3,6 +3,7 @@ import path from "node:path";
@@ -12,7 +12,7 @@ index ca80c95..2630e11 100644
    "copilot-usage-source",
 diff --git a/plugins/antigravity-usage-source/icon.svg b/plugins/antigravity-usage-source/icon.svg
 new file mode 100644
-index 0000000..0576d92
+index 000000000..0576d92a8
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/icon.svg
 @@ -0,0 +1,3 @@
@@ -21,7 +21,7 @@ index 0000000..0576d92
 +</svg>
 diff --git a/plugins/antigravity-usage-source/index.server.ts b/plugins/antigravity-usage-source/index.server.ts
 new file mode 100644
-index 0000000..3ebe5f0
+index 000000000..3ebe5f0df
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/index.server.ts
 @@ -0,0 +1,15 @@
@@ -42,14 +42,14 @@ index 0000000..3ebe5f0
 +}
 diff --git a/plugins/antigravity-usage-source/paseo-plugin.json b/plugins/antigravity-usage-source/paseo-plugin.json
 new file mode 100644
-index 0000000..33cc7f3
+index 000000000..33cc7f39c
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/paseo-plugin.json
 @@ -0,0 +1 @@
 +{ "id": "antigravity-usage-source", "requirements": { "paseo": ">=0.11.0" } }
 diff --git a/plugins/antigravity-usage-source/server/usage.test.ts b/plugins/antigravity-usage-source/server/usage.test.ts
 new file mode 100644
-index 0000000..a0e4ea4
+index 000000000..a0e4ea43f
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.test.ts
 @@ -0,0 +1,649 @@
@@ -704,7 +704,7 @@ index 0000000..a0e4ea4
 +});
 diff --git a/plugins/antigravity-usage-source/server/usage.ts b/plugins/antigravity-usage-source/server/usage.ts
 new file mode 100644
-index 0000000..161fc64
+index 000000000..161fc64f0
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.ts
 @@ -0,0 +1,737 @@
@@ -1447,7 +1447,7 @@ index 0000000..161fc64
 +}
 diff --git a/plugins/antigravity-usage-source/shared/input.ts b/plugins/antigravity-usage-source/shared/input.ts
 new file mode 100644
-index 0000000..b25318e
+index 000000000..b25318ead
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/shared/input.ts
 @@ -0,0 +1,28 @@

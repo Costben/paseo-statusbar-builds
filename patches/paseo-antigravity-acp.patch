@@ -1,5 +1,5 @@
 diff --git a/packages/protocol/src/provider-config.ts b/packages/protocol/src/provider-config.ts
-index 60c01f7..0f46edd 100644
+index 60c01f7b5..0f46edd26 100644
 --- a/packages/protocol/src/provider-config.ts
 +++ b/packages/protocol/src/provider-config.ts
 @@ -67,7 +67,15 @@ export const ProviderOverrideSchema = z.object({
@@ -20,7 +20,7 @@ index 60c01f7..0f46edd 100644
  
  export const ProviderOverridesSchema = z
 diff --git a/packages/protocol/src/provider-manifest.ts b/packages/protocol/src/provider-manifest.ts
-index 82d0978..93949bc 100644
+index 82d097836..93949bc18 100644
 --- a/packages/protocol/src/provider-manifest.ts
 +++ b/packages/protocol/src/provider-manifest.ts
 @@ -167,6 +167,45 @@ export const OMP_MODES: AgentProviderModeDefinition[] = [
@@ -86,7 +86,7 @@ index 82d0978..93949bc 100644
  
  export const DEV_AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
 diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
-index 24438f9..4701dee 100644
+index cc0ba0249..20b4707c6 100644
 --- a/packages/server/src/server/agent/provider-registry.test.ts
 +++ b/packages/server/src/server/agent/provider-registry.test.ts
 @@ -33,6 +33,7 @@ const mockState = vi.hoisted(() => {
@@ -154,7 +154,7 @@ index 24438f9..4701dee 100644
    KimiACPAgentClient: class KimiACPAgentClient {
      readonly capabilities = {
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index 9d8f111..b5f29ae 100644
+index 5a1ec95bf..2787b749b 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -38,6 +38,7 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -178,7 +178,7 @@ index 9d8f111..b5f29ae 100644
    "mock-slow": () => new MockSlowProviderClient(),
  };
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 395d260..aab192e 100644
+index acb38e9b9..b5a633b2c 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -29,11 +29,14 @@ import {
@@ -196,7 +196,7 @@ index 395d260..aab192e 100644
    resolveACPModeSelection,
    resolveACPModelSelection,
    summarizeACPRequestError,
-@@ -7909,4 +7912,176 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+@@ -7859,4 +7862,176 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
        outcome: { outcome: "selected", optionId: "q0_skip" },
      });
    });
@@ -374,7 +374,7 @@ index 395d260..aab192e 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index b241af9..8df0865 100644
+index b241af9fc..8df086535 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -20,11 +20,12 @@ import type {
@@ -1177,7 +1177,7 @@ index b241af9..8df0865 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 new file mode 100644
-index 0000000..c8203c7
+index 000000000..c8203c7ae
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 @@ -0,0 +1,301 @@
@@ -1484,7 +1484,7 @@ index 0000000..c8203c7
 +});
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 new file mode 100644
-index 0000000..98ac07e
+index 000000000..98ac07eeb
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 @@ -0,0 +1,337 @@
@@ -1826,7 +1826,7 @@ index 0000000..98ac07e
 +  }
 +}
 diff --git a/packages/server/src/server/plugins/builtin/index.ts b/packages/server/src/server/plugins/builtin/index.ts
-index d51f6ee..ca80c95 100644
+index d51f6ee4d..ca80c95fd 100644
 --- a/packages/server/src/server/plugins/builtin/index.ts
 +++ b/packages/server/src/server/plugins/builtin/index.ts
 @@ -3,7 +3,6 @@ import path from "node:path";

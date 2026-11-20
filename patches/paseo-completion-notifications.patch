@@ -1,5 +1,5 @@
 diff --git a/packages/desktop/src/features/notifications.ts b/packages/desktop/src/features/notifications.ts
-index 97f44c1..7c7c3e6 100644
+index 97f44c1f3..7c7c3e683 100644
 --- a/packages/desktop/src/features/notifications.ts
 +++ b/packages/desktop/src/features/notifications.ts
 @@ -1,6 +1,8 @@
@@ -93,7 +93,7 @@ index 97f44c1..7c7c3e6 100644
      return true;
    });
 diff --git a/packages/server/src/server/agent-attention-policy.test.ts b/packages/server/src/server/agent-attention-policy.test.ts
-index ac9d92f..5b1fda9 100644
+index ac9d92f16..5b1fda9f9 100644
 --- a/packages/server/src/server/agent-attention-policy.test.ts
 +++ b/packages/server/src/server/agent-attention-policy.test.ts
 @@ -223,6 +223,28 @@ describe("computeNotificationPlan", () => {
@@ -126,7 +126,7 @@ index ac9d92f..5b1fda9 100644
  
  describe("isPushEligibleAttentionReason", () => {
 diff --git a/packages/server/src/server/agent-attention-policy.ts b/packages/server/src/server/agent-attention-policy.ts
-index 98b3a4d..c2a1446 100644
+index 98b3a4dcd..c2a1446a8 100644
 --- a/packages/server/src/server/agent-attention-policy.ts
 +++ b/packages/server/src/server/agent-attention-policy.ts
 @@ -13,6 +13,7 @@ export type AttentionFocusTarget = { kind: "agent"; id: string } | { kind: "term
@@ -170,7 +170,7 @@ index 98b3a4d..c2a1446 100644
  
 diff --git a/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts b/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts
 new file mode 100644
-index 0000000..1bae40a
+index 000000000..1bae40a3e
 --- /dev/null
 +++ b/packages/server/src/server/agent/agent-manager-deferred-attention.test.ts
 @@ -0,0 +1,389 @@
@@ -564,10 +564,10 @@ index 0000000..1bae40a
 +  }
 +});
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 6a42d9e..8d98ec8 100644
+index 32a3f4f42..0999ecfab 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
-@@ -829,6 +829,11 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
+@@ -848,6 +848,11 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
   */
  const RETIRED_INTERNAL_AGENT_TTL_MS = 10 * 60 * 1000;
  const RETIRED_INTERNAL_AGENT_LIMIT = 500;
@@ -579,7 +579,7 @@ index 6a42d9e..8d98ec8 100644
  
  export interface RetiredInternalAgent {
    record: ArchivedStoredAgentRecord;
-@@ -859,6 +864,9 @@ export class AgentManager {
+@@ -878,6 +883,9 @@ export class AgentManager {
    private readonly registry?: AgentStorage;
    private readonly durableTimelineStore?: AgentTimelineStore;
    private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
@@ -589,7 +589,7 @@ index 6a42d9e..8d98ec8 100644
    private readonly backgroundTasks = new Set<Promise<void>>();
    private readonly agentRegistrationTasks = new Set<Promise<void>>();
    private readonly inFlightAgentCloses = new Map<string, Promise<void>>();
-@@ -2428,6 +2436,18 @@ export class AgentManager {
+@@ -2473,6 +2481,18 @@ export class AgentManager {
    async setAgentMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null> {
      return this.runLifecycleMutation(agentId, async () => {
        const agent = await this.ensureInteractiveSessionUnlocked(agentId);
@@ -608,7 +608,7 @@ index 6a42d9e..8d98ec8 100644
        const notice = (await agent.session.setMode(modeId)) ?? null;
        await this.drainSessionEvents(agentId);
        const currentMode = (await agent.session.getCurrentMode()) ?? modeId;
-@@ -4628,6 +4648,7 @@ export class AgentManager {
+@@ -4720,6 +4740,7 @@ export class AgentManager {
      this.agentStreamCoalescer.flushAndDiscard(agent.id);
      this.agents.delete(agent.id);
      this.previousStatuses.delete(agent.id);
@@ -616,15 +616,15 @@ index 6a42d9e..8d98ec8 100644
      if (agent.unsubscribeSession) {
        agent.unsubscribeSession();
        agent.unsubscribeSession = null;
-@@ -4798,6 +4819,7 @@ export class AgentManager {
+@@ -4890,6 +4911,7 @@ export class AgentManager {
            ? this.backgroundWork.clear(agent.id)
            : this.backgroundWork.apply(agent.id, event.items);
-       if (items) this.dispatch({ type: "background_work", agentId: agent.id, items });
+       this.publishBackgroundWork(agent.id, items);
 +      this.reconcileDeferredCompletionForBackgroundUpdate(agent);
        return;
      }
-     const turnId = getAgentStreamEventTurnId(event);
-@@ -5352,6 +5374,7 @@ export class AgentManager {
+     // Resolve notice membership before selecting the foreground run's waiters.
+@@ -5452,6 +5474,7 @@ export class AgentManager {
          return true;
        case "background_tasks_updated":
          agent.backgroundTasks = event.backgroundTasks;
@@ -632,7 +632,7 @@ index 6a42d9e..8d98ec8 100644
          flags.shouldDispatchEvent = false;
          this.emitState(agent);
          return true;
-@@ -5852,6 +5875,98 @@ export class AgentManager {
+@@ -5949,6 +5972,98 @@ export class AgentManager {
      }
    }
  
@@ -731,7 +731,7 @@ index 6a42d9e..8d98ec8 100644
    private checkAndSetAttention(agent: ManagedAgent): void {
      const previousStatus = this.previousStatuses.get(agent.id);
      const currentStatus = agent.lifecycle;
-@@ -5859,11 +5974,17 @@ export class AgentManager {
+@@ -5956,11 +6071,17 @@ export class AgentManager {
      // Track the new status
      this.previousStatuses.set(agent.id, currentStatus);
  
@@ -749,10 +749,10 @@ index 6a42d9e..8d98ec8 100644
        this.raiseErrorAttention(agent);
        return;
      }
-@@ -5873,6 +5994,26 @@ export class AgentManager {
+@@ -5975,6 +6096,26 @@ export class AgentManager {
      }
  
-     if (previousStatus === "running" && currentStatus === "idle") {
+     if (finished) {
 +      const backgroundWorkLive = this.hasActiveBlockingBackgroundWork(agent);
 +      const backgroundWorkSettled =
 +        !backgroundWorkLive && this.backgroundWorkSettledRecently(agent.id);
@@ -777,7 +777,7 @@ index 6a42d9e..8d98ec8 100644
          requiresAttention: true,
          attentionReason: "finished",
 diff --git a/packages/server/src/server/push/index.test.ts b/packages/server/src/server/push/index.test.ts
-index 1cd4c1b..9fb3bcc 100644
+index 1cd4c1baa..9fb3bccac 100644
 --- a/packages/server/src/server/push/index.test.ts
 +++ b/packages/server/src/server/push/index.test.ts
 @@ -64,4 +64,29 @@ describe("push notifications", () => {
@@ -811,7 +811,7 @@ index 1cd4c1b..9fb3bcc 100644
 +  });
  });
 diff --git a/packages/server/src/server/push/index.ts b/packages/server/src/server/push/index.ts
-index 3f1a8e0..3e9f9ff 100644
+index 3f1a8e090..3e9f9ffb2 100644
 --- a/packages/server/src/server/push/index.ts
 +++ b/packages/server/src/server/push/index.ts
 @@ -10,10 +10,12 @@ const PUSH_TOKEN_LEASE_MS = 48 * 60 * 60 * 1000;
@@ -839,7 +839,7 @@ index 3f1a8e0..3e9f9ff 100644
        const tokens = store.getActiveTokens();
        options.logger.info({ tokenCount: tokens.length }, "Sending push notification");
 diff --git a/packages/server/src/server/websocket-server.notifications.test.ts b/packages/server/src/server/websocket-server.notifications.test.ts
-index c16a079..64c043d 100644
+index 2d0a36f65..0e11e420a 100644
 --- a/packages/server/src/server/websocket-server.notifications.test.ts
 +++ b/packages/server/src/server/websocket-server.notifications.test.ts
 @@ -77,6 +77,11 @@ function createWorkspaceAutoNameStub(): WorkspaceAutoName {
@@ -854,9 +854,9 @@ index c16a079..64c043d 100644
  
    async send(payload: PushPayload): Promise<void> {
      this.sent.push(payload);
-@@ -364,4 +369,21 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
-     expect(readAttentionRequiredMessage(ws).shouldNotify).toBe(false);
-     expect(pushNotifications.sent).toEqual([]);
+@@ -420,4 +425,22 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
+     await broadcast();
+     expect(pushNotifications.sent).toHaveLength(1);
    });
 +
 +  it("notifies all connected clients in-app when no client is present and no active push tokens exist", async () => {
@@ -869,6 +869,7 @@ index c16a079..64c043d 100644
 +      agentId: "agent-desktop-idle",
 +      provider: "claude",
 +      reason: "finished",
++      attentionTimestamp: new Date(1_000),
 +    });
 +
 +    expect(readAttentionRequiredMessage(wsA).shouldNotify).toBe(true);
@@ -877,24 +878,26 @@ index c16a079..64c043d 100644
 +  });
  });
 diff --git a/packages/server/src/server/websocket-server.ts b/packages/server/src/server/websocket-server.ts
-index cbbdd96..24eeacd 100644
+index 37e82203e..94a24df89 100644
 --- a/packages/server/src/server/websocket-server.ts
 +++ b/packages/server/src/server/websocket-server.ts
-@@ -2941,11 +2941,13 @@ export class VoiceAssistantWebSocketServer {
+@@ -2964,6 +2964,7 @@ export class VoiceAssistantWebSocketServer {
        permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
      });
  
 +    const hasPushTokens = this.pushNotificationSender.hasActiveTokens?.() ?? true;
-     const plan = computeNotificationPlan({
-       allStates,
-       focusTarget: { kind: "agent", id: params.agentId },
-       pushEligible: isPushEligibleAttentionReason(params.reason),
-       nowMs,
-+      hasPushTokens,
-     });
+     const plan = this.planOncePerUnreadFinish(
+       params,
+       computeNotificationPlan({
+@@ -2971,6 +2972,7 @@ export class VoiceAssistantWebSocketServer {
+         focusTarget: { kind: "agent", id: params.agentId },
+         pushEligible: isPushEligibleAttentionReason(params.reason),
+         nowMs,
++        hasPushTokens,
+       }),
+     );
  
-     if (plan.shouldPush) {
-@@ -2955,9 +2957,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -2981,9 +2983,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
@@ -908,7 +911,19 @@ index cbbdd96..24eeacd 100644
        const timestamp = new Date().toISOString();
        const connection = this.sessions.get(ws);
        const attentionPayload = {
-@@ -3036,11 +3039,13 @@ export class VoiceAssistantWebSocketServer {
+@@ -3035,9 +3038,9 @@ export class VoiceAssistantWebSocketServer {
+     }
+     const unreadFinishAt = params.attentionTimestamp.getTime();
+     if (this.notifiedUnreadFinishAt.get(params.agentId) === unreadFinishAt) {
+-      return { inAppRecipientIndex: null, shouldPush: false };
++      return { inAppRecipientIndex: null, notifyAllConnected: false, shouldPush: false };
+     }
+-    if (plan.shouldPush || plan.inAppRecipientIndex !== null) {
++    if (plan.shouldPush || plan.inAppRecipientIndex !== null || plan.notifyAllConnected) {
+       this.notifiedUnreadFinishAt.set(params.agentId, unreadFinishAt);
+     }
+     return plan;
+@@ -3082,11 +3085,13 @@ export class VoiceAssistantWebSocketServer {
      const nowMs = Date.now();
      const workspaceId = params.workspaceId;
  
@@ -922,7 +937,7 @@ index cbbdd96..24eeacd 100644
      });
  
      const title = terminalAttentionTitle(params.reason);
-@@ -3067,9 +3072,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -3113,9 +3118,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {

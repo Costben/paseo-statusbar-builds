@@ -1,8 +1,8 @@
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 1b5273f..db07d62 100644
+index b0154f2ce..d5d336858 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
-@@ -238,6 +238,7 @@ function createSessionWithConfig(
+@@ -237,6 +237,7 @@ function createSessionWithConfig(
      providerOptions?: Record<string, unknown>;
      featureValues?: Record<string, unknown>;
      lateTimelineGraceMs?: number;
@@ -10,7 +10,7 @@ index 1b5273f..db07d62 100644
    } = {},
    logger: ReturnType<typeof createTestLogger> = createTestLogger(),
    capabilityOverrides: Partial<AgentCapabilityFlags> = {},
-@@ -259,6 +260,9 @@ function createSessionWithConfig(
+@@ -258,6 +259,9 @@ function createSessionWithConfig(
        ...(config.lateTimelineGraceMs !== undefined
          ? { lateTimelineGraceMs: config.lateTimelineGraceMs }
          : {}),
@@ -20,7 +20,7 @@ index 1b5273f..db07d62 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -8100,4 +8104,227 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
+@@ -8050,4 +8054,227 @@ describe("ACPAgentSession AskUserQuestion _meta question form", () => {
        terminal: true,
      });
    });
@@ -249,7 +249,7 @@ index 1b5273f..db07d62 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index a3b3ed0..ce6248a 100644
+index a3b3ed017..ce6248a08 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -600,8 +600,18 @@ export interface ACPProviderHookContext {
@@ -1079,7 +1079,7 @@ index a3b3ed0..ce6248a 100644
      case "text":
        return content.text;
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
-index c8203c7..c93178b 100644
+index c8203c7ae..c93178b3c 100644
 --- a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 @@ -5,11 +5,13 @@ import { createTestLogger } from "../../../test-utils/test-logger.js";
@@ -1146,7 +1146,7 @@ index c8203c7..c93178b 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
-index b1e06f3..8e3d0c7 100644
+index b1e06f362..8e3d0c7ac 100644
 --- a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 @@ -35,10 +35,21 @@ import { createAntigravityProviderHooks } from "./antigravity/native-bridge.js";
@@ -1229,7 +1229,7 @@ index b1e06f3..8e3d0c7 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925..9d41494 100644
+index 93d6925f5..9d41494bb 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
@@ -2606,7 +2606,7 @@ index 93d6925..9d41494 100644
 +  });
  });
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
-index dbd750b..5b5e3be 100644
+index dbd750b30..5b5e3bec1 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -1,5 +1,10 @@
@@ -4487,7 +4487,7 @@ index dbd750b..5b5e3be 100644
 +  return true;
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
-index 1012848..a4718a9 100644
+index 10128482e..a4718a997 100644
 --- a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 @@ -11,7 +11,7 @@ import type { AgentTimelineItem, ToolCallDetail } from "../../agent-sdk-types.js
