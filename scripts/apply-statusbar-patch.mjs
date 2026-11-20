@@ -218,15 +218,61 @@ function patchDisplayMetrics(dir) {
   const pluginDir = join(dir, "packages", "app", "plugins");
   if (!existsSync(pluginDir)) fail(`missing plugins dir: ${pluginDir}`);
 
-  const pluginName = "with-android-display-metrics";
-  const source = join(displayMetricsSrc, `${pluginName}.js`);
-  if (!existsSync(source)) fail(`missing display metrics plugin: ${source}`);
-  copyFileSync(source, join(pluginDir, `${pluginName}.js`));
-
   const path = join(dir, "packages", "app", "app.config.js");
   let content = read(path);
   const original = content;
   const nl = detectNewline(content);
+
+  // Upstream v0.17.0-beta.1+ ships modules/paseo-display-metrics as
+  // `withAndroidDisplayMetrics` and owns MainActivity's density sync. Avoid
+  // redeclaring that identifier or double-patching onConfigurationChanged; only
+  // inject the BlindCast manifest meta-data plugin alongside it.
+  if (content.includes("./modules/paseo-display-metrics/app.plugin")) {
+    const pluginName = "with-android-multidisplay-manifest";
+    const source = join(displayMetricsSrc, `${pluginName}.js`);
+    if (!existsSync(source)) fail(`missing multidisplay manifest plugin: ${source}`);
+    copyFileSync(source, join(pluginDir, `${pluginName}.js`));
+
+    if (!content.includes(`./plugins/${pluginName}`)) {
+      const needle = 'const withPasteInput = require("./plugins/with-paste-input");';
+      if (!content.includes(needle)) {
+        fail('app.config.js: cannot find anchor `const withPasteInput = require("./plugins/with-paste-input");`');
+      }
+      content = content.replace(
+        needle,
+        () =>
+          `${needle}${nl}const withAndroidMultidisplayManifest = require("./plugins/${pluginName}");`,
+      );
+    }
+
+    if (!/withAndroidMultidisplayManifest,/.test(content)) {
+      const needle = /^([ \t]*)withAndroidDisplayMetrics,[ \t]*\r?$/m;
+      const match = needle.exec(content);
+      if (!match) {
+        fail("app.config.js: cannot find anchor `withAndroidDisplayMetrics,` inside the plugins array");
+      }
+      content = content.replace(
+        needle,
+        (m) => `${m.replace(/\r$/, "")}${nl}${match[1]}withAndroidMultidisplayManifest,`,
+      );
+    }
+
+    writeIfChanged(path, content, original, "packages/app/app.config.js (multidisplay manifest)");
+
+    assertContains(path, `./plugins/${pluginName}`, "app.config.js");
+    assertContains(path, "withAndroidMultidisplayManifest,", "app.config.js");
+    assertContains(
+      join(pluginDir, `${pluginName}.js`),
+      "blindcast.rn.multidisplay",
+      `plugins/${pluginName}.js`,
+    );
+    return;
+  }
+
+  const pluginName = "with-android-display-metrics";
+  const source = join(displayMetricsSrc, `${pluginName}.js`);
+  if (!existsSync(source)) fail(`missing display metrics plugin: ${source}`);
+  copyFileSync(source, join(pluginDir, `${pluginName}.js`));
 
   if (!content.includes(`./plugins/${pluginName}`)) {
     const needle = 'const withPasteInput = require("./plugins/with-paste-input");';
