@@ -1229,7 +1229,7 @@ index b1e06f362..8e3d0c7ac 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925f5..1fc9e883e 100644
+index 93d6925f5..36af7a68d 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
@@ -1262,7 +1262,7 @@ index 93d6925f5..1fc9e883e 100644
        });
        expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
          type: "background_work",
-@@ -610,4 +616,1551 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -610,4 +616,1543 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        sessionHandle?.onClose?.();
      }
    });
@@ -2710,16 +2710,8 @@ index 93d6925f5..1fc9e883e 100644
 +      const timelineItems = harness.events
 +        .filter((e): e is Extract<AgentStreamEvent, { type: "timeline" }> => e.type === "timeline")
 +        .map((e) => e.item);
-+      expect(timelineItems.some((item) => item.type === "reasoning")).toBe(false);
-+      expect(timelineItems.some((item) => item.type === "assistant_message")).toBe(false);
-+      // Only the tool settlement update (against ACP's `acp_live_wakeup_tc_1`) should be emitted
-+      expect(timelineItems).toEqual([
-+        expect.objectContaining({
-+          type: "tool_call",
-+          callId: "acp_live_wakeup_tc_1",
-+          status: "completed",
-+        }),
-+      ]);
++      // ACP already rendered and settled the live wakeup step; bridge emits nothing duplicate
++      expect(timelineItems).toEqual([]);
 +    } finally {
 +      sessionHandle?.onClose?.();
 +    }
