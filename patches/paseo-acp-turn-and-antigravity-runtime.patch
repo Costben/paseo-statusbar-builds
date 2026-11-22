@@ -1229,7 +1229,7 @@ index b1e06f362..8e3d0c7ac 100644
      try {
        const launch = await resolveProviderLaunch({
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
-index 93d6925f5..cac556642 100644
+index 93d6925f5..1fc9e883e 100644
 --- a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, appendFileSync } from "n
@@ -1262,7 +1262,7 @@ index 93d6925f5..cac556642 100644
        });
        expect(harness.events.findLast((event) => event.type === "background_work")).toEqual({
          type: "background_work",
-@@ -610,4 +616,1549 @@ describe("AntigravityNativeBridge & provider hooks", () => {
+@@ -610,4 +616,1551 @@ describe("AntigravityNativeBridge & provider hooks", () => {
        sessionHandle?.onClose?.();
      }
    });
@@ -2609,6 +2609,7 @@ index 93d6925f5..cac556642 100644
 +    const harness = createHarness();
 +    const sessionHandle = harness.hooks.onSessionReady?.(harness.ctx);
 +    try {
++      harness.setForeground(true);
 +      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Update agents");
 +      appendJsonl(harness.transcriptPath, {
 +        step_index: 0,
@@ -2728,6 +2729,7 @@ index 93d6925f5..cac556642 100644
 +    const harness = createHarness();
 +    const sessionHandle = harness.hooks.onSessionReady?.(harness.ctx);
 +    try {
++      harness.setForeground(true);
 +      harness.hooks.onForegroundTurnStarting?.(harness.ctx, "Verify UI");
 +
 +      const liveMalformedWithoutRetries =
