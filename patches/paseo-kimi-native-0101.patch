@@ -837,10 +837,10 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index fcd4efa91..031a42487 100644
+index 7e8e43029..205467a3f 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
-@@ -9,6 +9,7 @@ import invariant from "tiny-invariant";
+@@ -10,6 +10,7 @@ import invariant from "tiny-invariant";
  import { Composer } from "@/composer";
  import { type ComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
  import { ComposerImportPill } from "@/composer/draft/import-pill";
@@ -848,7 +848,7 @@ index fcd4efa91..031a42487 100644
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
  import { useAgentInputDraft } from "@/composer/draft/input-draft";
-@@ -525,6 +526,26 @@ export function WorkspaceDraftComposer({
+@@ -526,6 +527,26 @@ export function WorkspaceDraftComposer({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -875,12 +875,16 @@ index fcd4efa91..031a42487 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -543,7 +564,7 @@ export function WorkspaceDraftComposer({
+@@ -547,7 +568,11 @@ export function WorkspaceDraftComposer({
          </View>
        ) : null}
        {importPillPress && !isComposerFullscreen ? (
--        <View style={styles.importPillRow}>
-+        <View style={styles.importPillRow} onLayout={handleImportPillLayout}>
+-        <View style={styles.importPillRow} dataSet={CHAT_COLUMN_RAIL_DATASET}>
++        <View
++          style={styles.importPillRow}
++          dataSet={CHAT_COLUMN_RAIL_DATASET}
++          onLayout={handleImportPillLayout}
++        >
            <View style={styles.importPillContent}>
              <ComposerImportPill onPress={importPillPress} />
            </View>
@@ -1629,10 +1633,10 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 829dabcfd..e5e9a79d1 100644
+index 5e530245b..1047397a2 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
-@@ -65,6 +65,8 @@ import {
+@@ -66,6 +66,8 @@ import {
    type DraftAgentControlsProps,
  } from "@/composer/agent-controls";
  import { ContextWindowMeter } from "@/components/context-window-meter";
@@ -1641,7 +1645,7 @@ index 829dabcfd..e5e9a79d1 100644
  import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
  import {
    selectAgentSentMessages,
-@@ -293,15 +295,35 @@ function buildRealtimeVoiceButtonStyle(pressed: boolean, voiceButtonDisabled: bo
+@@ -294,15 +296,35 @@ function buildRealtimeVoiceButtonStyle(pressed: boolean, voiceButtonDisabled: bo
    );
  }
  
@@ -1682,7 +1686,7 @@ index 829dabcfd..e5e9a79d1 100644
      };
    };
  }
-@@ -1680,10 +1702,10 @@ function ComposerContentImpl({
+@@ -1681,10 +1703,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -1695,7 +1699,7 @@ index 829dabcfd..e5e9a79d1 100644
    );
  
    useEffect(() => {
-@@ -1747,6 +1769,7 @@ function ComposerContentImpl({
+@@ -1748,6 +1770,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -1703,7 +1707,7 @@ index 829dabcfd..e5e9a79d1 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2210,18 +2233,32 @@ function ComposerContentImpl({
+@@ -2211,18 +2234,32 @@ function ComposerContentImpl({
      ],
    );
  
@@ -1745,7 +1749,7 @@ index 829dabcfd..e5e9a79d1 100644
          </View>
        ) : null,
      [
-@@ -2232,6 +2269,7 @@ function ComposerContentImpl({
+@@ -2233,6 +2270,7 @@ function ComposerContentImpl({
        agentState.contextWindowUsedTokens,
        agentState.totalCostUsd,
        controlSizing,
@@ -1753,7 +1757,7 @@ index 829dabcfd..e5e9a79d1 100644
      ],
    );
  
-@@ -2628,6 +2666,7 @@ function ComposerContentImpl({
+@@ -2632,6 +2670,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
@@ -1761,7 +1765,7 @@ index 829dabcfd..e5e9a79d1 100644
                    voiceModeContent={voiceModeContent}
                    activeActionContent={activeActionContent}
                    voiceServerId={serverId}
-@@ -2752,6 +2791,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2756,6 +2795,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: TOOLBAR_CONTROL_GAP,
    },
@@ -1775,7 +1779,7 @@ index 829dabcfd..e5e9a79d1 100644
      ...toolbarSlot(),
      flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index d154f753e..598011a72 100644
+index fc0dbe872..115a2895b 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -28,7 +28,7 @@ import {
@@ -1804,7 +1808,7 @@ index d154f753e..598011a72 100644
    /** The realtime voice mode button, which takes the trailing disc while there is nothing to send. */
    voiceModeContent?: React.ReactNode;
    /** Primary action to render when the agent is active and the composer has no sendable content. */
-@@ -1187,6 +1190,7 @@ interface ResolvedMessageInputProps {
+@@ -1200,6 +1203,7 @@ interface ResolvedMessageInputProps {
    disabled: boolean;
    leftContent: React.ReactNode;
    beforeVoiceContent: React.ReactNode;
@@ -1812,7 +1816,7 @@ index d154f753e..598011a72 100644
    voiceModeContent: React.ReactNode;
    activeActionContent: React.ReactNode;
    voiceServerId: string | undefined;
-@@ -1235,6 +1239,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+@@ -1248,6 +1252,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
      disabled: props.disabled ?? false,
      leftContent: props.leftContent,
      beforeVoiceContent: props.beforeVoiceContent,
@@ -1820,7 +1824,7 @@ index d154f753e..598011a72 100644
      voiceModeContent: props.voiceModeContent,
      activeActionContent: props.activeActionContent,
      voiceServerId: props.voiceServerId,
-@@ -1317,6 +1322,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -1330,6 +1335,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
        disabled,
        leftContent,
        beforeVoiceContent,
@@ -1828,7 +1832,7 @@ index d154f753e..598011a72 100644
        voiceModeContent,
        activeActionContent,
        voiceServerId,
-@@ -2265,18 +2271,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2278,18 +2284,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
              {!isFullscreen && (
                <View style={styles.rightButtonGroup}>
                  {beforeVoiceContent}
@@ -1861,7 +1865,7 @@ index d154f753e..598011a72 100644
                  <View style={styles.trailingDisc}>{sendButton}</View>
                </View>
              )}
-@@ -2295,6 +2303,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2308,6 +2316,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          t,
          leftContent,
          beforeVoiceContent,
@@ -1869,7 +1873,7 @@ index d154f753e..598011a72 100644
          mode.showVoice,
          showOverlay,
          dictationStartError,
-@@ -2355,6 +2364,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2368,6 +2377,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
          handleRealtimeVoiceStop,
        ],
      );
@@ -1905,7 +1909,7 @@ index d154f753e..598011a72 100644
      return (
        <View
          ref={rootRef}
-@@ -2382,7 +2420,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+@@ -2395,7 +2433,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
            inputWrapperRef={inputWrapperRef}
            inputWrapperStyle={inputWrapperCombinedStyle}
            inputPointerEvents={surfacePresentation.input.pointerEvents}
@@ -1914,7 +1918,7 @@ index d154f753e..598011a72 100644
            showFullscreenButton={shouldShowFullscreenControl(
              isCompact,
              readOnly,
-@@ -2440,6 +2478,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2453,6 +2491,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
    // or not the glyph shows, so text never reflows when it appears.
    compactTextInput: { paddingRight: 36 },
@@ -1924,7 +1928,7 @@ index d154f753e..598011a72 100644
    fullscreenTextSurface: { flex: 1, minHeight: 0 },
    fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
    lineMeasurement: {
-@@ -2455,6 +2496,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2468,6 +2509,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
    textInputScrollWrapper: {
      flexShrink: 1,
      position: "relative",
@@ -2156,7 +2160,7 @@ index 86da628bd..88747abf0 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 8f935bdaf..ec2272163 100644
+index 747fa01a9..56c5f6759 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
 @@ -470,6 +470,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
@@ -2264,7 +2268,7 @@ index db0aa6db2..e00c20d62 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index fac28946d..18a0aa4f1 100644
+index 2d29e87b4..fdcb39c47 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -2279,8 +2283,8 @@ index fac28946d..18a0aa4f1 100644
  import { signalProcessTree } from "../src/utils/tree-kill.js";
  
  const WORKER_HEARTBEAT_INTERVAL_MS = 1_000;
-@@ -318,12 +319,17 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
-     const spawnSpec = resolveWorkerSpawnSpec?.(workerEntry) ?? null;
+@@ -321,13 +322,18 @@ export function runSupervisor(options: SupervisorOptions): SupervisorController
+     const detached = process.platform !== "win32";
      writeLifecycleLog("Spawning worker", { workerEntry });
      if (spawnSpec) {
 +      // The supervisor runs detached without a console, so an unhidden console
@@ -2288,6 +2292,7 @@ index fac28946d..18a0aa4f1 100644
 +      // on Windows — closing that window then takes the whole daemon down with
 +      // STATUS_CONTROL_C_EXIT.
        child = spawn(spawnSpec.command, spawnSpec.args, {
+         detached,
          stdio: ["inherit", "pipe", "pipe", "ipc"],
          env: spawnSpec.env ?? workerEnv,
 +        windowsHide: true,
@@ -2295,11 +2300,11 @@ index fac28946d..18a0aa4f1 100644
      } else {
 -      child = fork(workerEntry, workerArgs, {
 +      child = forkProcess(workerEntry, workerArgs, {
+         detached,
          stdio: ["inherit", "pipe", "pipe", "ipc"],
          env: workerEnv,
-         execArgv: workerExecArgv,
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 1714144f2..ae1b82074 100644
+index 0522e4102..257427231 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
 @@ -38,6 +38,8 @@ import {
@@ -2311,7 +2316,7 @@ index 1714144f2..ae1b82074 100644
    type AgentLaunchContext,
    type AgentSlashCommand,
    type AgentMode,
-@@ -507,6 +509,8 @@ interface ManagedAgentBase {
+@@ -509,6 +511,8 @@ interface ManagedAgentBase {
    activeTurnId: string | null;
    activeTurnStartedAt: Date | null;
    lastUsage?: AgentUsage;
@@ -2320,7 +2325,7 @@ index 1714144f2..ae1b82074 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -3218,7 +3222,7 @@ export class AgentManager {
+@@ -3237,7 +3241,7 @@ export class AgentManager {
          });
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -2329,7 +2334,7 @@ index 1714144f2..ae1b82074 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -3239,7 +3243,7 @@ export class AgentManager {
+@@ -3258,7 +3262,7 @@ export class AgentManager {
          this.finalizeForegroundTurn(agent);
        } finally {
          // A steer waiting on this start is released only once the run is cleared.
@@ -2338,7 +2343,7 @@ index 1714144f2..ae1b82074 100644
        }
        throw error;
      }
-@@ -3434,7 +3438,7 @@ export class AgentManager {
+@@ -3480,7 +3484,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -2347,7 +2352,7 @@ index 1714144f2..ae1b82074 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -3496,6 +3500,24 @@ export class AgentManager {
+@@ -3542,6 +3546,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -2372,7 +2377,7 @@ index 1714144f2..ae1b82074 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -3970,7 +3992,7 @@ export class AgentManager {
+@@ -4038,7 +4060,7 @@ export class AgentManager {
          { agentId, kind: run.kind },
          "cancelAgentRun: acknowledged pending turn still active after timeout, clearing it",
        );
@@ -2381,7 +2386,7 @@ index 1714144f2..ae1b82074 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -4117,7 +4139,7 @@ export class AgentManager {
+@@ -4182,7 +4204,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -2390,7 +2395,7 @@ index 1714144f2..ae1b82074 100644
      }
    }
  
-@@ -4621,7 +4643,13 @@ export class AgentManager {
+@@ -4686,7 +4708,13 @@ export class AgentManager {
        owner: options?.owner,
        launchEnv: options?.launchEnv,
        session,
@@ -2405,7 +2410,7 @@ index 1714144f2..ae1b82074 100644
        config,
        // What the session opened with. Provider defaults edited later reach it when it next opens.
        effectiveOptions,
-@@ -4760,9 +4788,28 @@ export class AgentManager {
+@@ -4825,9 +4853,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -2434,7 +2439,7 @@ index 1714144f2..ae1b82074 100644
            return;
          }
          this.logger.trace(
-@@ -5317,46 +5364,9 @@ export class AgentManager {
+@@ -5382,46 +5429,9 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -2483,7 +2488,7 @@ index 1714144f2..ae1b82074 100644
        case "options_changed":
          this.onStreamOptionsChanged({ agent, patch: event.patch, flags });
          return undefined;
-@@ -5403,7 +5413,68 @@ export class AgentManager {
+@@ -5468,7 +5478,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -2554,10 +2559,10 @@ index 1714144f2..ae1b82074 100644
      const previousSessionId = agent.persistence?.sessionId ?? null;
      this.refreshSessionPersistence(agent);
 diff --git a/packages/server/src/server/agent/agent-messages/envelope.ts b/packages/server/src/server/agent/agent-messages/envelope.ts
-index 45649aa49..6e0e68955 100644
+index f48b866e9..3ce071795 100644
 --- a/packages/server/src/server/agent/agent-messages/envelope.ts
 +++ b/packages/server/src/server/agent/agent-messages/envelope.ts
-@@ -240,7 +240,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+@@ -252,7 +252,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
    return `<paseo-system>\n${reason}\n</paseo-system>`;
  }
  
@@ -2726,10 +2731,10 @@ index 6a169c6df..3f399c841 100644
  const EXPECTED_RUN_START_BUDGET_MS = 60_000;
  // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index ad7f97b83..19e12524a 100644
+index 5116f74f2..2224a7159 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
-@@ -179,6 +179,11 @@ export interface AgentCapabilityFlags {
+@@ -185,6 +185,11 @@ export interface AgentCapabilityFlags {
    supportsRewindConversation?: boolean;
    supportsRewindFiles?: boolean;
    supportsRewindBoth?: boolean;
@@ -2741,7 +2746,7 @@ index ad7f97b83..19e12524a 100644
  }
  
  export interface AgentPersistenceHandle {
-@@ -227,6 +232,49 @@ export interface AgentUsage {
+@@ -233,6 +238,49 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -2791,7 +2796,7 @@ index ad7f97b83..19e12524a 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -417,6 +465,13 @@ export type AgentStreamEvent =
+@@ -423,6 +471,13 @@ export type AgentStreamEvent =
    | { type: "turn_started"; provider: AgentProvider; turnId?: string }
    | { type: "turn_completed"; provider: AgentProvider; usage?: AgentUsage; turnId?: string }
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
@@ -2806,7 +2811,7 @@ index ad7f97b83..19e12524a 100644
        type: "mode_changed";
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index b671eb0fa..caf7972f9 100644
+index a80dc2695..ae3f0a7dc 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -37,7 +37,10 @@ import { ClaudeAgentClient } from "./providers/claude/agent.js";
@@ -2821,7 +2826,7 @@ index b671eb0fa..caf7972f9 100644
  import { KimiACPAgentClient } from "./providers/kimi-acp-agent.js";
  import { KiroACPAgentClient } from "./providers/kiro-acp-agent.js";
  import { OpenCodeRuntimeClient } from "./providers/opencode/runtime-client.js";
-@@ -871,7 +874,10 @@ function addDerivedProviders(
+@@ -873,7 +876,10 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -7568,7 +7573,7 @@ index e5873e14e..519c73648 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index 0f2fb5667..f4f871ed5 100644
+index 3be67c57b..8474ed827 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -42,9 +42,12 @@ import {
@@ -7584,7 +7589,7 @@ index 0f2fb5667..f4f871ed5 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -129,6 +132,7 @@ import {
+@@ -138,6 +141,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -7592,7 +7597,7 @@ index 0f2fb5667..f4f871ed5 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2344,6 +2348,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2466,6 +2470,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -7624,7 +7629,7 @@ index 0f2fb5667..f4f871ed5 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2463,7 +2492,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2585,7 +2614,7 @@ class ClaudeAgentSession implements AgentSession {
      this.independentUltracode = options.independentUltracode;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
@@ -7633,7 +7638,7 @@ index 0f2fb5667..f4f871ed5 100644
      );
      const handle = options.handle;
  
-@@ -2872,7 +2901,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2994,7 +3023,7 @@ class ClaudeAgentSession implements AgentSession {
        this.cachedRuntimeInfo = null;
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -7642,7 +7647,7 @@ index 0f2fb5667..f4f871ed5 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3858,6 +3887,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3980,6 +4009,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -7667,7 +7672,7 @@ index 0f2fb5667..f4f871ed5 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -4871,6 +4918,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4993,6 +5040,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -7680,7 +7685,7 @@ index 0f2fb5667..f4f871ed5 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -4888,6 +4941,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5010,6 +5063,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -7688,7 +7693,7 @@ index 0f2fb5667..f4f871ed5 100644
          break;
        }
        case "stream_event":
-@@ -4914,6 +4968,200 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5036,6 +5090,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -7889,7 +7894,7 @@ index 0f2fb5667..f4f871ed5 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -5249,6 +5497,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5371,6 +5619,7 @@ class ClaudeAgentSession implements AgentSession {
      message: Extract<SDKMessage, { type: "result" }>,
      events: AgentStreamEvent[],
    ): void {
@@ -7897,7 +7902,7 @@ index 0f2fb5667..f4f871ed5 100644
      const usage = this.convertUsage(message);
      // Claude Code reports a turn that stopped on an API error (a usage limit, an overloaded or
      // rejected request) as `success` with `is_error`, carrying the error text in `result`.
-@@ -6707,6 +6956,146 @@ function readClaudeReplayTaskDeclaration(
+@@ -6829,6 +7078,146 @@ function readClaudeReplayTaskDeclaration(
    };
  }
  
@@ -15074,19 +15079,19 @@ index 000000000..99488f6d8
 +  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index fad1b78bd..60d7f7614 100644
+index 49dc6a5e4..49feb9952 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
-@@ -10,7 +10,7 @@ import {
- } from "@getpaseo/plugin/server/provider";
- import type { PluginHookEvents, PluginHookAgent, AgentToolResult } from "@getpaseo/plugin/server";
+@@ -28,7 +28,7 @@ import type {
+ } from "@getpaseo/plugin/server";
+ import { z } from "zod";
  import { validateBeforeRequest, validateBeforeResult } from "./lifecycle/index.js";
 -import { fork } from "node:child_process";
 +import { forkProcess } from "../../utils/spawn.js";
  import path from "node:path";
  import { fileURLToPath } from "node:url";
  import { createHash, randomUUID } from "node:crypto";
-@@ -240,7 +240,7 @@ function resolveWorkerExecArgv(): string[] {
+@@ -303,7 +303,7 @@ function resolveWorkerExecArgv(): string[] {
  }
  
  function spawnPluginChild(): PluginChild {
