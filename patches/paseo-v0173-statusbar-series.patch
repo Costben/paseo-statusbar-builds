@@ -1,0 +1,2819 @@
+diff --git a/packages/app/app.config.js b/packages/app/app.config.js
+index 713f34371..009107b23 100644
+--- a/packages/app/app.config.js
++++ b/packages/app/app.config.js
+@@ -1,11 +1,15 @@
+ const fs = require("node:fs");
+ const path = require("node:path");
+ const pkg = require("./package.json");
++const edgeToEdge = require("react-native-edge-to-edge/expo").default;
+ const withAndroidAsyncStorageSize = require("./plugins/with-android-async-storage-size");
+ const withAndroidOptionalCamera = require("./plugins/with-android-optional-camera");
+ const withAndroidProfileable = require("./plugins/with-android-profileable");
+ const withFdroidAutolinking = require("./plugins/with-fdroid-autolinking");
+ const withPasteInput = require("./plugins/with-paste-input");
++const withAndroidRotationDelay = require("./plugins/with-android-rotation-delay");
++const withAndroidMultidisplayManifest = require("./plugins/with-android-multidisplay-manifest");
++const withAndroidProcessGuard = require("./plugins/with-android-process-guard");
+ const withAndroidScroll = require("./modules/paseo-scroll/app.plugin");
+ const withAndroidDisplayMetrics = require("./modules/paseo-display-metrics/app.plugin");
+ const { getNativeReleaseVersion } = require("./native-release-version");
+@@ -143,11 +147,20 @@ export default {
+       searchPaths: ["../../node_modules", "./node_modules"],
+     },
+     plugins: [
++      edgeToEdge({
++        android: {
++          parentTheme: "Default",
++          enforceNavigationBarContrast: true,
++        },
++      }),
+       "./modules/paseo-hardware-keyboard/app.plugin",
+       "expo-router",
+       withPasteInput,
++      withAndroidProcessGuard,
+       withAndroidScroll,
+       withAndroidDisplayMetrics,
++      withAndroidRotationDelay,
++      withAndroidMultidisplayManifest,
+       [withAndroidAsyncStorageSize, 64],
+       ...buildProfile.cameraPlugins,
+       withAndroidOptionalCamera,
+diff --git a/packages/app/plugins/android-process-guard/ProcessGuard.kt b/packages/app/plugins/android-process-guard/ProcessGuard.kt
+new file mode 100644
+index 000000000..8ff2fad1b
+--- /dev/null
++++ b/packages/app/plugins/android-process-guard/ProcessGuard.kt
+@@ -0,0 +1,194 @@
++package sh.paseo.processguard
++
++import android.app.Activity
++import android.app.Application
++import android.content.Context
++import android.os.Bundle
++import android.os.Process
++import android.os.SystemClock
++import android.util.Log
++import java.io.File
++
++/**
++ * Keeps exactly one `sh.paseo` main process alive.
++ *
++ * Upstream Paseo (Expo / React Native) leaks its own main process: every
++ * session rebuild or reconnect forks a fresh instance and the previous one is
++ * never reaped. The strays drop out of ActivityManager's ProcessRecord list, so
++ * force-stop, "clear all" in recents and the low-memory killer all walk past
++ * them. Measured on a OnePlus 15 (2026-10-24): 19 live instances, 2.0 GB RSS +
++ * 7.7 GB swap, >25 h accumulated CPU. That exhausted the 12 GB swap, pinned
++ * kswapd0 / erm_reclaimd, and thermally clamped the prime cores from 3.5 GHz to
++ * 1.78 GHz — the phone ran hot and stuttered all day.
++ *
++ * Two mechanisms, both inside the app's own uid, no root:
++ *
++ *  1. On startup the new instance reads the token directory and SIGKILLs every
++ *     other live instance recorded there.
++ *  2. A watchdog repeats that sweep every 90 s. If a newer instance exists and
++ *     this one is neither in the foreground nor freshly started, it retires
++ *     itself.
++ *
++ * Liveness is decided from `/proc/<pid>/stat`: the start time (field 22) must
++ * match the value recorded in the token, which also rules out PID reuse. If the
++ * read fails the token is treated as dead — the guard degrades to "do nothing"
++ * rather than killing the wrong process.
++ */
++internal object ProcessGuard {
++    private const val TAG = "PaseoProcessGuard"
++    private const val TOKEN_SUFFIX = ".tok"
++    private const val DIR_NAME = "process-guard"
++
++    private const val BOOT_DELAY_MS = 15_000L
++    private const val SWEEP_INTERVAL_MS = 90_000L
++
++    /** A process younger than this is never retired by the watchdog. */
++    private const val MIN_AGE_MS = 5 * 60_000L
++
++    @Volatile
++    private var installed = false
++
++    /** Number of started (visible) activities; anything > 0 means foreground. */
++    @Volatile
++    private var foregroundDepth = 0
++
++    private var guardDir: File? = null
++    private var myElapsedAtInstall = 0L
++
++    fun install(context: Context) {
++        if (installed) return
++        installed = true
++
++        // Only the default process participates. Any `sh.paseo:xxx` helper
++        // process returns here and is left alone.
++        val processName = Application.getProcessName()
++        if (processName != null && processName != context.packageName) return
++
++        val dir = File(context.filesDir, DIR_NAME)
++        if (!dir.exists() && !dir.mkdirs()) {
++            Log.w(TAG, "cannot create $dir, guard disabled")
++            return
++        }
++        guardDir = dir
++        myElapsedAtInstall = SystemClock.elapsedRealtime()
++
++        (context.applicationContext as? Application)?.registerActivityLifecycleCallbacks(
++            object : Application.ActivityLifecycleCallbacks {
++                override fun onActivityStarted(activity: Activity) {
++                    foregroundDepth++
++                }
++
++                override fun onActivityStopped(activity: Activity) {
++                    if (foregroundDepth > 0) foregroundDepth--
++                }
++
++                override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
++                override fun onActivityResumed(activity: Activity) = Unit
++                override fun onActivityPaused(activity: Activity) = Unit
++                override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
++                override fun onActivityDestroyed(activity: Activity) = Unit
++            },
++        )
++
++        Thread({ loop() }, "paseo-process-guard").apply {
++            isDaemon = true
++            start()
++        }
++    }
++
++    private fun loop() {
++        sleepQuietly(BOOT_DELAY_MS)
++        while (true) {
++            try {
++                sweep()
++            } catch (t: Throwable) {
++                Log.w(TAG, "sweep failed", t)
++            }
++            sleepQuietly(SWEEP_INTERVAL_MS)
++        }
++    }
++
++    private fun sweep() {
++        val dir = guardDir ?: return
++        val myPid = Process.myPid()
++        val myStart = startTimeOf(myPid) ?: return
++
++        val live = ArrayList<LongArray>() // [pid, starttime]
++        dir.listFiles()?.forEach { file ->
++            if (!file.name.endsWith(TOKEN_SUFFIX)) return@forEach
++            val pid = file.name.removeSuffix(TOKEN_SUFFIX).toIntOrNull() ?: return@forEach
++            val start = startTimeOf(pid)
++            if (start == null) {
++                file.delete()
++                return@forEach
++            }
++            val recorded = file.readTextOrNull()?.trim()?.toLongOrNull()
++            if (recorded != null && recorded != start) {
++                // PID was recycled by an unrelated process; the token is stale.
++                file.delete()
++                return@forEach
++            }
++            live.add(longArrayOf(pid.toLong(), start))
++        }
++
++        val selfToken = File(dir, "$myPid$TOKEN_SUFFIX")
++        if (live.none { it[0] == myPid.toLong() }) {
++            selfToken.writeTextQuietly(myStart.toString())
++            live.add(longArrayOf(myPid.toLong(), myStart))
++        }
++
++        if (live.size <= 1) return
++
++        val newest = live.maxByOrNull { it[1] } ?: return
++        val newestPid = newest[0].toInt()
++
++        if (newestPid == myPid) {
++            for (entry in live) {
++                val pid = entry[0].toInt()
++                if (pid == myPid) continue
++                Log.w(TAG, "reclaiming leaked instance pid=$pid")
++                runCatching { Process.killProcess(pid) }
++                File(dir, "$pid$TOKEN_SUFFIX").delete()
++            }
++            return
++        }
++
++        if (foregroundDepth > 0) return
++        if (SystemClock.elapsedRealtime() - myElapsedAtInstall < MIN_AGE_MS) return
++
++        Log.w(TAG, "retiring self pid=$myPid, newer instance pid=$newestPid")
++        selfToken.delete()
++        Process.killProcess(myPid)
++    }
++
++    /** Field 22 of `/proc/<pid>/stat`; `null` when the process is gone or unreadable. */
++    private fun startTimeOf(pid: Int): Long? = try {
++        val stat = File("/proc/$pid/stat").readText()
++        val tail = stat.substring(stat.lastIndexOf(')') + 2)
++        tail.split(' ').getOrNull(19)?.toLongOrNull()
++    } catch (t: Throwable) {
++        null
++    }
++
++    private fun File.readTextOrNull(): String? = try {
++        readText()
++    } catch (t: Throwable) {
++        null
++    }
++
++    private fun File.writeTextQuietly(value: String) {
++        try {
++            writeText(value)
++        } catch (t: Throwable) {
++            Log.w(TAG, "cannot write token $this", t)
++        }
++    }
++
++    private fun sleepQuietly(millis: Long) {
++        try {
++            Thread.sleep(millis)
++        } catch (ignored: InterruptedException) {
++            // Daemon thread: nothing to unwind, just keep the loop quiet.
++        }
++    }
++}
+diff --git a/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt b/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt
+new file mode 100644
+index 000000000..35d742bf5
+--- /dev/null
++++ b/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt
+@@ -0,0 +1,41 @@
++package sh.paseo.processguard
++
++import android.content.ContentProvider
++import android.content.ContentValues
++import android.database.Cursor
++import android.net.Uri
++
++/**
++ * Zero-UI entry point for [ProcessGuard].
++ *
++ * A ContentProvider is created by the framework before `Application.onCreate`,
++ * so the sweep starts as early as possible and does not depend on any upstream
++ * application class keeping an `onCreate` anchor we can hook into.
++ */
++class ProcessGuardProvider : ContentProvider() {
++    override fun onCreate(): Boolean {
++        context?.let { ProcessGuard.install(it) }
++        return true
++    }
++
++    override fun query(
++        uri: Uri,
++        projection: Array<out String>?,
++        selection: String?,
++        selectionArgs: Array<out String>?,
++        sortOrder: String?,
++    ): Cursor? = null
++
++    override fun getType(uri: Uri): String? = null
++
++    override fun insert(uri: Uri, values: ContentValues?): Uri? = null
++
++    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
++
++    override fun update(
++        uri: Uri,
++        values: ContentValues?,
++        selection: String?,
++        selectionArgs: Array<out String>?,
++    ): Int = 0
++}
+diff --git a/packages/app/plugins/with-android-multidisplay-manifest.js b/packages/app/plugins/with-android-multidisplay-manifest.js
+new file mode 100644
+index 000000000..bcb0943dd
+--- /dev/null
++++ b/packages/app/plugins/with-android-multidisplay-manifest.js
+@@ -0,0 +1,24 @@
++// Declares `blindcast.rn.multidisplay=true` in AndroidManifest.xml when upstream
++// already provides `modules/paseo-display-metrics`, so BlindCast skips its
++// legacy React Native 30fps/density fallback.
++
++const { withAndroidManifest } = require("expo/config-plugins");
++
++function withAndroidMultidisplayManifest(config) {
++  return withAndroidManifest(config, (modConfig) => {
++    const application = modConfig.modResults.manifest.application?.[0];
++    if (!application) {
++      throw new Error("[multidisplay-manifest] AndroidManifest has no <application> element");
++    }
++    application["meta-data"] = application["meta-data"] ?? [];
++    const name = "blindcast.rn.multidisplay";
++    if (!application["meta-data"].some((entry) => entry.$?.["android:name"] === name)) {
++      application["meta-data"].push({
++        $: { "android:name": name, "android:value": "true" },
++      });
++    }
++    return modConfig;
++  });
++}
++
++module.exports = withAndroidMultidisplayManifest;
+diff --git a/packages/app/plugins/with-android-process-guard.js b/packages/app/plugins/with-android-process-guard.js
+new file mode 100644
+index 000000000..b55b4a78b
+--- /dev/null
++++ b/packages/app/plugins/with-android-process-guard.js
+@@ -0,0 +1,68 @@
++// Installs the Paseo process-lifecycle guard into the generated Android project.
++//
++// Expo prebuild does not keep `android/` in the repository, so the guard ships as
++// two Kotlin sources copied into the module plus a ContentProvider registered in
++// the manifest. See scripts/android-process-guard/ProcessGuard.kt for why this
++// exists.
++
++const { withAndroidManifest, withDangerousMod } = require("expo/config-plugins");
++const fs = require("node:fs");
++const path = require("node:path");
++
++const PACKAGE_PATH = ["sh", "paseo", "processguard"];
++const PROVIDER_CLASS = "sh.paseo.processguard.ProcessGuardProvider";
++const AUTHORITY_SUFFIX = ".processguard";
++const SOURCE_DIR = path.resolve(__dirname, "android-process-guard");
++
++function withAndroidProcessGuard(config) {
++  config = withDangerousMod(config, [
++    "android",
++    async (modConfig) => {
++      const projectRoot = modConfig.modRequest.platformProjectRoot;
++      const targetDir = path.join(projectRoot, "app", "src", "main", "java", ...PACKAGE_PATH);
++      fs.mkdirSync(targetDir, { recursive: true });
++
++      for (const name of ["ProcessGuard.kt", "ProcessGuardProvider.kt"]) {
++        const source = path.join(SOURCE_DIR, name);
++        if (!fs.existsSync(source)) {
++          throw new Error(`[process-guard] missing template: ${source}`);
++        }
++        fs.copyFileSync(source, path.join(targetDir, name));
++      }
++
++      console.log(`[process-guard] installed sources into ${targetDir}`);
++      return modConfig;
++    },
++  ]);
++
++  config = withAndroidManifest(config, (modConfig) => {
++    const application = modConfig.modResults.manifest.application?.[0];
++    if (!application) {
++      throw new Error("[process-guard] AndroidManifest has no <application> element");
++    }
++
++    application.provider = application.provider ?? [];
++    const alreadyThere = application.provider.some(
++      (entry) => entry.$?.["android:name"] === PROVIDER_CLASS,
++    );
++
++    if (!alreadyThere) {
++      application.provider.push({
++        $: {
++          "android:name": PROVIDER_CLASS,
++          "android:authorities": `\${applicationId}${AUTHORITY_SUFFIX}`,
++          "android:exported": "false",
++          // Larger initOrder wins, so the guard starts before the RN runtime.
++          "android:initOrder": "1000",
++        },
++      });
++      console.log("[process-guard] registered ProcessGuardProvider");
++    }
++
++    return modConfig;
++  });
++
++  return config;
++}
++
++module.exports = withAndroidProcessGuard;
+diff --git a/packages/app/plugins/with-android-rotation-delay.js b/packages/app/plugins/with-android-rotation-delay.js
+new file mode 100644
+index 000000000..b86ccbc51
+--- /dev/null
++++ b/packages/app/plugins/with-android-rotation-delay.js
+@@ -0,0 +1,242 @@
++// Holds the app's orientation until the device has been tilted into the new
++// orientation for a moment, so a brief tilt does not flip the screen.
++//
++// Only native code can hold an orientation: once the activity is free to follow
++// the sensor, the window turns the instant the device moves. So the controller
++// locks the activity to the orientation it started in and applies a change only
++// after `ROTATION_DELAY_MS` of sustained tilt. Turning the switch off stops
++// applying changes, which leaves the activity frozen on the axis it is on.
++//
++// The on/off switch lives in the app's General settings. It reaches this code
++// through `filesDir/paseo-rotation.json`, written by
++// `packages/app/src/android/rotation-delay.ts`. A React module would need a
++// package registration in MainApplication; this is one boolean that changes when
++// the user flips a switch, so a file read on each orientation event is enough.
++
++const { withMainActivity } = require("expo/config-plugins");
++
++const MARKER = "PaseoRotationDelay";
++const HOLD_MS = 500;
++
++const HELPER = `
++  // ${MARKER}: keep the current orientation until the device has held the new
++  // one for a moment. Reads its switch from filesDir/paseo-rotation.json.
++  private val rotationDelayHoldMs = ${HOLD_MS}L
++  private val rotationDelayHandler = android.os.Handler(android.os.Looper.getMainLooper())
++  private var rotationDelayAppliedLandscape = false
++  private var rotationDelayPendingLandscape: Boolean? = null
++  private var rotationDelaySettingReadAt = 0L
++  private var rotationDelayEnabled = true
++  private var rotationDelayListener: android.view.OrientationEventListener? = null
++
++  private val rotationDelayRunnable = Runnable {
++    val pending = rotationDelayPendingLandscape
++    rotationDelayPendingLandscape = null
++    if (pending != null && rotationDelayEnabled && pending != rotationDelayAppliedLandscape) {
++      rotationDelayApply(pending)
++    }
++  }
++
++  private fun rotationDelayApply(landscape: Boolean) {
++    rotationDelayAppliedLandscape = landscape
++    // SENSOR_* rather than the fixed orientations: both portrait and both
++    // landscape directions stay usable, so the text is never upside down in the
++    // hand position the user picked.
++    requestedOrientation =
++      if (landscape) {
++        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
++      } else {
++        android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
++      }
++  }
++
++  private fun rotationDelayAutoRotateEnabled(): Boolean {
++    val now = android.os.SystemClock.elapsedRealtime()
++    if (now - rotationDelaySettingReadAt >= 500L) {
++      rotationDelaySettingReadAt = now
++      rotationDelayEnabled =
++        try {
++          val file = java.io.File(filesDir, "paseo-rotation.json")
++          if (file.exists()) {
++            org.json.JSONObject(file.readText()).optBoolean("autoRotate", true)
++          } else {
++            true
++          }
++        } catch (error: Exception) {
++          true
++        }
++      if (!rotationDelayEnabled) {
++        // Frozen where it is: drop the pending flip and stop applying new ones.
++        rotationDelayHandler.removeCallbacks(rotationDelayRunnable)
++        rotationDelayPendingLandscape = null
++      }
++    }
++    return rotationDelayEnabled
++  }
++
++  private fun rotationDelayOnOrientation(degrees: Int) {
++    // Read the switch before the angle so turning auto-rotate off takes effect
++    // even while the device lies flat.
++    if (!rotationDelayAutoRotateEnabled()) return
++    if (degrees == android.view.OrientationEventListener.ORIENTATION_UNKNOWN) return
++    val landscape = (degrees >= 45 && degrees < 135) || (degrees >= 225 && degrees < 315)
++    if (landscape == rotationDelayAppliedLandscape) {
++      rotationDelayHandler.removeCallbacks(rotationDelayRunnable)
++      rotationDelayPendingLandscape = null
++      return
++    }
++    if (rotationDelayPendingLandscape == landscape) return
++    rotationDelayHandler.removeCallbacks(rotationDelayRunnable)
++    rotationDelayPendingLandscape = landscape
++    rotationDelayHandler.postDelayed(rotationDelayRunnable, rotationDelayHoldMs)
++  }
++
++  private fun startRotationDelayListener() {
++    if (rotationDelayListener != null) return
++    val listener =
++      object :
++        android.view.OrientationEventListener(
++          this@MainActivity,
++          android.hardware.SensorManager.SENSOR_DELAY_UI,
++        ) {
++        override fun onOrientationChanged(orientation: Int) {
++          rotationDelayOnOrientation(orientation)
++        }
++      }
++    rotationDelayListener = listener
++    if (listener.canDetectOrientation()) listener.enable()
++  }
++
++  private fun stopRotationDelayListener() {
++    rotationDelayListener?.disable()
++    rotationDelayListener = null
++    rotationDelayHandler.removeCallbacks(rotationDelayRunnable)
++    rotationDelayPendingLandscape = null
++  }
++
++  private fun initRotationDelay() {
++    rotationDelayAppliedLandscape =
++      resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
++    // Lock to where the app started; every change after this is ours to time.
++    rotationDelayApply(rotationDelayAppliedLandscape)
++  }
++
++`;
++
++// onStart/onStop rather than onResume/onPause: the display-metrics plugin owns
++// onResume and refuses a MainActivity whose onResume it does not recognise. A
++// plugin array is also executed in reverse, so neither plugin can count on
++// running before the other. These two names belong to nobody else.
++const LIFECYCLE = [
++  { name: "onStart", call: "startRotationDelayListener()" },
++  { name: "onStop", call: "stopRotationDelayListener()" },
++];
++
++function matchingBrace(text, openIndex) {
++  if (openIndex === -1) return -1;
++  let depth = 0;
++  for (let i = openIndex; i < text.length; i += 1) {
++    const char = text[i];
++    if (char === "{") depth += 1;
++    else if (char === "}") {
++      depth -= 1;
++      if (depth === 0) return i;
++    }
++  }
++  return -1;
++}
++
++/** Adds `call` inside an existing `override fun <name>()` body. */
++function injectIntoOverride(contents, name, call) {
++  const nl = contents.includes("\r\n") ? "\r\n" : "\n";
++  const decl = new RegExp(`^([ \\t]*)override fun ${name}\\(\\)[ \\t]*\\{[ \\t]*\\r?$`, "m").exec(
++    contents,
++  );
++  if (!decl) return null;
++
++  const bodyStart = decl.index + decl[0].length;
++  const superCall = new RegExp(`^([ \\t]*)super\\.${name}\\(\\)[ \\t]*\\r?$`, "m").exec(
++    contents.slice(bodyStart),
++  );
++  const at = superCall ? bodyStart + superCall.index + superCall[0].length : bodyStart;
++  if (new RegExp(`^\\s*${call.replace(/[()]/g, "\\$&")}`).test(contents.slice(at))) {
++    return contents;
++  }
++  return contents.slice(0, at) + `${nl}${decl[1]}  ${call}` + contents.slice(at);
++}
++
++function appendOverride(contents, name, call) {
++  const nl = contents.includes("\r\n") ? "\r\n" : "\n";
++  const onCreate = /override fun onCreate\(/m.exec(contents);
++  if (!onCreate) {
++    throw new Error("[rotation-delay] MainActivity.kt has no onCreate to insert after");
++  }
++  const end = matchingBrace(contents, contents.indexOf("{", onCreate.index));
++  if (end === -1) {
++    throw new Error("[rotation-delay] MainActivity.kt: cannot find the end of onCreate");
++  }
++  const body = `${nl}${nl}  override fun ${name}() {${nl}    super.${name}()${nl}    ${call}${nl}  }`;
++  return contents.slice(0, end + 1) + body + contents.slice(end + 1);
++}
++
++function configureMainActivity(contents) {
++  let result = contents;
++  const nl = result.includes("\r\n") ? "\r\n" : "\n";
++
++  if (!result.includes(MARKER)) {
++    const classAnchor = /class\s+MainActivity\s*:\s*ReactActivity\(\)\s*\{\r?\n/;
++    const match = classAnchor.exec(result);
++    if (!match) {
++      throw new Error(
++        "[rotation-delay] MainActivity.kt does not declare `class MainActivity : ReactActivity() {`",
++      );
++    }
++    result = result.replace(classAnchor, () => `${match[0]}${HELPER.replace(/\n/g, nl)}`);
++  }
++
++  const onCreateCall = /^([ \t]*)super\.onCreate\((?:null|savedInstanceState)\)[ \t]*\r?$/m;
++  const onCreateMatch = onCreateCall.exec(result);
++  if (!onCreateMatch) {
++    throw new Error("[rotation-delay] MainActivity.kt has no `super.onCreate(...)` call");
++  }
++  const indent = onCreateMatch[1];
++  const superEnd = onCreateMatch.index + onCreateMatch[0].length;
++  // Display metrics must be re-applied before the orientation is locked, so sit
++  // below that call when the display-metrics plugin ran first.
++  const metricsCall = /^(?:[ \t]*\r?\n)*([ \t]*)applyDisplayMetricsFromActivity\(\)[ \t]*\r?$/m.exec(
++    result.slice(superEnd),
++  );
++  const initAt = metricsCall ? superEnd + metricsCall[0].length : superEnd;
++  if (!/^(?:[ \t]*\r?\n)*[ \t]*initRotationDelay\(\)/.test(result.slice(initAt))) {
++    result = result.slice(0, initAt) + `${nl}${indent}initRotationDelay()` + result.slice(initAt);
++  }
++
++  for (const { name, call } of LIFECYCLE) {
++    const injected = injectIntoOverride(result, name, call);
++    result = injected === null ? appendOverride(result, name, call) : injected;
++  }
++
++  for (const marker of [
++    "initRotationDelay()",
++    "startRotationDelayListener()",
++    "stopRotationDelayListener()",
++  ]) {
++    if (!result.includes(marker)) {
++      throw new Error(`[rotation-delay] MainActivity.kt post-check failed: ${marker} is missing`);
++    }
++  }
++  return result;
++}
++
++function withAndroidRotationDelay(config) {
++  return withMainActivity(config, (modConfig) => {
++    if (modConfig.modResults.language !== "kt") {
++      throw new Error("[rotation-delay] MainActivity is not Kotlin");
++    }
++    modConfig.modResults.contents = configureMainActivity(modConfig.modResults.contents);
++    return modConfig;
++  });
++}
++
++module.exports = withAndroidRotationDelay;
++module.exports.configureMainActivity = configureMainActivity;
+diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
+index 731046489..0cd5e6040 100644
+--- a/packages/app/src/agent-controls/labels.test.ts
++++ b/packages/app/src/agent-controls/labels.test.ts
+@@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
+     expect(formatThinkingOptionLabel({ id: "xhigh" })).toBe("Extra high");
+     expect(formatThinkingOptionLabel({ id: "xhigh", label: "Extra high" })).toBe("Extra high");
+   });
++
++  it("drops the prefix agents already caption the option with", () => {
++    expect(formatThinkingOptionLabel({ id: "off", label: "Thinking Off" })).toBe("Off");
++    expect(formatThinkingOptionLabel({ id: "medium", label: "Thinking Medium" })).toBe("Medium");
++    expect(formatThinkingOptionLabel({ id: "high", label: "Thinking High" })).toBe("High");
++    expect(formatThinkingOptionLabel({ id: "xhigh", label: "Thinking Xhigh" })).toBe("Extra high");
++  });
++
++  it("leaves an unprefixed label alone", () => {
++    expect(formatThinkingOptionLabel({ id: "high", label: "High" })).toBe("High");
++    expect(formatThinkingOptionLabel({ id: "thinking" })).toBe("Thinking");
++  });
+ });
+diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
+index 704298f78..dd1da9eeb 100644
+--- a/packages/app/src/agent-controls/labels.ts
++++ b/packages/app/src/agent-controls/labels.ts
+@@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
+   return formatControlLabel(mode, mode.label == null);
+ }
+ 
++/** Agents such as Kimi caption the entry themselves ("Thinking High"); the badge already sits under that caption. */
++const REDUNDANT_THINKING_PREFIX = /^thinking[\s:_-]+/i;
++
++function stripThinkingPrefix(label: string): string {
++  const stripped = label.replace(REDUNDANT_THINKING_PREFIX, "").trim();
++  return stripped || label;
++}
++
+ export function formatThinkingOptionLabel(option: ControlLabelInput): string {
+-  const rawLabel = (option.label ?? option.id).trim();
+-  const compactLabel = rawLabel.replace(/[\s_-]+/g, "").toLowerCase();
++  const label = stripThinkingPrefix((option.label ?? option.id).trim());
++  const compactLabel = label.replace(/[\s_-]+/g, "").toLowerCase();
+ 
+   if (compactLabel === "xhigh" || compactLabel === "extrahigh") {
+     return i18n.t("agentControls.thinking.extraHigh");
+   }
+ 
+-  return formatControlLabel(option, true);
++  return formatControlLabel({ id: option.id, label }, true);
+ }
+diff --git a/packages/app/src/android/rotation-delay.ts b/packages/app/src/android/rotation-delay.ts
+new file mode 100644
+index 000000000..ed1765b7c
+--- /dev/null
++++ b/packages/app/src/android/rotation-delay.ts
+@@ -0,0 +1,32 @@
++import * as FileSystem from "expo-file-system/legacy";
++import { Platform } from "react-native";
++
++/**
++ * Where the Android build reads the auto-rotate switch.
++ *
++ * The rotation controller lives in MainActivity (injected by the build repo's
++ * `with-android-rotation-delay` plugin) because only native code can hold an
++ * orientation. `documentDirectory` is the app's `filesDir`, so the controller
++ * reads the same path the app writes here. No file means enabled, which is what
++ * a fresh install gets.
++ */
++export const ROTATION_DELAY_FILE = "paseo-rotation.json";
++
++/** Last value written, so the many components reading settings write the file once. */
++let lastWritten: boolean | undefined;
++
++export async function syncRotationDelay(autoRotate: boolean): Promise<void> {
++  if (Platform.OS !== "android") return;
++  if (lastWritten === autoRotate) return;
++  const directory = FileSystem.documentDirectory;
++  if (!directory) return;
++  try {
++    await FileSystem.writeAsStringAsync(
++      `${directory}${ROTATION_DELAY_FILE}`,
++      JSON.stringify({ autoRotate }),
++    );
++    lastWritten = autoRotate;
++  } catch (error) {
++    console.warn("[rotation-delay] could not persist the auto-rotate switch", error);
++  }
++}
+diff --git a/packages/app/src/app/_layout.tsx b/packages/app/src/app/_layout.tsx
+index bc4b84c4b..bdf89d021 100644
+--- a/packages/app/src/app/_layout.tsx
++++ b/packages/app/src/app/_layout.tsx
+@@ -31,6 +31,7 @@ import {
+   useSyncExternalStore,
+ } from "react";
+ import { AppState, useWindowDimensions, View } from "react-native";
++import { SystemBars } from "react-native-edge-to-edge";
+ import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+ import { KeyboardProvider } from "react-native-keyboard-controller";
+ import { StyleSheet, useUnistyles } from "react-native-unistyles";
+@@ -1025,6 +1026,7 @@ function RootProviders({ children }: { children: ReactNode }) {
+ function RootAppTree() {
+   return (
+     <GestureHandlerRootView style={flexStyle}>
++      <SystemBars style="auto" />
+       <View style={layoutStyles.surfaceFill}>
+         <LucideProvider strokeWidth={ICON_STROKE_WIDTH}>
+           <AddHostProvider>
+diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
+index af6daab5e..656563053 100644
+--- a/packages/app/src/components/markdown/renderer.test.ts
++++ b/packages/app/src/components/markdown/renderer.test.ts
+@@ -599,6 +599,44 @@ describe("bare URL sentence punctuation", () => {
+   });
+ });
+ 
++describe("bare URLs with a port", () => {
++  it.each([
++    "http://127.0.0.1:8400/",
++    "http://127.0.0.1:8400",
++    "http://localhost:8400/admin",
++    "https://example.com:8443/a?b=1#c",
++  ])("keeps the whole destination in one link: %s", async (url) => {
++    const prepared = prepareMarkdownSource(`${url} 传图。`);
++    expect(prepared.render()).toBe(`<${url}> 传图。`);
++    const tree = await parseMarkdown(prepared.render());
++    expect(tree.children?.[0]?.children?.[0]).toEqual({
++      type: "Link",
++      attributes: { url },
++      children: [{ type: "Text", content: url }],
++    });
++  });
++
++  it("keeps CJK punctuation outside the link", async () => {
++    const tree = await parseMarkdown(
++      prepareMarkdownSource("开 http://127.0.0.1:8400/，传图。").render(),
++    );
++    expect(tree.children?.[0]?.children).toEqual([
++      { type: "Text", content: "开 " },
++      {
++        type: "Link",
++        attributes: { url: "http://127.0.0.1:8400/" },
++        children: [{ type: "Text", content: "http://127.0.0.1:8400/" }],
++      },
++      { type: "Text", content: "，传图。" },
++    ]);
++  });
++
++  it("leaves code spans and authored links untouched", () => {
++    const source = "`http://127.0.0.1:8400/` and [local](http://127.0.0.1:8400/)";
++    expect(prepareMarkdownSource(source).render()).toBe(source);
++  });
++});
++
+ it("requires workspace context for relative inline paths and escapes literal regex characters", () => {
+   const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
+   const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
+diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
+index a71534162..a02adc4de 100644
+--- a/packages/app/src/components/markdown/source.ts
++++ b/packages/app/src/components/markdown/source.ts
+@@ -25,6 +25,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
+ // Bare prose paths need a known extension, a line suffix, or at least two separators.
+ const PROSE_PATH = String.raw`(?:${PATH_PREFIX}${HAS_PATH_LETTER}${SEPARATED_PATH}|${HAS_PATH_LETTER}(?:${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT})*[\\/]${FILE_NAME}|${PATH_SEGMENT}(?:[\\/]${PATH_SEGMENT}){2,}|${SEPARATED_PATH}(?=:)))`;
+ 
++// MD4C's permissive autolink scanner stops at the colon before a port, so
++// `http://127.0.0.1:8400/` becomes a link to `http://127.0.0.1` and leaves
++// `:8400/` as prose: the link opens the wrong destination and copying it drops
++// the port. Wrapping the whole URL in an angle autolink keeps one link on native
++// and web alike. Only plain text nodes reach this; code, authored links and
++// image alt text stay untouched.
++const PORT_URL = String.raw`https?:\/\/[A-Za-z0-9\-._~%]+:\d{1,5}[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*`;
++const PORT_URL_PATTERN = new RegExp(PORT_URL, "g");
++const HAS_PORT_URL = new RegExp(PORT_URL);
++
++function trimAutolink(url: string): string {
++  let end = url.length;
++  while (end > 0 && ".,;:!?".includes(url[end - 1])) end--;
++  while (end > 0 && (url[end - 1] === ")" || url[end - 1] === "]")) {
++    const close = url[end - 1];
++    const open = close === ")" ? "(" : "[";
++    const head = url.slice(0, end);
++    if (head.split(close).length > head.split(open).length) end--;
++    else break;
++  }
++  return url.slice(0, end);
++}
++
++function autolinkPortUrls(text: string): string {
++  return text.replace(PORT_URL_PATTERN, (match) => {
++    const url = trimAutolink(match);
++    return `<${url}>${match.slice(url.length)}`;
++  });
++}
++
+ function createTextPattern(path: string, forgeReferencePattern?: string): RegExp {
+   // Forge references come before paths so `group/project#12` is not read as a path.
+   const forgeReference = forgeReferencePattern ? `|${forgeReferencePattern}` : "";
+@@ -187,6 +217,7 @@ export function prepareMarkdownSource(
+     !source.includes("![") &&
+     !source.includes("||") &&
+     !source.includes("&") &&
++    !HAS_PORT_URL.test(source) &&
+     // Match content, header, and delimiter lines; quote-only lines count as blank.
+     !/^[\t >]*[^\t >\r\n][^\r\n]*(?:\r\n|\r|\n)[^\r\n]+(?:\r\n|\r|\n)(?=[\t >:|-]*\|)[\t >|]*:?-[-\t :|]*$/m.test(
+       source,
+@@ -282,7 +313,7 @@ export function prepareMarkdownSource(
+     edits.push({ start, end: labelStart, text: "" });
+     edits.push({ start: labelEnd, end, text: "" });
+   }
+-  function visit(node: Nodes, previous?: Nodes) {
++  function visit(node: Nodes, previous?: Nodes, insideLink = false) {
+     const position = node.position;
+     if (position?.start.offset !== undefined && position.end.offset !== undefined) {
+       const start = position.start.offset;
+@@ -319,18 +350,23 @@ export function prepareMarkdownSource(
+         collectImage(node, start, end);
+         return;
+       }
+-      if (node.type === "text") {
+-        const text = source
+-          .slice(start, end)
++      if (node.type === "text" && !insideLink) {
++        const original = source.slice(start, end);
++        const text = autolinkPortUrls(original)
+           .replace(/(?<!\\)&(?:#(?:[xX][\da-fA-F]+|\d+)|[a-zA-Z][a-zA-Z\d]+);/g, (entity) =>
+             decodeString(entity).replace(/[!-/:-@[-`{-~]/g, "\\$&"),
+           )
+           .replace(/(?<!\\)\|\|/g, "\\|\\|");
+-        if (text !== source.slice(start, end)) edits.push({ start, end, text });
++        if (text !== original) edits.push({ start, end, text });
+       }
+     }
+-    if ("children" in node)
+-      node.children.forEach((child, index) => visit(child, node.children[index - 1]));
++    if ("children" in node) {
++      const childInsideLink =
++        insideLink || node.type === "link" || node.type === "linkReference";
++      node.children.forEach((child, index) =>
++        visit(child, node.children[index - 1], childInsideLink),
++      );
++    }
+   }
+   visit(getTree());
+   return {
+diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
+index cf95e9d9c..6a61c31f2 100644
+--- a/packages/app/src/composer/agent-controls/model-sheet.tsx
++++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
+@@ -628,7 +628,8 @@ const styles = StyleSheet.create((theme) => ({
+     flexShrink: 0,
+   },
+   triggerThinking: {
+-    flexShrink: 0,
++    minWidth: 0,
++    flexShrink: 1,
+     color: theme.colors.foregroundExtraMuted,
+     fontSize: theme.fontSize.base,
+     fontWeight: theme.fontWeight.normal,
+diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
+new file mode 100644
+index 000000000..612c2a3e4
+--- /dev/null
++++ b/packages/app/src/composer/background-task-pill.tsx
+@@ -0,0 +1,175 @@
++import { useCallback, type ReactElement } from "react";
++import { Text, View } from "react-native";
++import { Terminal } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import type { AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
++import {
++  MenuRoot,
++  MenuSurface,
++  MenuTrigger,
++  menuRowContentInset,
++  type MenuTriggerState,
++} from "@/components/ui/menu";
++import { formatDuration } from "@/utils/time";
++
++const ThemedTerminal = withUnistyles(Terminal);
++
++const blueMapping = () => ({ color: "#3b82f6" });
++
++const taskPillStyles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.borderAccent,
++    backgroundColor: theme.colors.surface1,
++    minWidth: 0,
++    flexShrink: 0,
++  },
++  pillActive: {
++    backgroundColor: theme.colors.surface2,
++  },
++  count: {
++    color: "#3b82f6",
++    fontSize: 12,
++    fontWeight: theme.fontWeight.medium,
++    lineHeight: 14,
++  },
++  detailContainer: {
++    paddingVertical: theme.spacing[2],
++    gap: theme.spacing[2],
++  },
++  taskItem: {
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[2],
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: theme.colors.border,
++    gap: 4,
++  },
++  taskHeader: {
++    flexDirection: "row",
++    alignItems: "center",
++    justifyContent: "space-between",
++  },
++  taskId: {
++    fontSize: 11,
++    fontWeight: theme.fontWeight.medium,
++    color: "#3b82f6",
++    fontFamily: theme.fontFamily.mono,
++  },
++  taskElapsed: {
++    fontSize: 11,
++    color: theme.colors.foregroundExtraMuted,
++  },
++  taskCommand: {
++    fontSize: 12,
++    color: theme.colors.foreground,
++    fontFamily: theme.fontFamily.mono,
++  },
++  taskDesc: {
++    fontSize: 12,
++    color: theme.colors.foregroundMuted,
++  },
++  emptyText: {
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[3],
++    color: theme.colors.foregroundMuted,
++    fontSize: 12,
++  },
++}));
++
++interface BackgroundTaskPillProps {
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
++}
++
++export function BackgroundTaskPill({
++  backgroundTasks,
++}: BackgroundTaskPillProps): ReactElement | null {
++  if (!backgroundTasks || backgroundTasks.count <= 0) {
++    return null;
++  }
++
++  return (
++    <MenuRoot compactMode="sheet">
++      <BackgroundTaskPillTrigger count={backgroundTasks.count} />
++      <MenuSurface
++        side="top"
++        align="start"
++        offset={6}
++        sheetTitle={`后台任务 (${backgroundTasks.count})`}
++        minWidth={280}
++        maxWidth={460}
++        maxHeight={400}
++        scrollable
++        testID="composer-background-task-panel"
++      >
++        <BackgroundTaskDetail tasks={backgroundTasks.tasks} />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
++
++function BackgroundTaskPillTrigger({ count }: { count: number }): ReactElement {
++  const pillStyle = useCallback(
++    ({ hovered, pressed, open }: MenuTriggerState) => [
++      taskPillStyles.pill,
++      (hovered || pressed || open) && taskPillStyles.pillActive,
++    ],
++    [],
++  );
++
++  return (
++    <MenuTrigger
++      testID="composer-background-task-pill"
++      accessibilityRole="button"
++      accessibilityLabel={`后台任务: ${count} 个运行中`}
++      style={pillStyle}
++    >
++      <ThemedTerminal size={13} uniProps={blueMapping} />
++      <Text style={taskPillStyles.count}>{count}</Text>
++    </MenuTrigger>
++  );
++}
++
++function BackgroundTaskDetail({
++  tasks,
++}: {
++  tasks: AgentBackgroundTasksPayload["tasks"];
++}): ReactElement {
++  if (tasks.length === 0) {
++    return <Text style={taskPillStyles.emptyText}>当前没有正在运行的后台任务</Text>;
++  }
++
++  const now = Date.now();
++
++  return (
++    <View style={taskPillStyles.detailContainer}>
++      {tasks.map((task) => {
++        const elapsed = task.startedAt ? formatDuration(now - task.startedAt) : null;
++        return (
++          <View key={task.id} style={taskPillStyles.taskItem}>
++            <View style={taskPillStyles.taskHeader}>
++              <Text style={taskPillStyles.taskId}>{task.id}</Text>
++              {elapsed ? <Text style={taskPillStyles.taskElapsed}>已运行 {elapsed}</Text> : null}
++            </View>
++            {task.description ? (
++              <Text style={taskPillStyles.taskDesc} numberOfLines={2}>
++                {task.description}
++              </Text>
++            ) : null}
++            {task.command ? (
++              <Text style={taskPillStyles.taskCommand} numberOfLines={3}>
++                {task.command}
++              </Text>
++            ) : null}
++          </View>
++        );
++      })}
++    </View>
++  );
++}
+diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
+index ab26fe561..1990684c2 100644
+--- a/packages/app/src/composer/dock/index.native.tsx
++++ b/packages/app/src/composer/dock/index.native.tsx
+@@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
+ import { HEADER_INNER_HEIGHT } from "@/constants/layout";
+ import { resolveContentMaxWidth, useAppSettings } from "@/hooks/use-settings";
+ import { KeyboardTranslateView } from "@/keyboard/shift";
+-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
++import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from "react";
+ import { View, type LayoutChangeEvent, type ViewProps, StyleSheet } from "react-native";
+ import { StyleSheet as ThemedStyleSheet } from "react-native-unistyles";
+ import Animated, {
+@@ -24,6 +24,7 @@ import {
+   updateComposerCapacity,
+   type ComposerCapacity,
+ } from "./internal/capacity";
++import { ComposerChromeContext, updateChromeHeight } from "./internal/chrome";
+ import { SPACING } from "@/styles/theme";
+ 
+ const ViewportSizing = createContext<SharedValue<ComposerCapacity | undefined> | null>(null);
+@@ -76,20 +77,28 @@ function ComposerViewport({
+   );
+ }
+ 
+-/** Bound the complete composer (including its controls), not just the text input. */
++/** Bound the complete composer (including its controls and the chrome above it), not just the text input. */
+ function ComposerViewportContent({
+   style,
+   fullscreen = false,
++  chrome,
+   ...props
+-}: ViewProps & { fullscreen?: boolean }) {
++}: ViewProps & { fullscreen?: boolean; chrome?: SharedValue<number> }) {
+   const compact = useIsCompactFormFactor();
+   const sizing = useContext(ViewportSizing);
+   if (!sizing) throw new Error("ComposerViewportContent requires ComposerViewport");
+-  const constraint = useAnimatedStyle(() => ({
+-    // Only viewport changes and keyboard start/end events trigger layout. Motion
+-    // stays in KeyboardTranslateView and never changes this constraint per frame.
+-    maxHeight: resolveComposerSlotCapacity(sizing.value, { compact, fullscreen }),
+-  }));
++  const constraint = useAnimatedStyle(() => {
++    // Only viewport changes, keyboard start/end events, and a chrome report trigger
++    // layout. Motion stays in KeyboardTranslateView and never changes this per frame.
++    const chromeHeight = chrome ? chrome.value : 0;
++    return {
++      maxHeight: resolveComposerSlotCapacity(sizing.value, {
++        compact,
++        fullscreen,
++        chrome: chromeHeight,
++      }),
++    };
++  });
+ 
+   return (
+     <Animated.View testID="composer-viewport-content" {...props} style={[style, constraint]} />
+@@ -134,6 +143,17 @@ export function ComposerDock({
+   const insets = useSafeAreaInsets();
+   const contentMaxWidth = resolveContentMaxWidth(useAppSettings().settings);
+   const centeredClearance = useCenteredClearance(insets.bottom);
++  // Chrome the composer reports above its editing area. The compact cap budgets the
++  // text, so the tray and the import pill add to it rather than squeeze it.
++  const chrome = useSharedValue(0);
++  const chromeHeights = useRef(new Map<string, number>());
++  const reportChrome = useCallback(
++    (key: string, height: number) => {
++      const total = updateChromeHeight(chromeHeights.current, key, height);
++      if (chrome.value !== total) chrome.value = total;
++    },
++    [chrome],
++  );
+   const placement = resolveComposerBottomPlacement({
+     safeAreaBottom: insets.bottom,
+     contentSpacing: SPACING[4],
+@@ -184,10 +204,13 @@ export function ComposerDock({
+             <ComposerViewportContent
+               style={fullscreen ? dockStyles.surface : dockStyles.centeredComposer}
+               fullscreen={fullscreen}
++              chrome={chrome}
+             >
+-              <View style={fullscreen ? fullscreenSurface : dockStyles.centeredComposerSurface}>
+-                {composer}
+-              </View>
++              <ComposerChromeContext.Provider value={reportChrome}>
++                <View style={fullscreen ? fullscreenSurface : dockStyles.centeredComposerSurface}>
++                  {composer}
++                </View>
++              </ComposerChromeContext.Provider>
+             </ComposerViewportContent>
+           </ComposerViewportContent>
+         </KeyboardTranslateView>
+@@ -218,16 +241,19 @@ export function ComposerDock({
+         <ComposerViewportContent
+           style={fullscreen ? dockStyles.fullscreenSlot : dockStyles.composer}
+           fullscreen={fullscreen}
++          chrome={chrome}
+         >
+-          <View
+-            style={
+-              fullscreen
+-                ? fullscreenSurface
+-                : [dockStyles.composer, { paddingBottom: placement.restingPadding }]
+-            }
+-          >
+-            {composer}
+-          </View>
++          <ComposerChromeContext.Provider value={reportChrome}>
++            <View
++              style={
++                fullscreen
++                  ? fullscreenSurface
++                  : [dockStyles.composer, { paddingBottom: placement.restingPadding }]
++              }
++            >
++              {composer}
++            </View>
++          </ComposerChromeContext.Provider>
+         </ComposerViewportContent>
+       </KeyboardTranslateView>
+       {overlay}
+diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
+index 0456cd628..c1b645b47 100644
+--- a/packages/app/src/composer/dock/index.tsx
++++ b/packages/app/src/composer/dock/index.tsx
+@@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
+ import { View } from "react-native";
+ import { StyleSheet } from "react-native-unistyles";
+ import { resolveInlineComposerCapacity } from "./internal/capacity";
++import { ComposerChromeContext, updateChromeHeight } from "./internal/chrome";
+ import { useFullscreenSlotFrame } from "./internal/fullscreen";
+ import { useIsCompactFormFactor } from "@/constants/layout";
+ import { HEADER_INNER_HEIGHT } from "@/constants/layout";
+@@ -25,10 +26,18 @@ export function ComposerDock({
+   const [surfaceSize, setSurfaceSize] = useState<{ width: number; height: number }>();
+   const surfaceRef = useRef<View>(null);
+   const fullscreenFrame = useFullscreenSlotFrame(fullscreen, surfaceRef, surfaceSize);
+-  const constraint = useMemo(
+-    () => ({ maxHeight: resolveInlineComposerCapacity(surfaceSize?.height, compact) }),
+-    [surfaceSize?.height, compact],
+-  );
++  // Chrome the composer reports above its editing area. The compact cap budgets the
++  // text, so the tray and the import pill add to it rather than squeeze it.
++  const [chrome, setChrome] = useState(0);
++  const chromeHeights = useRef(new Map<string, number>());
++  const reportChrome = useCallback((key: string, height: number) => {
++    const total = updateChromeHeight(chromeHeights.current, key, height);
++    setChrome((current) => (current === total ? current : total));
++  }, []);
++  const constraint = useMemo(() => {
++    const editing = resolveInlineComposerCapacity(surfaceSize?.height, compact);
++    return { maxHeight: editing === undefined ? undefined : editing + chrome };
++  }, [surfaceSize?.height, compact, chrome]);
+   const measureViewport = useCallback((event: import("react-native").LayoutChangeEvent) => {
+     const { width, height } = event.nativeEvent.layout;
+     if (height > 0) setSurfaceSize({ width, height });
+@@ -47,7 +56,9 @@ export function ComposerDock({
+                 : [styles.centeredComposer, constraint]
+             }
+           >
+-            {composer}
++            <ComposerChromeContext.Provider value={reportChrome}>
++              {composer}
++            </ComposerChromeContext.Provider>
+           </View>
+           {overlay}
+         </View>
+@@ -62,7 +73,9 @@ export function ComposerDock({
+           fullscreen ? [styles.fullscreenComposer, fullscreenFrame] : [styles.composer, constraint]
+         }
+       >
+-        {composer}
++        <ComposerChromeContext.Provider value={reportChrome}>
++          {composer}
++        </ComposerChromeContext.Provider>
+       </View>
+       {overlay}
+     </View>
+diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
+index 973c7f240..4685458ea 100644
+--- a/packages/app/src/composer/dock/internal/capacity.test.ts
++++ b/packages/app/src/composer/dock/internal/capacity.test.ts
+@@ -223,3 +223,43 @@ describe("composer viewport", () => {
+     ).toBe(95);
+   });
+ });
++
++describe("composer slot chrome", () => {
++  const open = updateComposerCapacity(undefined, {
++    height: 582,
++    bottomInset: 24,
++    safeAreaBottom: 0,
++    centered: false,
++    keyboardShift: 308,
++    keyboardGap: 0,
++  });
++
++  it("adds the tray and the import pill on top of the editing budget", () => {
++    expect(resolveComposerSlotCapacity(open, { compact: true, fullscreen: false })).toBe(147);
++    expect(
++      resolveComposerSlotCapacity(open, { compact: true, fullscreen: false, chrome: 60 }),
++    ).toBe(207);
++  });
++
++  it("leaves the editing budget untouched by chrome", () => {
++    const withoutChrome = resolveComposerSlotCapacity(open, { compact: true, fullscreen: false })!;
++    const withChrome = resolveComposerSlotCapacity(open, {
++      compact: true,
++      fullscreen: false,
++      chrome: 60,
++    })!;
++    expect(withChrome - withoutChrome).toBe(60);
++  });
++
++  it("ignores chrome in fullscreen, which fills the viewport", () => {
++    expect(
++      resolveComposerSlotCapacity(open, { compact: true, fullscreen: true, chrome: 60 }),
++    ).toBe(582);
++  });
++
++  it("treats a negative chrome as none", () => {
++    expect(
++      resolveComposerSlotCapacity(open, { compact: true, fullscreen: false, chrome: -20 }),
++    ).toBe(147);
++  });
++});
+diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
+index d9be8b925..6ddd43cbd 100644
+--- a/packages/app/src/composer/dock/internal/capacity.ts
++++ b/packages/app/src/composer/dock/internal/capacity.ts
+@@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
+ export interface ComposerSlotLayout {
+   compact: boolean;
+   fullscreen: boolean;
++  /**
++   * Height of everything the composer shows above its editing area — the
++   * attachment tray, the import pill. The compact cap budgets the editing area,
++   * so this chrome adds to it; charging the chrome to the same budget left the
++   * text one line high and painted its overflow over the toolbar.
++   */
++  chrome?: number;
+ }
+ 
+ /** The bound on the composer slot: inline capacity, or the whole viewport in fullscreen. */
+@@ -105,5 +112,7 @@ export function resolveComposerSlotCapacity(
+   "worklet";
+   if (sizing === undefined) return undefined;
+   if (layout.fullscreen) return sizing.viewportHeight;
+-  return resolveInlineComposerCapacity(sizing.capacity, layout.compact);
++  const editing = resolveInlineComposerCapacity(sizing.capacity, layout.compact);
++  if (editing === undefined) return undefined;
++  return editing + Math.max(0, layout.chrome ?? 0);
+ }
+diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
+new file mode 100644
+index 000000000..a0de3d897
+--- /dev/null
++++ b/packages/app/src/composer/dock/internal/chrome.test.ts
+@@ -0,0 +1,31 @@
++import { describe, expect, it } from "vitest";
++import { updateChromeHeight } from "./chrome";
++
++describe("composer chrome totals", () => {
++  it("adds each reported row to the total", () => {
++    const heights = new Map<string, number>();
++    expect(updateChromeHeight(heights, "attachment-tray", 60)).toBe(60);
++    expect(updateChromeHeight(heights, "import-pill", 44)).toBe(104);
++  });
++
++  it("replaces a row instead of adding it twice", () => {
++    const heights = new Map<string, number>();
++    updateChromeHeight(heights, "attachment-tray", 60);
++    expect(updateChromeHeight(heights, "attachment-tray", 120)).toBe(120);
++    expect(updateChromeHeight(heights, "attachment-tray", 120)).toBe(120);
++  });
++
++  it("drops a row that reports zero", () => {
++    const heights = new Map<string, number>();
++    updateChromeHeight(heights, "attachment-tray", 60);
++    updateChromeHeight(heights, "import-pill", 44);
++    expect(updateChromeHeight(heights, "attachment-tray", 0)).toBe(44);
++    expect(heights.has("attachment-tray")).toBe(false);
++  });
++
++  it("treats a negative height as absent", () => {
++    const heights = new Map<string, number>();
++    expect(updateChromeHeight(heights, "attachment-tray", -20)).toBe(0);
++    expect(heights.size).toBe(0);
++  });
++});
+diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
+new file mode 100644
+index 000000000..cd3cc0318
+--- /dev/null
++++ b/packages/app/src/composer/dock/internal/chrome.ts
+@@ -0,0 +1,35 @@
++import { createContext, useContext } from "react";
++
++/**
++ * Reports the height of composer chrome that sits above the editing area — the
++ * attachment tray, the import pill. The dock adds the sum to the compact cap, so
++ * attachments grow the shell by their own height instead of coming out of the
++ * text's budget.
++ *
++ * Keyed because the composer and the draft tab each own a row; the last height a
++ * key reports replaces its previous one, and `0` removes it.
++ */
++export type ComposerChromeSink = (key: string, height: number) => void;
++
++export const ComposerChromeContext = createContext<ComposerChromeSink | null>(null);
++
++export function useComposerChromeSink(): ComposerChromeSink | null {
++  return useContext(ComposerChromeContext);
++}
++
++/** Apply one report and return the total the dock should add to its cap. */
++export function updateChromeHeight(
++  heights: Map<string, number>,
++  key: string,
++  height: number,
++): number {
++  const next = Math.max(0, height);
++  if (next === 0) {
++    heights.delete(key);
++  } else {
++    heights.set(key, next);
++  }
++  let total = 0;
++  for (const value of heights.values()) total += value;
++  return total;
++}
+diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
+index 1b070ebdc..cb8f6bfa8 100644
+--- a/packages/app/src/composer/draft/workspace-tab.tsx
++++ b/packages/app/src/composer/draft/workspace-tab.tsx
+@@ -10,6 +10,7 @@ import invariant from "tiny-invariant";
+ import { Composer } from "@/composer";
+ import { type ComposerEditingSession, useComposerFullscreen } from "@/composer/editing-session";
+ import { ComposerImportPill } from "@/composer/draft/import-pill";
++import { useComposerChromeSink } from "@/composer/dock/internal/chrome";
+ import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
+ import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
+ import { useAgentInputDraft } from "@/composer/draft/input-draft";
+@@ -526,6 +527,26 @@ export function WorkspaceDraftComposer({
+     focusInputRef.current?.();
+   }, []);
+   const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
++  // The pill row is composer chrome: the dock adds its height to the compact cap so
++  // the text keeps the budget it had before the pill appeared.
++  const chromeSink = useComposerChromeSink();
++  const showImportPill = Boolean(importPillPress) && !isComposerFullscreen;
++  const handleImportPillLayout = useCallback(
++    (event: import("react-native").LayoutChangeEvent) => {
++      chromeSink?.("import-pill", event.nativeEvent.layout.height);
++    },
++    [chromeSink],
++  );
++  useEffect(() => {
++    if (showImportPill) return;
++    chromeSink?.("import-pill", 0);
++  }, [showImportPill, chromeSink]);
++  useEffect(
++    () => () => {
++      chromeSink?.("import-pill", 0);
++    },
++    [chromeSink],
++  );
+   const composerAgentControls = useMemo(
+     () => ({
+       ...composerState.agentControls,
+@@ -537,7 +558,11 @@ export function WorkspaceDraftComposer({
+   return (
+     <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
+       {importPillPress && !isComposerFullscreen ? (
+-        <View style={styles.importPillRow} dataSet={CHAT_COLUMN_RAIL_DATASET}>
++        <View
++          style={styles.importPillRow}
++          dataSet={CHAT_COLUMN_RAIL_DATASET}
++          onLayout={handleImportPillLayout}
++        >
+           <View style={styles.importPillContent}>
+             <ComposerImportPill onPress={importPillPress} />
+           </View>
+diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
+new file mode 100644
+index 000000000..2c20c7f26
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.test.ts
+@@ -0,0 +1,137 @@
++import { describe, expect, it } from "vitest";
++import {
++  formatCompactTokens,
++  formatFullTokens,
++  formatGoalElapsed,
++  formatGoalInputUsage,
++  formatGoalUsageSuffix,
++  resolveGoalStatusLabel,
++  resolveGoalUsageHints,
++} from "./goal-pill";
++
++describe("resolveGoalUsageHints", () => {
++  it("says Kimi does not report a goal's turn count", () => {
++    expect(resolveGoalUsageHints("kimi").turns).toContain("Kimi 不提供这个数");
++  });
++
++  it("does not describe a Claude goal with Kimi's wording", () => {
++    const hints = resolveGoalUsageHints("claude");
++
++    expect(hints.turns).not.toContain("Kimi");
++    expect(hints.tokens).not.toContain("Kimi");
++    expect(hints.turns).toContain("Claude 只在评估目标时报自己的计数");
++  });
++
++  it("has wording for a provider it does not know", () => {
++    const hints = resolveGoalUsageHints("codex");
++
++    expect(hints.turns.length).toBeGreaterThan(0);
++    expect(hints.tokens.length).toBeGreaterThan(0);
++    expect(hints.turns).not.toContain("Kimi");
++  });
++
++  it("has wording for a goal with no provider at all", () => {
++    expect(resolveGoalUsageHints(undefined).turns).not.toContain("Kimi");
++  });
++});
++
++describe("resolveGoalStatusLabel", () => {
++  it.each([
++    ["active", "目标进行中"],
++    ["paused", "目标已暂停"],
++    ["blocked", "目标受阻"],
++    ["complete", "目标已完成"],
++    ["cleared", "目标已清除"],
++  ] as const)("labels %s", (status, label) => {
++    expect(resolveGoalStatusLabel(status)).toBe(label);
++  });
++});
++
++describe("formatCompactTokens", () => {
++  it.each([
++    [0, "0"],
++    [-1, "0"],
++    [999, "999"],
++    [12_300, "12.3K"],
++    [100_000, "100K"],
++    [1_234_567, "1.2M"],
++  ] as const)("formats %i as %s", (tokens, expected) => {
++    expect(formatCompactTokens(tokens)).toBe(expected);
++  });
++});
++
++describe("formatFullTokens", () => {
++  it.each([
++    [0, "0"],
++    [-1, "0"],
++    [999, "999"],
++    [12_300, "12,300"],
++    [1_234_567, "1,234,567"],
++  ] as const)("formats %i as %s", (tokens, expected) => {
++    expect(formatFullTokens(tokens)).toBe(expected);
++  });
++});
++
++describe("formatGoalUsageSuffix", () => {
++  it("joins turns and tokens", () => {
++    expect(formatGoalUsageSuffix(3, 12_300)).toBe("· 3 回合 · 12.3K");
++  });
++
++  it("drops the side that is zero", () => {
++    expect(formatGoalUsageSuffix(2, 0)).toBe("· 2 回合");
++    expect(formatGoalUsageSuffix(0, 500)).toBe("· 500");
++  });
++
++  it("appends the input side when the log carried one", () => {
++    expect(formatGoalUsageSuffix(3, 12_300, 1_200_000)).toBe("· 3 回合 · 12.3K · IN 1.2M");
++  });
++
++  it("leaves the suffix alone when there is no input count", () => {
++    expect(formatGoalUsageSuffix(3, 12_300, 0)).toBe("· 3 回合 · 12.3K");
++  });
++
++  it("returns null when the goal has no usage yet", () => {
++    expect(formatGoalUsageSuffix(0, 0)).toBeNull();
++  });
++});
++
++describe("formatGoalInputUsage", () => {
++  it("shows the summed input with the exact count", () => {
++    const usage = formatGoalInputUsage(1_203_194, undefined);
++    expect(usage?.value).toBe("1.2M tokens");
++    expect(usage?.hint).toContain("1,203,194");
++    expect(usage?.hint).toContain("每次请求都计入");
++  });
++
++  it("names the cache-read part when there was one", () => {
++    const usage = formatGoalInputUsage(1_203_194, 1_108_328);
++    expect(usage?.hint).toContain("其中缓存 1,108,328");
++  });
++
++  it("omits the cache note when nothing was cached", () => {
++    const usage = formatGoalInputUsage(1_203_194, 0);
++    expect(usage?.hint).not.toContain("缓存");
++  });
++
++  it("has nothing to show without an input count", () => {
++    expect(formatGoalInputUsage(undefined, undefined)).toBeNull();
++    expect(formatGoalInputUsage(0, 0)).toBeNull();
++  });
++});
++
++describe("formatGoalElapsed", () => {
++  const NOW = 1_790_500_000_000;
++
++  it("measures up to the end mark once the goal has ended", () => {
++    expect(formatGoalElapsed(NOW - 90_000, NOW - 30_000, NOW)).toBe("1m");
++  });
++
++  it("measures up to now while the goal is still running", () => {
++    expect(formatGoalElapsed(NOW - 45_000, null, NOW)).toBe("45s");
++    expect(formatGoalElapsed(NOW - 45_000, undefined, NOW)).toBe("45s");
++  });
++
++  it("has nothing to show without a start mark", () => {
++    expect(formatGoalElapsed(undefined, null, NOW)).toBeNull();
++  });
++});
+diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
+new file mode 100644
+index 000000000..213410e7e
+--- /dev/null
++++ b/packages/app/src/composer/goal-pill.tsx
+@@ -0,0 +1,421 @@
++import { useCallback, type ReactElement } from "react";
++import { Text, View } from "react-native";
++import { CircleAlert, CircleCheck, CircleDot, CircleSlash } from "lucide-react-native";
++import { StyleSheet, withUnistyles } from "react-native-unistyles";
++import type { AgentGoalPayload } from "@getpaseo/protocol/messages";
++import type { AgentProvider } from "@getpaseo/protocol/agent-types";
++import {
++  MenuRoot,
++  MenuSurface,
++  MenuTrigger,
++  menuRowContentInset,
++  type MenuTriggerState,
++} from "@/components/ui/menu";
++import { formatDuration, formatMessageTimestamp } from "@/utils/time";
++import type { Theme } from "@/styles/theme";
++import { assertUnreachable } from "@/utils/exhaustive";
++
++export type AgentGoalStatus = AgentGoalPayload["status"];
++
++const GOAL_STATUS_LABELS: Record<AgentGoalStatus, string> = {
++  active: "目标进行中",
++  paused: "目标已暂停",
++  blocked: "目标受阻",
++  complete: "目标已完成",
++  cleared: "目标已清除",
++};
++
++const ThemedActiveGlyph = withUnistyles(CircleDot);
++const ThemedPausedGlyph = withUnistyles(CircleSlash);
++const ThemedBlockedGlyph = withUnistyles(CircleAlert);
++const ThemedCompleteGlyph = withUnistyles(CircleCheck);
++
++const GOAL_STATUS_GLYPHS = {
++  active: ThemedActiveGlyph,
++  paused: ThemedPausedGlyph,
++  blocked: ThemedBlockedGlyph,
++  complete: ThemedCompleteGlyph,
++  cleared: ThemedPausedGlyph,
++} as const;
++
++const accentMapping = (theme: Theme) => ({ color: theme.colors.accent });
++const mutedMapping = (theme: Theme) => ({ color: theme.colors.foregroundMuted });
++const warningMapping = (theme: Theme) => ({ color: theme.colors.statusWarning });
++const successMapping = (theme: Theme) => ({ color: theme.colors.statusSuccess });
++
++/** Built once: a mapping rebuilt inline would hand `withUnistyles` a new function every render. */
++const GOAL_STATUS_COLOR_MAPPINGS: Record<AgentGoalStatus, (theme: Theme) => { color: string }> = {
++  active: accentMapping,
++  paused: mutedMapping,
++  blocked: warningMapping,
++  complete: successMapping,
++  cleared: mutedMapping,
++};
++
++const goalPillStyles = StyleSheet.create((theme) => ({
++  pill: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: 4,
++    minHeight: 24,
++    paddingHorizontal: 8,
++    paddingVertical: 2,
++    borderRadius: 9999,
++    borderWidth: 1,
++    borderColor: theme.colors.borderAccent,
++    backgroundColor: theme.colors.surface1,
++    minWidth: 0,
++    flexShrink: 1,
++  },
++  pillActive: {
++    backgroundColor: theme.colors.surface2,
++  },
++  label: {
++    fontSize: 12,
++    lineHeight: 14,
++    fontWeight: theme.fontWeight.medium,
++  },
++  labelActive: {
++    color: theme.colors.accent,
++  },
++  labelPaused: {
++    color: theme.colors.foregroundMuted,
++  },
++  labelBlocked: {
++    color: theme.colors.statusWarning,
++  },
++  labelComplete: {
++    color: theme.colors.statusSuccess,
++  },
++  usage: {
++    color: theme.colors.foregroundExtraMuted,
++    fontWeight: theme.fontWeight.normal,
++  },
++  // Detail rows sit on the same rail as a menu row's label, so the panel reads as one surface
++  // family whether its rows are pressable or plain.
++  field: {
++    flexDirection: "row",
++    alignItems: "flex-start",
++    gap: theme.spacing[2],
++    paddingHorizontal: menuRowContentInset(theme),
++    paddingVertical: theme.spacing[1],
++  },
++  fieldLabel: {
++    width: 56,
++    paddingTop: theme.spacing[1],
++    fontSize: theme.fontSize.sm,
++    color: theme.colors.foregroundMuted,
++  },
++  fieldBody: {
++    flex: 1,
++    gap: theme.spacing[1],
++  },
++  fieldValue: {
++    fontSize: theme.fontSize.sm,
++    lineHeight: theme.fontSize.sm * 1.5,
++    color: theme.colors.foreground,
++  },
++  fieldHint: {
++    fontSize: theme.fontSize.sm,
++    color: theme.colors.foregroundExtraMuted,
++  },
++}));
++
++const COMPACT_TOKEN_UNITS = [
++  { threshold: 1_000_000_000, divisor: 1_000_000_000, suffix: "B" },
++  { threshold: 1_000_000, divisor: 1_000_000, suffix: "M" },
++  { threshold: 1_000, divisor: 1_000, suffix: "K" },
++] as const;
++
++const DETAIL_PANEL_TEST_ID = "composer-goal-pill-panel";
++const DETAIL_SHEET_TITLE = "目标";
++const PANEL_MIN_WIDTH = 280;
++const PANEL_MAX_WIDTH = 520;
++const PANEL_MAX_HEIGHT = 440;
++/** Gap between the pill and its panel. Matches the track pills parked over the composer. */
++const PANEL_OFFSET = 12;
++
++/**
++ * What the panel says about a count the provider did not state itself. A bare count next to a
++ * token count reads as provider-reported, so the reader is told which is which — and that differs
++ * per provider: Kimi never reports how many turns a goal took, while Claude reports its own count
++ * only when the Stop hook evaluates the goal, which can be long after it was set.
++ */
++interface GoalUsageHints {
++  turns: string;
++  tokens: string;
++}
++
++const KIMI_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 按会话日志统计，Kimi 不提供这个数",
++  tokens: "Kimi 报的累计输出 token",
++};
++
++const CLAUDE_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 按回合统计，Claude 只在评估目标时报自己的计数",
++  tokens: "Paseo 按响应累计的输出 token",
++};
++
++const DEFAULT_GOAL_USAGE_HINTS: GoalUsageHints = {
++  turns: "Paseo 统计的回合数",
++  tokens: "Paseo 累计的输出 token",
++};
++
++export function resolveGoalUsageHints(provider: AgentProvider | null | undefined): GoalUsageHints {
++  if (provider === "kimi") {
++    return KIMI_GOAL_USAGE_HINTS;
++  }
++  if (provider === "claude") {
++    return CLAUDE_GOAL_USAGE_HINTS;
++  }
++  return DEFAULT_GOAL_USAGE_HINTS;
++}
++
++const INPUT_TOKENS_HINT = "Paseo 按响应累计的输入 token，同一段上下文每次请求都计入";
++
++export function resolveGoalStatusLabel(status: AgentGoalStatus): string {
++  return GOAL_STATUS_LABELS[status];
++}
++
++/** One decimal below 100 of the unit, whole numbers above it. */
++export function formatCompactTokens(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
++  for (const { threshold, divisor, suffix } of COMPACT_TOKEN_UNITS) {
++    if (tokens < threshold) continue;
++    const rounded = Math.round((tokens / divisor) * 10) / 10;
++    return `${rounded < 100 ? rounded.toFixed(1) : Math.round(rounded)}${suffix}`;
++  }
++  return String(Math.round(tokens));
++}
++
++/** Grouped digits, so the panel can show the exact count the compact form rounds off. */
++export function formatFullTokens(tokens: number): string {
++  if (!Number.isFinite(tokens) || tokens <= 0) return "0";
++  return String(Math.round(tokens)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
++}
++
++function goalUsageParts(turnsUsed: number, tokensUsed: number, inputTokens = 0): string[] {
++  const parts: string[] = [];
++  if (turnsUsed > 0) parts.push(`${Math.round(turnsUsed)} 回合`);
++  if (tokensUsed > 0) parts.push(formatCompactTokens(tokensUsed));
++  if (inputTokens > 0) parts.push(`IN ${formatCompactTokens(inputTokens)}`);
++  return parts;
++}
++
++export function formatGoalUsageSuffix(
++  turnsUsed: number,
++  tokensUsed: number,
++  inputTokens = 0,
++): string | null {
++  const parts = goalUsageParts(turnsUsed, tokensUsed, inputTokens);
++  return parts.length > 0 ? `· ${parts.join(" · ")}` : null;
++}
++
++/**
++ * The input side of a goal's usage, as a line for the panel: the summed input, and the cache-read
++ * part of it when the provider reported any. Null when the log carried no input at all, because a
++ * row reading zero would claim the goal read nothing.
++ */
++export function formatGoalInputUsage(
++  inputTokens: number | undefined,
++  cachedInputTokens: number | undefined,
++): { value: string; hint: string } | null {
++  if (inputTokens === undefined || inputTokens <= 0) return null;
++  const cached = cachedInputTokens !== undefined && cachedInputTokens > 0 ? cachedInputTokens : 0;
++  const hint =
++    cached > 0
++      ? `${formatFullTokens(inputTokens)} · 其中缓存 ${formatFullTokens(cached)} · ${INPUT_TOKENS_HINT}`
++      : `${formatFullTokens(inputTokens)} · ${INPUT_TOKENS_HINT}`;
++  return { value: `${formatCompactTokens(inputTokens)} tokens`, hint };
++}
++
++/**
++ * How long the goal has been running: up to `endedAt` once it ended, up to `now` while it is
++ * still going. Null without a start mark, because a goal whose start the log never recorded has
++ * no elapsed time to show — inventing one from epoch zero would read as 56 years.
++ */
++export function formatGoalElapsed(
++  startedAt: number | undefined,
++  endedAt: number | null | undefined,
++  now: number,
++): string | null {
++  if (startedAt === undefined) return null;
++  const end = endedAt === undefined || endedAt === null ? now : endedAt;
++  return formatDuration(end - startedAt);
++}
++
++function goalLabelStyle(status: AgentGoalStatus) {
++  switch (status) {
++    case "active":
++      return goalPillStyles.labelActive;
++    case "paused":
++    case "cleared":
++      return goalPillStyles.labelPaused;
++    case "blocked":
++      return goalPillStyles.labelBlocked;
++    case "complete":
++      return goalPillStyles.labelComplete;
++    default:
++      return assertUnreachable(status);
++  }
++}
++
++interface GoalPillProps {
++  goal: AgentGoalPayload | null | undefined;
++  /** Whose goal this is; decides what the panel says about the counters. */
++  provider?: AgentProvider | null;
++}
++
++export function GoalPill({ goal, provider }: GoalPillProps): ReactElement | null {
++  if (!goal) return null;
++  return (
++    <MenuRoot compactMode="sheet">
++      <GoalPillTrigger goal={goal} />
++      <MenuSurface
++        side="top"
++        align="start"
++        offset={PANEL_OFFSET}
++        sheetTitle={DETAIL_SHEET_TITLE}
++        minWidth={PANEL_MIN_WIDTH}
++        maxWidth={PANEL_MAX_WIDTH}
++        maxHeight={PANEL_MAX_HEIGHT}
++        scrollable
++        testID={DETAIL_PANEL_TEST_ID}
++      >
++        <GoalDetail goal={goal} provider={provider} />
++      </MenuSurface>
++    </MenuRoot>
++  );
++}
++
++function GoalPillTrigger({ goal }: { goal: AgentGoalPayload }): ReactElement {
++  const pillStyle = useCallback(
++    ({ hovered, pressed, open }: MenuTriggerState) => [
++      goalPillStyles.pill,
++      (hovered || pressed || open) && goalPillStyles.pillActive,
++    ],
++    [],
++  );
++  const label = resolveGoalStatusLabel(goal.status);
++  const Glyph = GOAL_STATUS_GLYPHS[goal.status];
++  const usageSuffix = formatGoalUsageSuffix(goal.turnsUsed, goal.tokensUsed, goal.inputTokens);
++  const accessibilityLabel = [
++    label,
++    ...goalUsageParts(goal.turnsUsed, goal.tokensUsed, goal.inputTokens),
++  ].join("，");
++
++  return (
++    <MenuTrigger
++      testID="composer-goal-pill"
++      accessibilityRole="button"
++      accessibilityLabel={`${accessibilityLabel}，查看目标详情`}
++      style={pillStyle}
++    >
++      <Glyph size={13} uniProps={GOAL_STATUS_COLOR_MAPPINGS[goal.status]} />
++      <Text style={[goalPillStyles.label, goalLabelStyle(goal.status)]} numberOfLines={1}>
++        {label}
++      </Text>
++      {usageSuffix ? (
++        <Text style={[goalPillStyles.label, goalPillStyles.usage]} numberOfLines={1}>
++          {usageSuffix}
++        </Text>
++      ) : null}
++    </MenuTrigger>
++  );
++}
++
++/**
++ * What the pill abbreviates. The goal text and the completion criterion are the two things the
++ * pill has no room for and the reader most often needs, so they lead.
++ */
++function GoalDetail({
++  goal,
++  provider,
++}: {
++  goal: AgentGoalPayload;
++  provider?: AgentProvider | null;
++}): ReactElement {
++  const elapsed = formatGoalElapsed(goal.startedAt, goal.endedAt, Date.now());
++  const endedAt = goal.endedAt;
++  const inputUsage = formatGoalInputUsage(goal.inputTokens, goal.cachedInputTokens);
++  const hints = resolveGoalUsageHints(provider);
++  return (
++    <>
++      <GoalDetailField
++        label="目标"
++        value={goal.objective}
++        testID={`${DETAIL_PANEL_TEST_ID}-objective`}
++      />
++      {goal.completionCriterion ? (
++        <GoalDetailField
++          label="完成判据"
++          value={goal.completionCriterion}
++          testID={`${DETAIL_PANEL_TEST_ID}-criterion`}
++        />
++      ) : null}
++      <GoalDetailField
++        label="回合"
++        value={`${Math.round(goal.turnsUsed)} 回合`}
++        hint={hints.turns}
++        testID={`${DETAIL_PANEL_TEST_ID}-turns`}
++      />
++      <GoalDetailField
++        label="输出"
++        value={`${formatCompactTokens(goal.tokensUsed)} tokens`}
++        hint={`${formatFullTokens(goal.tokensUsed)} · ${hints.tokens}`}
++        testID={`${DETAIL_PANEL_TEST_ID}-tokens`}
++      />
++      {inputUsage === null ? null : (
++        <GoalDetailField
++          label="输入"
++          value={inputUsage.value}
++          hint={inputUsage.hint}
++          testID={`${DETAIL_PANEL_TEST_ID}-input-tokens`}
++        />
++      )}
++      {goal.startedAt !== undefined ? (
++        <GoalDetailField
++          label="开始"
++          value={formatMessageTimestamp(new Date(goal.startedAt))}
++          testID={`${DETAIL_PANEL_TEST_ID}-started`}
++        />
++      ) : null}
++      {elapsed !== null ? (
++        <GoalDetailField label="已跑" value={elapsed} testID={`${DETAIL_PANEL_TEST_ID}-elapsed`} />
++      ) : null}
++      {endedAt !== undefined && endedAt !== null ? (
++        <GoalDetailField
++          label="结束"
++          value={formatMessageTimestamp(new Date(endedAt))}
++          testID={`${DETAIL_PANEL_TEST_ID}-ended`}
++        />
++      ) : null}
++      {goal.terminalReason ? (
++        <GoalDetailField
++          label="原因"
++          value={goal.terminalReason}
++          testID={`${DETAIL_PANEL_TEST_ID}-reason`}
++        />
++      ) : null}
++    </>
++  );
++}
++
++interface GoalDetailFieldProps {
++  label: string;
++  value: string;
++  hint?: string;
++  testID: string;
++}
++
++function GoalDetailField({ label, value, hint, testID }: GoalDetailFieldProps): ReactElement {
++  return (
++    <View style={goalPillStyles.field} testID={testID}>
++      <Text style={goalPillStyles.fieldLabel}>{label}</Text>
++      <View style={goalPillStyles.fieldBody}>
++        <Text style={goalPillStyles.fieldValue}>{value}</Text>
++        {hint === undefined ? null : <Text style={goalPillStyles.fieldHint}>{hint}</Text>}
++      </View>
++    </View>
++  );
++}
+diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
+index 5a495cd47..5d4cad979 100644
+--- a/packages/app/src/composer/index.tsx
++++ b/packages/app/src/composer/index.tsx
+@@ -67,6 +67,8 @@ import {
+   type DraftAgentControlsProps,
+ } from "@/composer/agent-controls";
+ import { ContextWindowMeter } from "@/components/context-window-meter";
++import { GoalPill } from "@/composer/goal-pill";
++import { BackgroundTaskPill } from "@/composer/background-task-pill";
+ import { useImageAttachmentPicker } from "@/hooks/use-image-attachment-picker";
+ import {
+   selectAgentSentMessages,
+@@ -297,17 +299,37 @@ function buildRealtimeVoiceButtonStyle(pressed: boolean, voiceButtonDisabled: bo
+ }
+ 
+ const EMPTY_METRICS: AgentMetric[] = [];
++/** What the composer sees while the session store holds no agent for the id yet. */
++const ABSENT_AGENT_STATE = {
++  status: null,
++  contextWindowMaxTokens: null,
++  contextWindowUsedTokens: null,
++  totalCostUsd: null,
++  sessionMetrics: EMPTY_METRICS,
++  model: null,
++  provider: null,
++  goal: null,
++  backgroundTasks: null,
++  supportsSteering: true,
++};
+ 
+ function buildAgentStateSelector(serverId: string, agentId: string) {
+   return (state: ReturnType<typeof useSessionStore.getState>) => {
+     const agent = state.sessions[serverId]?.agents?.get(agentId) ?? null;
++    if (agent === null) return ABSENT_AGENT_STATE;
+     return {
+-      status: agent?.status ?? null,
+-      contextWindowMaxTokens: agent?.lastUsage?.contextWindowMaxTokens ?? null,
+-      contextWindowUsedTokens: agent?.lastUsage?.contextWindowUsedTokens ?? null,
+-      totalCostUsd: agent?.lastUsage?.totalCostUsd ?? null,
+-      sessionMetrics: agent?.sessionMetrics ?? EMPTY_METRICS,
+-      model: agent?.model ?? null,
++      status: agent.status,
++      contextWindowMaxTokens: agent.lastUsage?.contextWindowMaxTokens ?? null,
++      contextWindowUsedTokens: agent.lastUsage?.contextWindowUsedTokens ?? null,
++      totalCostUsd: agent.lastUsage?.totalCostUsd ?? null,
++      sessionMetrics: agent.sessionMetrics ?? EMPTY_METRICS,
++      model: agent.model,
++      provider: agent.provider,
++      goal: agent.goal ?? null,
++      backgroundTasks: agent.backgroundTasks ?? null,
++      // A daemon that predates the flag leaves it undefined. Assume the agent can
++      // steer then, so nothing changes for the providers that always could.
++      supportsSteering: agent.capabilities?.supportsSteering !== false,
+     };
+   };
+ }
+@@ -1689,10 +1711,10 @@ function ComposerContentImpl({
+         agentIdRef.current,
+         text,
+         submitAttachments,
+-        appSettings.sendBehavior === "steer" ? "steer" : "interrupt",
++        appSettings.sendBehavior === "steer" && agentState.supportsSteering ? "steer" : "interrupt",
+       );
+     },
+-    [appSettings.sendBehavior, cwd, onMessageSent, t],
++    [agentState.supportsSteering, appSettings.sendBehavior, cwd, onMessageSent, t],
+   );
+ 
+   useEffect(() => {
+@@ -1756,6 +1778,7 @@ function ComposerContentImpl({
+   const activeSendBehavior = resolveActiveSendBehavior(
+     appSettings.sendBehavior,
+     hasPendingPermission,
++    agentState.supportsSteering,
+   );
+   const hasAgent = agentState.status !== null;
+ 
+@@ -2219,19 +2242,33 @@ function ComposerContentImpl({
+     ],
+   );
+ 
++  const goalPill = useMemo(
++    () => <GoalPill goal={agentState.goal} provider={agentState.provider} />,
++    [agentState.goal, agentState.provider],
++  );
++  const backgroundTaskPill = useMemo(
++    () => <BackgroundTaskPill backgroundTasks={agentState.backgroundTasks} />,
++    [agentState.backgroundTasks],
++  );
++  // The pill takes the dictation button's slot while tasks run; the mic returns when they finish.
++  const backgroundTaskVoiceReplacement =
++    agentState.backgroundTasks && agentState.backgroundTasks.count > 0 ? backgroundTaskPill : null;
+   const beforeVoiceContent = useMemo(
+     () =>
+       hasAgent ? (
+-        <View style={styles.contextWindowMeterSlot}>
+-          <ContextWindowMeter
+-            serverId={serverId}
+-            agentId={agentId}
+-            maxTokens={agentState.contextWindowMaxTokens}
+-            usedTokens={agentState.contextWindowUsedTokens}
+-            totalCostUsd={agentState.totalCostUsd}
+-            sessionMetrics={agentState.sessionMetrics}
+-            toolbarRing={TOOLBAR_RINGS[controlSizing]}
+-          />
++        <View style={styles.composerToolbarSlot}>
++          {goalPill}
++          <View style={styles.contextWindowMeterSlot}>
++            <ContextWindowMeter
++              serverId={serverId}
++              agentId={agentId}
++              maxTokens={agentState.contextWindowMaxTokens}
++              usedTokens={agentState.contextWindowUsedTokens}
++              totalCostUsd={agentState.totalCostUsd}
++              sessionMetrics={agentState.sessionMetrics}
++              toolbarRing={TOOLBAR_RINGS[controlSizing]}
++            />
++          </View>
+         </View>
+       ) : null,
+     [
+@@ -2243,6 +2280,7 @@ function ComposerContentImpl({
+       agentState.totalCostUsd,
+       agentState.sessionMetrics,
+       controlSizing,
++      goalPill,
+     ],
+   );
+ 
+@@ -2641,6 +2679,7 @@ function ComposerContentImpl({
+                   disabled={isSubmitLoading}
+                   leftContent={leftContent}
+                   beforeVoiceContent={beforeVoiceContent}
++                  voiceButtonReplacement={backgroundTaskVoiceReplacement}
+                   voiceModeContent={voiceModeContent}
+                   activeActionContent={activeActionContent}
+                   voiceServerId={serverId}
+@@ -2765,6 +2804,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+     alignItems: "center",
+     gap: TOOLBAR_CONTROL_GAP,
+   },
++  composerToolbarSlot: {
++    flexDirection: "row",
++    alignItems: "center",
++    gap: theme.spacing[1],
++    flexShrink: 0,
++  },
+   contextWindowMeterSlot: {
+     ...toolbarSlot(),
+     flexShrink: 0,
+diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
+index fc0dbe872..115a2895b 100644
+--- a/packages/app/src/composer/input/input.tsx
++++ b/packages/app/src/composer/input/input.tsx
+@@ -28,7 +28,7 @@ import {
+ } from "react";
+ import { StyleSheet, withUnistyles } from "react-native-unistyles";
+ import { useTranslation } from "react-i18next";
+-import type { Theme } from "@/styles/theme";
++import { SPACING, type Theme } from "@/styles/theme";
+ import {
+   controlSizingForLayout,
+   TOOLBAR_CONTROL_GAP,
+@@ -66,6 +66,7 @@ import {
+ } from "@/utils/image-attachments-from-files";
+ import type { ComposerAttachment } from "@/attachments/types";
+ import type { ImageAttachment, MessagePayload, TextReplacement } from "@/composer/types";
++import { useComposerChromeSink } from "@/composer/dock/internal/chrome";
+ import { focusWithRetries } from "@/utils/web-focus";
+ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+ import { Shortcut } from "@/components/ui/shortcut";
+@@ -185,6 +186,8 @@ export interface MessageInputProps {
+   leftContent?: React.ReactNode;
+   /** Content to render on the right side before the voice button (e.g., context window meter) */
+   beforeVoiceContent?: React.ReactNode;
++  /** Replaces the dictation/voice button in the composer toolbar when provided. */
++  voiceButtonReplacement?: React.ReactNode;
+   /** The realtime voice mode button, which takes the trailing disc while there is nothing to send. */
+   voiceModeContent?: React.ReactNode;
+   /** Primary action to render when the agent is active and the composer has no sendable content. */
+@@ -1200,6 +1203,7 @@ interface ResolvedMessageInputProps {
+   disabled: boolean;
+   leftContent: React.ReactNode;
+   beforeVoiceContent: React.ReactNode;
++  voiceButtonReplacement: React.ReactNode;
+   voiceModeContent: React.ReactNode;
+   activeActionContent: React.ReactNode;
+   voiceServerId: string | undefined;
+@@ -1248,6 +1252,7 @@ function resolveMessageInputProps(props: MessageInputProps): ResolvedMessageInpu
+     disabled: props.disabled ?? false,
+     leftContent: props.leftContent,
+     beforeVoiceContent: props.beforeVoiceContent,
++    voiceButtonReplacement: props.voiceButtonReplacement,
+     voiceModeContent: props.voiceModeContent,
+     activeActionContent: props.activeActionContent,
+     voiceServerId: props.voiceServerId,
+@@ -1330,6 +1335,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+       disabled,
+       leftContent,
+       beforeVoiceContent,
++      voiceButtonReplacement,
+       voiceModeContent,
+       activeActionContent,
+       voiceServerId,
+@@ -2278,18 +2284,20 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+             {!isFullscreen && (
+               <View style={styles.rightButtonGroup}>
+                 {beforeVoiceContent}
+-                <VoiceButtonTooltip
+-                  visible={mode.showVoice}
+-                  onVoicePress={handleVoicePress}
+-                  isDictationStartEnabled={isDictationStartEnabled}
+-                  voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
+-                  voiceButtonStyle={voiceButtonStyle}
+-                  renderVoiceButtonIcon={renderVoiceButtonIcon}
+-                  voiceTooltipText={voiceTooltipText}
+-                  isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
+-                  voiceMuteToggleKeys={voiceMuteToggleKeys}
+-                  dictationToggleKeys={dictationToggleKeys}
+-                />
++                {voiceButtonReplacement ?? (
++                  <VoiceButtonTooltip
++                    visible={mode.showVoice}
++                    onVoicePress={handleVoicePress}
++                    isDictationStartEnabled={isDictationStartEnabled}
++                    voiceButtonAccessibilityLabel={voiceButtonAccessibilityLabel}
++                    voiceButtonStyle={voiceButtonStyle}
++                    renderVoiceButtonIcon={renderVoiceButtonIcon}
++                    voiceTooltipText={voiceTooltipText}
++                    isRealtimeVoiceForCurrentAgent={isRealtimeVoiceForCurrentAgent}
++                    voiceMuteToggleKeys={voiceMuteToggleKeys}
++                    dictationToggleKeys={dictationToggleKeys}
++                  />
++                )}
+                 <View style={styles.trailingDisc}>{sendButton}</View>
+               </View>
+             )}
+@@ -2308,6 +2316,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         t,
+         leftContent,
+         beforeVoiceContent,
++        voiceButtonReplacement,
+         mode.showVoice,
+         showOverlay,
+         dictationStartError,
+@@ -2368,6 +2377,35 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+         handleRealtimeVoiceStop,
+       ],
+     );
++    // The tray sits above the editing area, so its height is chrome: the dock adds
++    // it to the compact cap instead of letting it eat the text's budget. The gap
++    // comes from the wrapper's `gap`, which only applies while the tray is mounted.
++    const chromeSink = useComposerChromeSink();
++    const handleAttachmentSlotLayout = useCallback(
++      (event: LayoutChangeEvent) => {
++        chromeSink?.("attachment-tray", event.nativeEvent.layout.height + SPACING[3]);
++      },
++      [chromeSink],
++    );
++    const measuredAttachmentSlot = useMemo(
++      () =>
++        attachmentSlot ? (
++          <View style={styles.attachmentSlot} onLayout={handleAttachmentSlotLayout}>
++            {attachmentSlot}
++          </View>
++        ) : null,
++      [attachmentSlot, handleAttachmentSlotLayout],
++    );
++    useEffect(() => {
++      if (attachmentSlot) return;
++      chromeSink?.("attachment-tray", 0);
++    }, [attachmentSlot, chromeSink]);
++    useEffect(
++      () => () => {
++        chromeSink?.("attachment-tray", 0);
++      },
++      [chromeSink],
++    );
+     return (
+       <View
+         ref={rootRef}
+@@ -2395,7 +2433,7 @@ export const MessageInput = forwardRef<MessageInputRef, MessageInputProps>(
+           inputWrapperRef={inputWrapperRef}
+           inputWrapperStyle={inputWrapperCombinedStyle}
+           inputPointerEvents={surfacePresentation.input.pointerEvents}
+-          attachmentSlot={attachmentSlot}
++          attachmentSlot={measuredAttachmentSlot}
+           showFullscreenButton={shouldShowFullscreenControl(
+             isCompact,
+             readOnly,
+@@ -2453,6 +2491,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+   // editor: it focuses, shows the keyboard, and places the caret. Reserved whether
+   // or not the glyph shows, so text never reflows when it appears.
+   compactTextInput: { paddingRight: 36 },
++  // Measured by the composer so the dock can charge the tray to the composer cap
++  // instead of the text's budget.
++  attachmentSlot: { flexShrink: 0 },
+   fullscreenTextSurface: { flex: 1, minHeight: 0 },
+   fullscreenTextInput: { flex: 1, height: "100%", textAlignVertical: "top" },
+   lineMeasurement: {
+@@ -2468,6 +2509,9 @@ const styles = StyleSheet.create((theme: Theme) => ({
+   textInputScrollWrapper: {
+     flexShrink: 1,
+     position: "relative",
++    // A cap that comes out short must cut the draft, not paint its last line over
++    // the toolbar below.
++    overflow: "hidden",
+   },
+   focusHintText: {
+     position: "absolute",
+diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
+index abb271f9d..f377b5628 100644
+--- a/packages/app/src/composer/input/state.test.ts
++++ b/packages/app/src/composer/input/state.test.ts
+@@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
+ 
+ describe("composer send behavior", () => {
+   it("sends immediately when queue mode cannot advance past a permission", () => {
+-    expect(resolveActiveSendBehavior("queue", true)).toBe("interrupt");
+-    expect(resolveActiveSendBehavior("queue", false)).toBe("queue");
+-    expect(resolveActiveSendBehavior("steer", true)).toBe("steer");
++    expect(resolveActiveSendBehavior("queue", true, true)).toBe("interrupt");
++    expect(resolveActiveSendBehavior("queue", false, true)).toBe("queue");
++    expect(resolveActiveSendBehavior("steer", true, true)).toBe("steer");
++  });
++
++  it("reports a steer as an interrupt for an agent that cannot be steered", () => {
++    expect(resolveActiveSendBehavior("steer", false, false)).toBe("interrupt");
++    expect(resolveActiveSendBehavior("interrupt", false, false)).toBe("interrupt");
++    expect(resolveActiveSendBehavior("queue", false, false)).toBe("queue");
+   });
+ 
+   function actions() {
+diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
+index 2fe296940..05d42159e 100644
+--- a/packages/app/src/composer/input/state.ts
++++ b/packages/app/src/composer/input/state.ts
+@@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
+ export function resolveActiveSendBehavior(
+   sendBehavior: SendBehavior,
+   hasPendingPermission: boolean,
++  supportsSteering: boolean,
+ ): SendBehavior {
+-  return sendBehavior === "queue" && hasPendingPermission ? "interrupt" : sendBehavior;
++  if (sendBehavior === "queue" && hasPendingPermission) return "interrupt";
++  // Steering a provider that cannot take a message into its running turn is not a
++  // third option: the daemon downgrades that request to an interrupt, so the
++  // composer says interrupt rather than promising a steer that never happens.
++  if (sendBehavior === "steer" && !supportsSteering) return "interrupt";
++  return sendBehavior;
+ }
+ 
+ interface ComposerSurfaceState {
+diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
+index 3ab03c877..69a992346 100644
+--- a/packages/app/src/composer/pill-styles.ts
++++ b/packages/app/src/composer/pill-styles.ts
+@@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
+     flexDirection: "row",
+     alignItems: "center",
+     gap: theme.spacing[2],
++    // The track is a single non-scrolling row, so a pill that refuses to yield evicts its
++    // neighbours. Every pill ellipsizes instead.
++    minWidth: 0,
++    flexShrink: 1,
+     minHeight: COMPOSER_PILL_MIN_HEIGHT,
+     paddingHorizontal: theme.spacing[3],
+     paddingVertical: theme.spacing[1],
+diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
+index 9113b2e6e..928fd1422 100644
+--- a/packages/app/src/hooks/use-settings/index.ts
++++ b/packages/app/src/hooks/use-settings/index.ts
+@@ -1,6 +1,7 @@
+-import { useCallback, useMemo } from "react";
++import { useCallback, useEffect, useMemo } from "react";
+ import AsyncStorage from "@react-native-async-storage/async-storage";
+ import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
++import { syncRotationDelay } from "@/android/rotation-delay";
+ import { queryClient as appQueryClient } from "@/data/query-client";
+ import type { AppLanguage } from "@/i18n/locales";
+ import {
+@@ -175,6 +176,13 @@ export function useAppSettings(): UseAppSettingsReturn {
+   }, [queryClient]);
+   const settings = useMemo(() => normalizeAppSettings(data), [data]);
+ 
++  // Android reads the auto-rotate switch from a file, so mirror it here: every
++  // reader of settings keeps the file in step, including a restored backup that
++  // never touched the switch.
++  useEffect(() => {
++    void syncRotationDelay(settings.autoRotate);
++  }, [settings.autoRotate]);
++
+   return {
+     settings,
+     isLoading: isPending,
+diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
+index 11ba437dd..24fed7a2e 100644
+--- a/packages/app/src/hooks/use-settings/storage.ts
++++ b/packages/app/src/hooks/use-settings/storage.ts
+@@ -108,6 +108,8 @@ export interface AppSettings {
+   /** How usage reads and which windows the sidebar summary shows. */
+   usage: UsagePreferences;
+   autoExpandReasoning: boolean;
++  /** Android only: rotate the window, with a hold before the flip. */
++  autoRotate: boolean;
+   chatDisplay: ChatDisplay;
+   chatOutlineEnabled: boolean;
+   vimKeybindings: boolean;
+@@ -166,6 +168,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
+   sidebarFooterItems: [],
+   usage: DEFAULT_USAGE_PREFERENCES,
+   autoExpandReasoning: false,
++  autoRotate: true,
+   chatDisplay: "collapseTurns",
+   chatOutlineEnabled: true,
+   vimKeybindings: false,
+@@ -266,6 +269,7 @@ const StoredAppSettingsSchema = z
+     sidebarFooterItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
+     usage: UsagePreferencesSchema,
+     autoExpandReasoning: z.boolean().catch(false),
++    autoRotate: z.boolean().catch(true),
+     chatDisplay: z.enum(["full", "collapseToolCalls", "collapseTurns"]).optional().catch("full"),
+     // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
+     toolCallDetailLevel: z
+diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
+index 6642a0d76..44ef11ddb 100644
+--- a/packages/app/src/i18n/resources/ar.ts
++++ b/packages/app/src/i18n/resources/ar.ts
+@@ -2514,6 +2514,10 @@ export const ar: TranslationResources = {
+     },
+     general: {
+       title: "عام",
++      autoRotate: {
++        label: "التدوير التلقائي",
++        description: "ينتظر 500 مللي ثانية بعد إمالة الجهاز قبل التدوير حتى لا تؤدي إمالة قصيرة إلى قلب الشاشة",
++      },
+       sending: "الإرسال",
+       setup: {
+         label: "الإعداد الأولي",
+diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
+index d36956e5b..1bf6c81dc 100644
+--- a/packages/app/src/i18n/resources/en.ts
++++ b/packages/app/src/i18n/resources/en.ts
+@@ -2609,6 +2609,10 @@ export const en = {
+     },
+     general: {
+       title: "General",
++      autoRotate: {
++        label: "Auto-rotate",
++        description: "Wait 500 ms after the device is tilted before rotating, so a brief tilt does not flip the screen",
++      },
+       sending: "Sending",
+       setup: {
+         label: "First-run setup",
+diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
+index 56d1eeeb0..d5244dea9 100644
+--- a/packages/app/src/i18n/resources/es.ts
++++ b/packages/app/src/i18n/resources/es.ts
+@@ -2527,6 +2527,10 @@ export const es: TranslationResources = {
+     },
+     general: {
+       title: "General",
++      autoRotate: {
++        label: "Rotación automática",
++        description: "Espera 500 ms tras inclinar el dispositivo antes de girar, para que una inclinación breve no voltee la pantalla",
++      },
+       sending: "Envío",
+       setup: {
+         label: "Configuración inicial",
+diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
+index 8448dc543..a0db768eb 100644
+--- a/packages/app/src/i18n/resources/fr.ts
++++ b/packages/app/src/i18n/resources/fr.ts
+@@ -2528,6 +2528,10 @@ export const fr: TranslationResources = {
+     },
+     general: {
+       title: "Général",
++      autoRotate: {
++        label: "Rotation automatique",
++        description: "Attend 500 ms après l'inclinaison de l'appareil avant de pivoter, pour qu'une inclinaison brève ne retourne pas l'écran",
++      },
+       sending: "Envoi",
+       setup: {
+         label: "Configuration initiale",
+diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
+index 88913c858..ed306fcfe 100644
+--- a/packages/app/src/i18n/resources/ja.ts
++++ b/packages/app/src/i18n/resources/ja.ts
+@@ -2501,6 +2501,10 @@ export const ja: TranslationResources = {
+     },
+     general: {
+       title: "一般",
++      autoRotate: {
++        label: "自動回転",
++        description: "端末を傾けてから 500 ミリ秒後に回転するため、少し傾けただけで画面が反転しません",
++      },
+       sending: "送信",
+       setup: {
+         label: "初回セットアップ",
+diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
+index fad9469e9..c10f221a3 100644
+--- a/packages/app/src/i18n/resources/ko.ts
++++ b/packages/app/src/i18n/resources/ko.ts
+@@ -2489,6 +2489,10 @@ export const ko: TranslationResources = {
+     },
+     general: {
+       title: "일반",
++      autoRotate: {
++        label: "자동 회전",
++        description: "기기를 기울인 뒤 500ms 후에 회전하므로 잠깐 기울여도 화면이 뒤집히지 않습니다",
++      },
+       sending: "전송",
+       setup: {
+         label: "초기 설정",
+diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
+index e264f670b..4c285423c 100644
+--- a/packages/app/src/i18n/resources/pt-BR.ts
++++ b/packages/app/src/i18n/resources/pt-BR.ts
+@@ -2512,6 +2512,10 @@ export const ptBR: TranslationResources = {
+     },
+     general: {
+       title: "Geral",
++      autoRotate: {
++        label: "Girar automaticamente",
++        description: "Espera 500 ms após inclinar o dispositivo antes de girar, para que uma inclinação breve não vire a tela",
++      },
+       sending: "Envio",
+       setup: {
+         label: "Configuração inicial",
+diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
+index 6813b83e7..40c091b07 100644
+--- a/packages/app/src/i18n/resources/ru.ts
++++ b/packages/app/src/i18n/resources/ru.ts
+@@ -2516,6 +2516,10 @@ export const ru: TranslationResources = {
+     },
+     general: {
+       title: "Основные",
++      autoRotate: {
++        label: "Автоповорот",
++        description: "Поворот выполняется через 500 мс после наклона устройства, чтобы короткий наклон не переворачивал экран",
++      },
+       sending: "Отправка",
+       setup: {
+         label: "Первоначальная настройка",
+diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
+index aa91dd793..b4e1f5987 100644
+--- a/packages/app/src/i18n/resources/zh-CN.ts
++++ b/packages/app/src/i18n/resources/zh-CN.ts
+@@ -2454,6 +2454,10 @@ export const zhCN: TranslationResources = {
+     },
+     general: {
+       title: "通用",
++      autoRotate: {
++        label: "自动旋转",
++        description: "设备倾斜后保持 500 毫秒才旋转，轻微倾斜不会翻转屏幕",
++      },
+       sending: "发送",
+       setup: {
+         label: "首次设置",
+diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
+index 0288d8270..2b5865a8b 100644
+--- a/packages/app/src/screens/settings-screen.tsx
++++ b/packages/app/src/screens/settings-screen.tsx
+@@ -4,7 +4,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
+ import { useAddHost } from "@/hosts/add-host";
+ import { useCallback, useMemo, useRef, useState } from "react";
+ import type { ComponentType, ReactNode } from "react";
+-import { Alert, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
++import { Alert, Platform, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
+ import { useRouter } from "expo-router";
+ import { useFocusEffect } from "expo-router/react-navigation";
+ import { useSafeAreaInsets } from "react-native-safe-area-context";
+@@ -41,7 +41,9 @@ import {
+   MessageSquare,
+   ChevronRight,
+ } from "lucide-react-native";
++import { syncRotationDelay } from "@/android/rotation-delay";
+ import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
++import { Switch } from "@/components/ui/switch";
+ import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
+ import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
+ import { HostPicker as SharedHostPicker } from "@/components/hosts/host-picker";
+@@ -393,12 +395,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
+             </DropdownMenuContent>
+           </DropdownMenu>
+         </View>
++        {Platform.OS === "android" ? <AutoRotateRow /> : null}
+         {isNative ? null : <ShowSetupAgainRow />}
+       </View>
+     </SettingsSection>
+   );
+ }
+ 
++function AutoRotateRow() {
++  const { t } = useTranslation();
++  const { settings, updateSettings } = useSettings();
++  const handleValueChange = useCallback(
++    (autoRotate: boolean) => {
++      void updateSettings({ autoRotate });
++      void syncRotationDelay(autoRotate);
++    },
++    [updateSettings],
++  );
++  return (
++    <View style={[settingsStyles.row, settingsStyles.rowBorder]}>
++      <View style={settingsStyles.rowContent}>
++        <Text style={settingsStyles.rowTitle}>{t("settings.general.autoRotate.label")}</Text>
++        <Text style={settingsStyles.rowHint}>{t("settings.general.autoRotate.description")}</Text>
++      </View>
++      <Switch
++        value={settings.autoRotate}
++        onValueChange={handleValueChange}
++        accessibilityLabel={t("settings.general.autoRotate.label")}
++        testID="settings-auto-rotate"
++      />
++    </View>
++  );
++}
++
+ function ShowSetupAgainRow() {
+   const { t } = useTranslation();
+   const openOnboarding = useOpenOnboarding();
+diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
+index 55d2c43a2..78f359cf3 100644
+--- a/packages/app/src/stores/session-store.ts
++++ b/packages/app/src/stores/session-store.ts
+@@ -38,6 +38,8 @@ import type {
+ } from "@getpaseo/protocol/agent-types";
+ import type {
+   AgentBackgroundWorkSummary,
++  AgentGoalPayload,
++  AgentBackgroundTasksPayload,
+   ServerInfoStatusPayload,
+   ProjectPlacementPayload,
+   ServerCapabilities,
+@@ -96,6 +98,8 @@ export interface Agent {
+   lastUsage?: AgentUsage;
+   /** What the provider reports about the session, as label and value rows. */
+   sessionMetrics?: AgentMetric[];
++  goal?: AgentGoalPayload | null;
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
+   lastError?: string | null;
+   title: string | null;
+   cwd: string;
+diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
+index 60735a024..db3e9f97d 100644
+--- a/packages/app/src/utils/agent-directory-update-policy.ts
++++ b/packages/app/src/utils/agent-directory-update-policy.ts
+@@ -1,10 +1,13 @@
+ import equal from "fast-deep-equal";
+ import type { AgentMetric, AgentUsage } from "@getpaseo/protocol/agent-types";
++import type { AgentGoalPayload, AgentBackgroundTasksPayload } from "@getpaseo/protocol/messages";
+ 
+ interface AgentUpdateValue {
+   updatedAt: Date | string;
+   lastUsage?: AgentUsage;
+   sessionMetrics?: AgentMetric[];
++  goal?: AgentGoalPayload | null;
++  backgroundTasks?: AgentBackgroundTasksPayload | null;
+ }
+ 
+ // The daemon reports these without bumping `updatedAt`, so a stale upsert can still carry the
+@@ -23,6 +26,15 @@ export function acceptAgentDirectoryUpdate<T extends AgentUpdateValue>(
+   const newer = FIELDS_UPDATED_IN_PLACE.filter(
+     (field) => incoming[field] !== undefined && !equal(incoming[field], current[field]),
+   );
+-  if (newer.length === 0) return current;
+-  return { ...current, ...Object.fromEntries(newer.map((field) => [field, incoming[field]])) };
++  let merged = newer.length === 0 ? current : { ...current, ...Object.fromEntries(newer.map((field) => [field, incoming[field]])) };
++  if (incoming.lastUsage !== undefined && !equal(incoming.lastUsage, merged.lastUsage)) {
++    merged = { ...merged, lastUsage: incoming.lastUsage };
++  }
++  if (incoming.goal !== undefined && !equal(incoming.goal, merged.goal)) {
++    merged = { ...merged, goal: incoming.goal };
++  }
++  if (incoming.backgroundTasks !== undefined && !equal(incoming.backgroundTasks, merged.backgroundTasks)) {
++    merged = { ...merged, backgroundTasks: incoming.backgroundTasks };
++  }
++  return merged;
+ }
+diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
+index 05e3c9a10..b74afc20f 100644
+--- a/packages/app/src/utils/agent-snapshots.ts
++++ b/packages/app/src/utils/agent-snapshots.ts
+@@ -82,6 +82,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
+     ...(agent.usageScopeKey ? { usageScopeKey: agent.usageScopeKey } : {}),
+     ...(agent.lastUsage ? { lastUsage: agent.lastUsage } : {}),
+     ...(agent.sessionMetrics ? { sessionMetrics: agent.sessionMetrics } : {}),
++    ...(agent.goal ? { goal: agent.goal } : {}),
++    ...(agent.backgroundTasks ? { backgroundTasks: agent.backgroundTasks } : {}),
+     ...(agent.lastError ? { lastError: agent.lastError } : {}),
+     title: agent.title,
+     labels: agent.labels,
+@@ -131,6 +133,8 @@ export function normalizeAgentSnapshot(snapshot: AgentSnapshotPayload, serverId:
+     usageScopeKey: snapshot.usageScopeKey,
+     lastUsage: snapshot.lastUsage,
+     sessionMetrics: snapshot.sessionMetrics,
++    goal: snapshot.goal ?? null,
++    backgroundTasks: snapshot.backgroundTasks ?? null,
+     lastError: snapshot.lastError ?? null,
+     title: snapshot.title ?? null,
+     cwd: snapshot.cwd,
+diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
+index 01d2c51b0..8cd405d4d 100644
+--- a/packages/protocol/src/messages.ts
++++ b/packages/protocol/src/messages.ts
+@@ -472,6 +472,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+     supportsRewindFiles: z.boolean().optional().default(false),
+     // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
+     supportsRewindBoth: z.boolean().optional().default(false),
++    // COMPAT(steering): added in v0.10.2, drop when floor >= v0.10.2.
++    supportsSteering: z.boolean().optional(),
+   })
+   .catchall(z.boolean());
+ 
+@@ -920,6 +922,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
+ 
+ export type AgentBackgroundWorkSummary = z.infer<typeof AgentBackgroundWorkSummarySchema>;
+ 
++export const AgentGoalStatusSchema = z.enum(["active", "paused", "complete", "blocked", "cleared"]);
++
++export const AgentGoalPayloadSchema = z.object({
++  goalId: z.string(),
++  objective: z.string(),
++  completionCriterion: z.string().optional(),
++  status: AgentGoalStatusSchema,
++  turnsUsed: z.number(),
++  tokensUsed: z.number(),
++  inputTokens: z.number().optional(),
++  cachedInputTokens: z.number().optional(),
++  startedAt: z.number().optional(),
++  endedAt: z.number().nullable().optional(),
++  updatedAt: z.number(),
++  terminalReason: z.string().optional(),
++});
++
++export type AgentGoalPayload = z.infer<typeof AgentGoalPayloadSchema>;
++
++export const AgentBackgroundTaskPayloadSchema = z.object({
++  id: z.string(),
++  command: z.string().nullable().optional(),
++  description: z.string().nullable().optional(),
++  status: z.enum(["running", "completed", "failed", "canceled"]).optional(),
++  startedAt: z.number().nullable().optional(),
++  pid: z.number().optional(),
++});
++
++export type AgentBackgroundTaskPayload = z.infer<typeof AgentBackgroundTaskPayloadSchema>;
++
++export const AgentBackgroundTasksPayloadSchema = z.object({
++  count: z.number(),
++  tasks: z.array(AgentBackgroundTaskPayloadSchema),
++});
++
++export type AgentBackgroundTasksPayload = z.infer<typeof AgentBackgroundTasksPayloadSchema>;
++
+ export const AgentSnapshotPayloadSchema = z.object({
+   id: z.string(),
+   provider: AgentProviderSchema,
+@@ -949,6 +988,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+   usageScopeKey: z.string().optional(),
+   lastUsage: AgentUsageSchema.optional(),
+   sessionMetrics: z.array(AgentMetricSchema).optional(),
++  goal: AgentGoalPayloadSchema.nullable().optional(),
++  backgroundTasks: AgentBackgroundTasksPayloadSchema.nullable().optional(),
+   lastError: z.string().optional(),
+   title: z.string().nullable(),
+   labels: z.record(z.string(), z.string()).default({}),
+diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
+index db0aa6db2..e00c20d62 100644
+--- a/packages/protocol/src/tool-call-display.ts
++++ b/packages/protocol/src/tool-call-display.ts
+@@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
+   if (/[:./]/.test(trimmed) || trimmed.includes("__")) {
+     return trimmed;
+   }
++  // PascalCase and camelCase names are already spelled the way people read
++  // them; the lowercase pass below would turn "AskUserQuestion" into
++  // "Askuserquestion".
++  if (/[A-Z]/.test(trimmed.slice(1))) {
++    return trimmed;
++  }
+ 
+   return trimmed
+     .replace(/[._-]+/g, " ")

@@ -22,6 +22,7 @@ const autoRotatePatch = join(patchDir, "paseo-app-auto-rotate.patch");
 const processGuardSrc = join(here, "android-process-guard");
 const displayMetricsSrc = join(here, "android-display-metrics");
 const rotationDelaySrc = join(here, "android-rotation-delay");
+const combinedPatch = join(patchDir, "paseo-v0173-statusbar-series.patch");
 
 const sourceDir = process.argv[2] ?? ".";
 
@@ -415,31 +416,25 @@ function patchComposerBadges(dir) {
 
 console.log(`[statusbar-patch] source dir: ${sourceDir}`);
 assertDependency(sourceDir);
-patchAppConfig(sourceDir);
-patchRootLayout(sourceDir);
-patchProcessGuard(sourceDir);
-patchDisplayMetrics(sourceDir);
-patchRotationDelay(sourceDir);
-patchComposerBadges(sourceDir);
-
-// The badges patch also carries the tool-call display fix: a catch-all ACP tool
-// call shows the tool's own name instead of the word "Other", and camelCase
-// names keep their spelling. `git apply` succeeding only proves the text
-// landed, so check the code that is supposed to be there.
+if (!existsSync(combinedPatch)) fail(`missing combined patch: ${combinedPatch}`);
+try {
+  execFileSync("git", ["apply", "--check", "--reverse", combinedPatch], { cwd: sourceDir, stdio: "ignore" });
+  console.log("[statusbar-patch] combined v0.17.3 series already applied");
+} catch {
+  try {
+    execFileSync("git", ["apply", combinedPatch], { cwd: sourceDir, stdio: ["ignore", "pipe", "pipe"] });
+    console.log("[statusbar-patch] applied combined v0.17.3 series");
+  } catch (error) {
+    const stderr = error.stderr?.toString?.() ?? String(error);
+    fail(`failed to apply ${combinedPatch}:\n${stderr.trim()}`);
+  }
+}
 assertContains(
   join(sourceDir, "packages", "protocol", "src", "tool-call-display.ts"),
   "if (/[A-Z]/.test(trimmed.slice(1))) {",
   "packages/protocol/src/tool-call-display.ts",
 );
-
 const goalPillPath = join(sourceDir, "packages", "app", "src", "composer", "goal-pill.tsx");
-if (!existsSync(goalPillPath)) {
-  fail(`post-check failed: missing ${goalPillPath}`);
-}
-assertContains(
-  goalPillPath,
-  "export function GoalPill(",
-  "packages/app/src/composer/goal-pill.tsx",
-);
-
+if (!existsSync(goalPillPath)) fail(`post-check failed: missing ${goalPillPath}`);
+assertContains(goalPillPath, "export function GoalPill(", "packages/app/src/composer/goal-pill.tsx");
 console.log("[statusbar-patch] done");
