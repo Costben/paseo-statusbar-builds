@@ -689,7 +689,10 @@ const MARKERS = [
   {
     label: "A newer MCP client is not locked out by the protocol header check",
     path: "packages/server/src/server/bootstrap.ts",
-    needle: 'const MCP_COMPATIBLE_PROTOCOL_VERSIONS = ["2026-07-28"];',
+    needles: [
+      'const MCP_COMPATIBLE_PROTOCOL_VERSIONS = ["2026-07-28"];',
+      "createMcpHandler builds a fresh server per request",
+    ],
   },
   {
     label: "dsh subagents are read out of the session transcript",
@@ -921,8 +924,10 @@ for (const marker of MARKERS) {
   if (!existsSync(target)) {
     fail(`post-check failed: ${marker.path} is missing`);
   }
-  if (!readFileSync(target, "utf8").includes(marker.needle)) {
-    fail(`post-check failed: ${marker.label} — ${marker.path} lacks: ${marker.needle}`);
+  const contents = readFileSync(target, "utf8");
+  const needles = marker.needles ?? [marker.needle];
+  if (!needles.some((needle) => contents.includes(needle))) {
+    fail(`post-check failed: ${marker.label} — ${marker.path} lacks: ${needles.join(" or ")}`);
   }
   console.log(`[desktop-patch] verified ${marker.label}`);
 }

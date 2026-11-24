@@ -33883,52 +33883,6 @@ index a0247cc8b..a0386f40b 100644
    "agent.provider_subagents.list.response": "workspace.read",
    "agent.provider_subagents.timeline.get.response": "workspace.read",
    "agent.provider_subagents.update": "workspace.read",
-diff --git a/packages/server/src/server/bootstrap.ts b/packages/server/src/server/bootstrap.ts
-index d5c002f2e..3dc0c9fca 100644
---- a/packages/server/src/server/bootstrap.ts
-+++ b/packages/server/src/server/bootstrap.ts
-@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
- import { getHostName } from "./host-name.js";
- import path from "node:path";
- import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-+import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js";
- import type { Logger } from "pino";
- import { z } from "zod";
- import { createBranchChangeRouteHandler } from "./script-route-branch-handler.js";
-@@ -28,6 +29,13 @@ export type ListenTarget =
-   | { type: "socket"; path: string }
-   | { type: "pipe"; path: string };
- 
-+/**
-+ * Protocol revisions a newer MCP client may send that this daemon's SDK does
-+ * not know. Only the per-request header check needs them; `initialize`
-+ * negotiation already degrades gracefully.
-+ */
-+const MCP_COMPATIBLE_PROTOCOL_VERSIONS = ["2026-07-28"];
-+
- function resolveBoundListenTarget(
-   listenTarget: ListenTarget,
-   httpServer: ReturnType<typeof createHTTPServer>,
-@@ -1696,6 +1704,19 @@ export async function createPaseoDaemon(
-       // requests. The agent control plane only lists and calls tools, neither of which
-       // needs cross-request state, so sessions would only pin memory for the life of the
-       // daemon (agents that exit without a clean DELETE never get reaped).
-+      // MCP clients newer than this daemon's SDK speak a protocol version the
-+      // SDK does not list yet (dsh's client sends 2026-07-28). Version
-+      // negotiation at `initialize` is already graceful — the server answers
-+      // with the version it supports — but every later request carries an
-+      // `MCP-Protocol-Version` header that this list gates, so a newer client
-+      // completes the handshake and then gets 400 on everything it asks for.
-+      // Streamable HTTP framing has not changed between these revisions, so
-+      // accept the known-newer version rather than locking the client out.
-+      for (const version of MCP_COMPATIBLE_PROTOCOL_VERSIONS) {
-+        if (!SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
-+          SUPPORTED_PROTOCOL_VERSIONS.push(version);
-+        }
-+      }
-       const transport = new StreamableHTTPServerTransport({
-         sessionIdGenerator: undefined,
-         // NOTE: We enforce a Vite-like host allowlist at the app/websocket layer.
 diff --git a/packages/server/src/server/plugins/builtin/index.ts b/packages/server/src/server/plugins/builtin/index.ts
 index 9ffb4cadb..0633079f7 100644
 --- a/packages/server/src/server/plugins/builtin/index.ts
