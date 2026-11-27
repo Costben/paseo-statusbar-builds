@@ -1,5 +1,5 @@
 diff --git a/packages/app/.gitignore b/packages/app/.gitignore
-index 4bc21fd9b..da4038a72 100644
+index 4bc21fd..da4038a 100644
 --- a/packages/app/.gitignore
 +++ b/packages/app/.gitignore
 @@ -39,6 +39,7 @@ yarn-error.*
@@ -11,7 +11,7 @@ index 4bc21fd9b..da4038a72 100644
  app-example
  
 diff --git a/packages/app/app.config.js b/packages/app/app.config.js
-index 713f34371..009107b23 100644
+index 713f343..009107b 100644
 --- a/packages/app/app.config.js
 +++ b/packages/app/app.config.js
 @@ -1,11 +1,15 @@
@@ -53,7 +53,7 @@ index 713f34371..009107b23 100644
        withAndroidOptionalCamera,
 diff --git a/packages/app/plugins/android-process-guard/ProcessGuard.kt b/packages/app/plugins/android-process-guard/ProcessGuard.kt
 new file mode 100644
-index 000000000..8ff2fad1b
+index 0000000..8ff2fad
 --- /dev/null
 +++ b/packages/app/plugins/android-process-guard/ProcessGuard.kt
 @@ -0,0 +1,194 @@
@@ -253,7 +253,7 @@ index 000000000..8ff2fad1b
 +}
 diff --git a/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt b/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt
 new file mode 100644
-index 000000000..35d742bf5
+index 0000000..35d742b
 --- /dev/null
 +++ b/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt
 @@ -0,0 +1,41 @@
@@ -300,7 +300,7 @@ index 000000000..35d742bf5
 +}
 diff --git a/packages/app/plugins/with-android-multidisplay-manifest.js b/packages/app/plugins/with-android-multidisplay-manifest.js
 new file mode 100644
-index 000000000..bcb0943dd
+index 0000000..bcb0943
 --- /dev/null
 +++ b/packages/app/plugins/with-android-multidisplay-manifest.js
 @@ -0,0 +1,24 @@
@@ -330,7 +330,7 @@ index 000000000..bcb0943dd
 +module.exports = withAndroidMultidisplayManifest;
 diff --git a/packages/app/plugins/with-android-process-guard.js b/packages/app/plugins/with-android-process-guard.js
 new file mode 100644
-index 000000000..b55b4a78b
+index 0000000..b55b4a7
 --- /dev/null
 +++ b/packages/app/plugins/with-android-process-guard.js
 @@ -0,0 +1,68 @@
@@ -404,7 +404,7 @@ index 000000000..b55b4a78b
 +module.exports = withAndroidProcessGuard;
 diff --git a/packages/app/plugins/with-android-rotation-delay.js b/packages/app/plugins/with-android-rotation-delay.js
 new file mode 100644
-index 000000000..b86ccbc51
+index 0000000..b86ccbc
 --- /dev/null
 +++ b/packages/app/plugins/with-android-rotation-delay.js
 @@ -0,0 +1,242 @@
@@ -651,7 +651,7 @@ index 000000000..b86ccbc51
 +module.exports = withAndroidRotationDelay;
 +module.exports.configureMainActivity = configureMainActivity;
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 731046489..0cd5e6040 100644
+index 7310464..0cd5e60 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -672,7 +672,7 @@ index 731046489..0cd5e6040 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f78..dd1da9eeb 100644
+index 704298f..dd1da9e 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -702,7 +702,7 @@ index 704298f78..dd1da9eeb 100644
  }
 diff --git a/packages/app/src/android/rotation-delay.ts b/packages/app/src/android/rotation-delay.ts
 new file mode 100644
-index 000000000..ed1765b7c
+index 0000000..ed1765b
 --- /dev/null
 +++ b/packages/app/src/android/rotation-delay.ts
 @@ -0,0 +1,32 @@
@@ -739,7 +739,7 @@ index 000000000..ed1765b7c
 +  }
 +}
 diff --git a/packages/app/src/app/_layout.tsx b/packages/app/src/app/_layout.tsx
-index bc4b84c4b..bdf89d021 100644
+index 4a4ebc9..6c2bcd5 100644
 --- a/packages/app/src/app/_layout.tsx
 +++ b/packages/app/src/app/_layout.tsx
 @@ -31,6 +31,7 @@ import {
@@ -750,7 +750,7 @@ index bc4b84c4b..bdf89d021 100644
  import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
  import { KeyboardProvider } from "react-native-keyboard-controller";
  import { StyleSheet, useUnistyles } from "react-native-unistyles";
-@@ -1025,6 +1026,7 @@ function RootProviders({ children }: { children: ReactNode }) {
+@@ -1027,6 +1028,7 @@ function RootProviders({ children }: { children: ReactNode }) {
  function RootAppTree() {
    return (
      <GestureHandlerRootView style={flexStyle}>
@@ -759,7 +759,7 @@ index bc4b84c4b..bdf89d021 100644
          <LucideProvider strokeWidth={ICON_STROKE_WIDTH}>
            <AddHostProvider>
 diff --git a/packages/app/src/background-work/index.tsx b/packages/app/src/background-work/index.tsx
-index bafa953fa..0896c0664 100644
+index bafa953..0896c06 100644
 --- a/packages/app/src/background-work/index.tsx
 +++ b/packages/app/src/background-work/index.tsx
 @@ -3,11 +3,17 @@ import { Text, View } from "react-native";
@@ -932,7 +932,7 @@ index bafa953fa..0896c0664 100644
    item,
    model,
 diff --git a/packages/app/src/background-work/presentation.test.ts b/packages/app/src/background-work/presentation.test.ts
-index 738dde76c..799dac66b 100644
+index 738dde7..799dac6 100644
 --- a/packages/app/src/background-work/presentation.test.ts
 +++ b/packages/app/src/background-work/presentation.test.ts
 @@ -1,5 +1,5 @@
@@ -1004,7 +1004,7 @@ index 738dde76c..799dac66b 100644
 +  });
 +});
 diff --git a/packages/app/src/background-work/presentation.ts b/packages/app/src/background-work/presentation.ts
-index 491328950..4360942fa 100644
+index 4913289..4360942 100644
 --- a/packages/app/src/background-work/presentation.ts
 +++ b/packages/app/src/background-work/presentation.ts
 @@ -1,3 +1,29 @@
@@ -1039,7 +1039,7 @@ index 491328950..4360942fa 100644
    kind: string,
 diff --git a/packages/app/src/components/dsh-trajectory-sheet.tsx b/packages/app/src/components/dsh-trajectory-sheet.tsx
 new file mode 100644
-index 000000000..5faadf9c1
+index 0000000..5faadf9
 --- /dev/null
 +++ b/packages/app/src/components/dsh-trajectory-sheet.tsx
 @@ -0,0 +1,416 @@
@@ -1460,7 +1460,7 @@ index 000000000..5faadf9c1
 +  },
 +}));
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index af6daab5e..656563053 100644
+index af6daab..6565630 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
 @@ -599,6 +599,44 @@ describe("bare URL sentence punctuation", () => {
@@ -1509,7 +1509,7 @@ index af6daab5e..656563053 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index a71534162..a02adc4de 100644
+index a715341..a02adc4 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -25,6 +25,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -1597,7 +1597,7 @@ index a71534162..a02adc4de 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/components/question-form-card-core.test.ts b/packages/app/src/components/question-form-card-core.test.ts
-index 293bf24ba..e82b8ab20 100644
+index 293bf24..e82b8ab 100644
 --- a/packages/app/src/components/question-form-card-core.test.ts
 +++ b/packages/app/src/components/question-form-card-core.test.ts
 @@ -31,7 +31,7 @@ describe("question form card core", () => {
@@ -1651,7 +1651,7 @@ index 293bf24ba..e82b8ab20 100644
  
    test("keeps checked options and appends the other answer for multi-select", () => {
 diff --git a/packages/app/src/components/question-form-card-core.ts b/packages/app/src/components/question-form-card-core.ts
-index 78007dba2..b037afcdf 100644
+index 78007db..b037afc 100644
 --- a/packages/app/src/components/question-form-card-core.ts
 +++ b/packages/app/src/components/question-form-card-core.ts
 @@ -64,8 +64,17 @@ export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion
@@ -1675,7 +1675,7 @@ index 78007dba2..b037afcdf 100644
  
  export function isQuestionAnswered(
 diff --git a/packages/app/src/components/question-form-card.browser.test.tsx b/packages/app/src/components/question-form-card.browser.test.tsx
-index a91ba4121..302128254 100644
+index a91ba41..3021282 100644
 --- a/packages/app/src/components/question-form-card.browser.test.tsx
 +++ b/packages/app/src/components/question-form-card.browser.test.tsx
 @@ -116,6 +116,14 @@ const singleSelectQuestion = {
@@ -1710,10 +1710,10 @@ index a91ba4121..302128254 100644
  
  describe("QuestionFormCard explicit navigation", () => {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index cf95e9d9c..6a61c31f2 100644
+index 8d00ca9..ab97c4d 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -628,7 +628,8 @@ const styles = StyleSheet.create((theme) => ({
+@@ -639,7 +639,8 @@ const styles = StyleSheet.create((theme) => ({
      flexShrink: 0,
    },
    triggerThinking: {
@@ -1725,7 +1725,7 @@ index cf95e9d9c..6a61c31f2 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..0236d881a
+index 0000000..0236d88
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,190 @@
@@ -1920,7 +1920,7 @@ index 000000000..0236d881a
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index ab26fe561..1990684c2 100644
+index ab26fe5..1990684 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -2041,7 +2041,7 @@ index ab26fe561..1990684c2 100644
        </KeyboardTranslateView>
        {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 0456cd628..c1b645b47 100644
+index 0456cd6..c1b645b 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -2098,7 +2098,7 @@ index 0456cd628..c1b645b47 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 973c7f240..4685458ea 100644
+index 973c7f2..4685458 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
 @@ -223,3 +223,43 @@ describe("composer viewport", () => {
@@ -2146,7 +2146,7 @@ index 973c7f240..4685458ea 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index d9be8b925..6ddd43cbd 100644
+index d9be8b9..6ddd43c 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
@@ -2174,7 +2174,7 @@ index d9be8b925..6ddd43cbd 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 000000000..a0de3d897
+index 0000000..a0de3d8
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -2211,7 +2211,7 @@ index 000000000..a0de3d897
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 000000000..cd3cc0318
+index 0000000..cd3cc03
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -2251,7 +2251,7 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 1b070ebdc..cb8f6bfa8 100644
+index 1b070eb..cb8f6bf 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -10,6 +10,7 @@ import invariant from "tiny-invariant";
@@ -2304,7 +2304,7 @@ index 1b070ebdc..cb8f6bfa8 100644
            </View>
 diff --git a/packages/app/src/composer/goal-pill.browser.test.tsx b/packages/app/src/composer/goal-pill.browser.test.tsx
 new file mode 100644
-index 000000000..1f04f6797
+index 0000000..1f04f67
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.browser.test.tsx
 @@ -0,0 +1,168 @@
@@ -2478,7 +2478,7 @@ index 000000000..1f04f6797
 +});
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..2c20c7f26
+index 0000000..2c20c7f
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -2621,7 +2621,7 @@ index 000000000..2c20c7f26
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..213410e7e
+index 0000000..213410e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -3047,7 +3047,7 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 5a495cd47..8f42f2965 100644
+index 5a495cd..8f42f29 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -67,6 +67,11 @@ import {
@@ -3283,7 +3283,7 @@ index 5a495cd47..8f42f2965 100644
      ...toolbarSlot(),
      flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index fc0dbe872..115a2895b 100644
+index fc0dbe8..115a289 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -28,7 +28,7 @@ import {
@@ -3443,7 +3443,7 @@ index fc0dbe872..115a2895b 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index abb271f9d..f377b5628 100644
+index abb271f..f377b56 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
@@ -3466,7 +3466,7 @@ index abb271f9d..f377b5628 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 2fe296940..05d42159e 100644
+index 2fe2969..05d4215 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -3486,7 +3486,7 @@ index 2fe296940..05d42159e 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -3502,7 +3502,7 @@ index 3ab03c877..69a992346 100644
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/composer/trajectory-pill.tsx b/packages/app/src/composer/trajectory-pill.tsx
 new file mode 100644
-index 000000000..8753fffe2
+index 0000000..8753fff
 --- /dev/null
 +++ b/packages/app/src/composer/trajectory-pill.tsx
 @@ -0,0 +1,68 @@
@@ -3575,7 +3575,7 @@ index 000000000..8753fffe2
 +  label: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 14 },
 +}));
 diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
-index 9113b2e6e..928fd1422 100644
+index 9113b2e..928fd14 100644
 --- a/packages/app/src/hooks/use-settings/index.ts
 +++ b/packages/app/src/hooks/use-settings/index.ts
 @@ -1,6 +1,7 @@
@@ -3602,7 +3602,7 @@ index 9113b2e6e..928fd1422 100644
      settings,
      isLoading: isPending,
 diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
-index 11ba437dd..24fed7a2e 100644
+index 11ba437..24fed7a 100644
 --- a/packages/app/src/hooks/use-settings/storage.ts
 +++ b/packages/app/src/hooks/use-settings/storage.ts
 @@ -108,6 +108,8 @@ export interface AppSettings {
@@ -3631,10 +3631,10 @@ index 11ba437dd..24fed7a2e 100644
      // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
      toolCallDetailLevel: z
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 6642a0d76..4f35812c1 100644
+index 6b16c2f..9ceaeae 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2216,6 +2216,25 @@ export const ar: TranslationResources = {
+@@ -2272,6 +2272,25 @@ export const ar: TranslationResources = {
      sessionCost: "تكلفة الجلسة{{cost}}",
      accessibility: "تم استخدام نافذة السياق{{percentage}}%",
    },
@@ -3660,7 +3660,7 @@ index 6642a0d76..4f35812c1 100644
    review: {
      feedback: {
        send: "إرسال الملاحظات ({{count}})",
-@@ -2514,6 +2533,10 @@ export const ar: TranslationResources = {
+@@ -2585,6 +2604,10 @@ export const ar: TranslationResources = {
      },
      general: {
        title: "عام",
@@ -3672,10 +3672,10 @@ index 6642a0d76..4f35812c1 100644
        setup: {
          label: "الإعداد الأولي",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index d36956e5b..b44a23d49 100644
+index 01f858e..93545d9 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2244,6 +2244,25 @@ export const en = {
+@@ -2302,6 +2302,25 @@ export const en = {
      sessionCost: "Session cost {{cost}}",
      accessibility: "Context window {{percentage}}% used",
    },
@@ -3701,7 +3701,7 @@ index d36956e5b..b44a23d49 100644
    review: {
      feedback: {
        send: "Send feedback ({{count}})",
-@@ -2609,6 +2628,10 @@ export const en = {
+@@ -2682,6 +2701,10 @@ export const en = {
      },
      general: {
        title: "General",
@@ -3713,10 +3713,10 @@ index d36956e5b..b44a23d49 100644
        setup: {
          label: "First-run setup",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 56d1eeeb0..61f4948b9 100644
+index 324788a..6b5ee47 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2265,6 +2265,25 @@ export const es: TranslationResources = {
+@@ -2328,6 +2328,25 @@ export const es: TranslationResources = {
      sessionCost: "Costo de la sesión{{cost}}",
      accessibility: "Ventana de contexto{{percentage}}% utilizada",
    },
@@ -3742,7 +3742,7 @@ index 56d1eeeb0..61f4948b9 100644
    review: {
      feedback: {
        send: "Enviar comentarios ({{count}})",
-@@ -2527,6 +2546,10 @@ export const es: TranslationResources = {
+@@ -2605,6 +2624,10 @@ export const es: TranslationResources = {
      },
      general: {
        title: "General",
@@ -3754,10 +3754,10 @@ index 56d1eeeb0..61f4948b9 100644
        setup: {
          label: "Configuración inicial",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 8448dc543..1938a21fa 100644
+index 5f747f6..749ef01 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2265,6 +2265,25 @@ export const fr: TranslationResources = {
+@@ -2326,6 +2326,25 @@ export const fr: TranslationResources = {
      sessionCost: "Coût de la session : {{cost}}",
      accessibility: "Fenêtre de contexte : {{percentage}} % utilisés",
    },
@@ -3783,7 +3783,7 @@ index 8448dc543..1938a21fa 100644
    review: {
      feedback: {
        send: "Envoyer les commentaires ({{count}})",
-@@ -2528,6 +2547,10 @@ export const fr: TranslationResources = {
+@@ -2604,6 +2623,10 @@ export const fr: TranslationResources = {
      },
      general: {
        title: "Général",
@@ -3795,10 +3795,10 @@ index 8448dc543..1938a21fa 100644
        setup: {
          label: "Configuration initiale",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index 88913c858..32e59b91a 100644
+index a92243a..3681b25 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2238,6 +2238,25 @@ export const ja: TranslationResources = {
+@@ -2296,6 +2296,25 @@ export const ja: TranslationResources = {
      sessionCost: "セッションコスト: {{cost}}",
      accessibility: "コンテキストウィンドウ{{percentage}}%使用",
    },
@@ -3824,7 +3824,7 @@ index 88913c858..32e59b91a 100644
    review: {
      feedback: {
        send: "フィードバックを送信 ({{count}})",
-@@ -2501,6 +2520,10 @@ export const ja: TranslationResources = {
+@@ -2574,6 +2593,10 @@ export const ja: TranslationResources = {
      },
      general: {
        title: "一般",
@@ -3836,10 +3836,10 @@ index 88913c858..32e59b91a 100644
        setup: {
          label: "初回セットアップ",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index fad9469e9..1d0309712 100644
+index 0d55a12..0f01736 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2227,6 +2227,25 @@ export const ko: TranslationResources = {
+@@ -2284,6 +2284,25 @@ export const ko: TranslationResources = {
      sessionCost: "세션 비용 {{cost}}",
      accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
    },
@@ -3865,7 +3865,7 @@ index fad9469e9..1d0309712 100644
    review: {
      feedback: {
        send: "피드백 보내기 ({{count}})",
-@@ -2489,6 +2508,10 @@ export const ko: TranslationResources = {
+@@ -2561,6 +2580,10 @@ export const ko: TranslationResources = {
      },
      general: {
        title: "일반",
@@ -3877,10 +3877,10 @@ index fad9469e9..1d0309712 100644
        setup: {
          label: "초기 설정",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index e264f670b..3e2bcaa55 100644
+index 55a89ed..878f18c 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2250,6 +2250,25 @@ export const ptBR: TranslationResources = {
+@@ -2312,6 +2312,25 @@ export const ptBR: TranslationResources = {
      sessionCost: "Custo da sessão {{cost}}",
      accessibility: "Janela de contexto {{percentage}}% usada",
    },
@@ -3906,7 +3906,7 @@ index e264f670b..3e2bcaa55 100644
    review: {
      feedback: {
        send: "Enviar comentários ({{count}})",
-@@ -2512,6 +2531,10 @@ export const ptBR: TranslationResources = {
+@@ -2589,6 +2608,10 @@ export const ptBR: TranslationResources = {
      },
      general: {
        title: "Geral",
@@ -3918,10 +3918,10 @@ index e264f670b..3e2bcaa55 100644
        setup: {
          label: "Configuração inicial",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 6813b83e7..be9078e54 100644
+index d0939fa..a66b7e0 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2252,6 +2252,25 @@ export const ru: TranslationResources = {
+@@ -2313,6 +2313,25 @@ export const ru: TranslationResources = {
      sessionCost: "Стоимость сессии: {{cost}}",
      accessibility: "Использовано {{percentage}}% контекстного окна",
    },
@@ -3947,7 +3947,7 @@ index 6813b83e7..be9078e54 100644
    review: {
      feedback: {
        send: "Отправить отзыв ({{count}})",
-@@ -2516,6 +2535,10 @@ export const ru: TranslationResources = {
+@@ -2592,6 +2611,10 @@ export const ru: TranslationResources = {
      },
      general: {
        title: "Основные",
@@ -3959,10 +3959,10 @@ index 6813b83e7..be9078e54 100644
        setup: {
          label: "Первоначальная настройка",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index aa91dd793..750065fed 100644
+index 8c7e941..18261ce 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2193,6 +2193,25 @@ export const zhCN: TranslationResources = {
+@@ -2249,6 +2249,25 @@ export const zhCN: TranslationResources = {
      sessionCost: "会话费用 {{cost}}",
      accessibility: "上下文窗口已使用 {{percentage}}%",
    },
@@ -3988,7 +3988,7 @@ index aa91dd793..750065fed 100644
    review: {
      feedback: {
        send: "发送反馈 ({{count}})",
-@@ -2454,6 +2473,10 @@ export const zhCN: TranslationResources = {
+@@ -2524,6 +2543,10 @@ export const zhCN: TranslationResources = {
      },
      general: {
        title: "通用",
@@ -4000,7 +4000,7 @@ index aa91dd793..750065fed 100644
        setup: {
          label: "首次设置",
 diff --git a/packages/app/src/panels/agent-tracks.tsx b/packages/app/src/panels/agent-tracks.tsx
-index c4abe7a3f..ee1926565 100644
+index c4abe7a..ee19265 100644
 --- a/packages/app/src/panels/agent-tracks.tsx
 +++ b/packages/app/src/panels/agent-tracks.tsx
 @@ -1,6 +1,5 @@
@@ -4036,21 +4036,21 @@ index c4abe7a3f..ee1926565 100644
        <AgentTaskList tasks={tasks} />
        <SubagentsTrack
 diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
-index 0288d8270..2b5865a8b 100644
+index d624fa1..955ffe2 100644
 --- a/packages/app/src/screens/settings-screen.tsx
 +++ b/packages/app/src/screens/settings-screen.tsx
-@@ -4,7 +4,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
+@@ -5,7 +5,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
  import { useAddHost } from "@/hosts/add-host";
- import { useCallback, useMemo, useRef, useState } from "react";
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  import type { ComponentType, ReactNode } from "react";
 -import { Alert, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
 +import { Alert, Platform, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
- import { useRouter } from "expo-router";
- import { useFocusEffect } from "expo-router/react-navigation";
+ import { useNavigation, useRouter } from "expo-router";
+ import { useFocusEffect, usePreventRemove } from "expo-router/react-navigation";
  import { useSafeAreaInsets } from "react-native-safe-area-context";
-@@ -41,7 +41,9 @@ import {
-   MessageSquare,
-   ChevronRight,
+@@ -37,7 +37,9 @@ import {
+   Layers,
+   Laptop,
  } from "lucide-react-native";
 +import { syncRotationDelay } from "@/android/rotation-delay";
  import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
@@ -4058,7 +4058,7 @@ index 0288d8270..2b5865a8b 100644
  import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
  import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
  import { HostPicker as SharedHostPicker } from "@/components/hosts/host-picker";
-@@ -393,12 +395,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
+@@ -349,12 +351,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
              </DropdownMenuContent>
            </DropdownMenu>
          </View>
@@ -4099,10 +4099,10 @@ index 0288d8270..2b5865a8b 100644
    const { t } = useTranslation();
    const openOnboarding = useOpenOnboarding();
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 55d2c43a2..78f359cf3 100644
+index 49c7010..02c85d1 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
-@@ -38,6 +38,8 @@ import type {
+@@ -39,6 +39,8 @@ import type {
  } from "@getpaseo/protocol/agent-types";
  import type {
    AgentBackgroundWorkSummary,
@@ -4111,7 +4111,7 @@ index 55d2c43a2..78f359cf3 100644
    ServerInfoStatusPayload,
    ProjectPlacementPayload,
    ServerCapabilities,
-@@ -96,6 +98,8 @@ export interface Agent {
+@@ -97,6 +99,8 @@ export interface Agent {
    lastUsage?: AgentUsage;
    /** What the provider reports about the session, as label and value rows. */
    sessionMetrics?: AgentMetric[];
@@ -4122,7 +4122,7 @@ index 55d2c43a2..78f359cf3 100644
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.test.ts b/packages/app/src/utils/agent-directory-update-policy.test.ts
 new file mode 100644
-index 000000000..9622ed9e4
+index 0000000..9622ed9
 --- /dev/null
 +++ b/packages/app/src/utils/agent-directory-update-policy.test.ts
 @@ -0,0 +1,34 @@
@@ -4161,7 +4161,7 @@ index 000000000..9622ed9e4
 +  });
 +});
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 60735a024..db3e9f97d 100644
+index 60735a0..db3e9f9 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,10 +1,13 @@
@@ -4197,7 +4197,7 @@ index 60735a024..db3e9f97d 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.test.ts b/packages/app/src/utils/agent-snapshots.test.ts
-index 17f4fd89a..181acb8d4 100644
+index 17f4fd8..181acb8 100644
 --- a/packages/app/src/utils/agent-snapshots.test.ts
 +++ b/packages/app/src/utils/agent-snapshots.test.ts
 @@ -32,6 +32,8 @@ function createSnapshot(
@@ -4234,7 +4234,7 @@ index 17f4fd89a..181acb8d4 100644
    });
  
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 05e3c9a10..b74afc20f 100644
+index 05e3c9a..b74afc2 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -82,6 +82,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -4256,10 +4256,10 @@ index 05e3c9a10..b74afc20f 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/client/src/daemon-client.ts b/packages/client/src/daemon-client.ts
-index 91c888aee..6b43006fd 100644
+index fef8b50..bb63425 100644
 --- a/packages/client/src/daemon-client.ts
 +++ b/packages/client/src/daemon-client.ts
-@@ -779,6 +779,10 @@ export type ProviderSubagentListPayload = Extract<
+@@ -787,6 +787,10 @@ export type ProviderSubagentListPayload = Extract<
    SessionOutboundMessage,
    { type: "agent.provider_subagents.list.response" }
  >["payload"];
@@ -4270,7 +4270,7 @@ index 91c888aee..6b43006fd 100644
  export type ProviderSubagentTimelinePayload = Extract<
    SessionOutboundMessage,
    { type: "agent.provider_subagents.timeline.get.response" }
-@@ -4160,6 +4164,34 @@ export class DaemonClient {
+@@ -4176,6 +4180,34 @@ export class DaemonClient {
      }
    }
  
@@ -4306,10 +4306,10 @@ index 91c888aee..6b43006fd 100644
      parentAgentId: string,
      subagentId: string,
 diff --git a/packages/desktop/src/features/app-update-service.test.ts b/packages/desktop/src/features/app-update-service.test.ts
-index 5f55ff609..4e90f030e 100644
+index 8a78e78..dd99475 100644
 --- a/packages/desktop/src/features/app-update-service.test.ts
 +++ b/packages/desktop/src/features/app-update-service.test.ts
-@@ -497,7 +497,7 @@ describe("app update service", () => {
+@@ -552,7 +552,7 @@ describe("app update service", () => {
      expect(result.installed).toBe(true);
      expect(runtime.installedVersions).toEqual(["1.2.5"]);
      expect(runtime.installModes).toEqual([
@@ -4319,12 +4319,12 @@ index 5f55ff609..4e90f030e 100644
    });
  
 diff --git a/packages/desktop/src/features/app-update-service.ts b/packages/desktop/src/features/app-update-service.ts
-index 21789950b..8c6f6cbb2 100644
+index 3d42449..e71967c 100644
 --- a/packages/desktop/src/features/app-update-service.ts
 +++ b/packages/desktop/src/features/app-update-service.ts
-@@ -119,7 +119,10 @@ async function performQuitAndInstall(
+@@ -166,7 +166,10 @@ async function performQuitAndInstall(
    if (onBeforeQuit) await onBeforeQuit();
-   runtime.quitAndInstall({
+   const launch = await runtime.quitAndInstall({
      targetVersion,
 -    isSilent: !restart,
 +    // The Windows artifact is an assisted NSIS installer (`oneClick: false`),
@@ -4333,9 +4333,9 @@ index 21789950b..8c6f6cbb2 100644
 +    isSilent: true,
      isForceRunAfter: restart,
    });
- }
+   if (!launch.started) {
 diff --git a/packages/desktop/src/features/notifications.ts b/packages/desktop/src/features/notifications.ts
-index 97f44c1f3..7c7c3e683 100644
+index 97f44c1..7c7c3e6 100644
 --- a/packages/desktop/src/features/notifications.ts
 +++ b/packages/desktop/src/features/notifications.ts
 @@ -1,6 +1,8 @@
@@ -4429,10 +4429,10 @@ index 97f44c1f3..7c7c3e683 100644
      return true;
    });
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 01d2c51b0..9a1dbd5ca 100644
+index 266c7cb..43a568c 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -472,6 +472,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -473,6 +473,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -4441,7 +4441,7 @@ index 01d2c51b0..9a1dbd5ca 100644
    })
    .catchall(z.boolean());
  
-@@ -920,6 +922,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
+@@ -921,6 +923,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
  
  export type AgentBackgroundWorkSummary = z.infer<typeof AgentBackgroundWorkSummarySchema>;
  
@@ -4485,7 +4485,7 @@ index 01d2c51b0..9a1dbd5ca 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -949,6 +988,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -950,6 +989,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
    sessionMetrics: z.array(AgentMetricSchema).optional(),
@@ -4494,7 +4494,7 @@ index 01d2c51b0..9a1dbd5ca 100644
    lastError: z.string().optional(),
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
-@@ -2145,6 +2186,12 @@ export const AgentBackgroundWorkStopRequestMessageSchema = z.object({
+@@ -2154,6 +2195,12 @@ export const AgentBackgroundWorkStopRequestMessageSchema = z.object({
    requestId: z.string(),
  });
  
@@ -4507,7 +4507,7 @@ index 01d2c51b0..9a1dbd5ca 100644
  export const ProviderSubagentTimelineRequestMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.request"),
    parentAgentId: z.string(),
-@@ -3684,6 +3731,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+@@ -3695,6 +3742,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
    FetchAgentTimelineRequestMessageSchema,
    AgentTimelineSearchRequestMessageSchema,
    AgentTimelineListPromptsRequestMessageSchema,
@@ -4515,7 +4515,7 @@ index 01d2c51b0..9a1dbd5ca 100644
    ProviderSubagentListRequestMessageSchema,
    AgentBackgroundWorkListRequestMessageSchema,
    AgentBackgroundWorkStopRequestMessageSchema,
-@@ -5298,6 +5346,49 @@ export const AgentBackgroundWorkUpdateMessageSchema = z.object({
+@@ -5315,6 +5363,49 @@ export const AgentBackgroundWorkUpdateMessageSchema = z.object({
    }),
  });
  
@@ -4565,7 +4565,7 @@ index 01d2c51b0..9a1dbd5ca 100644
  export const ProviderSubagentTimelineResponseMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.response"),
    payload: z.object({
-@@ -7753,6 +7844,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+@@ -7819,6 +7910,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
    AgentTimelineReplacementMessageSchema,
    AgentTimelineSearchResponseMessageSchema,
    AgentTimelineListPromptsResponseMessageSchema,
@@ -4574,7 +4574,7 @@ index 01d2c51b0..9a1dbd5ca 100644
    ProviderSubagentTimelineResponseMessageSchema,
    ProviderSubagentUpdateMessageSchema,
 diff --git a/packages/protocol/src/provider-config.ts b/packages/protocol/src/provider-config.ts
-index c94f8ca96..0f46edd26 100644
+index c94f8ca..0f46edd 100644
 --- a/packages/protocol/src/provider-config.ts
 +++ b/packages/protocol/src/provider-config.ts
 @@ -53,6 +53,8 @@ export const ProviderOverrideSchema = z.object({
@@ -4604,7 +4604,7 @@ index c94f8ca96..0f46edd26 100644
  
  export const ProviderOverridesSchema = z
 diff --git a/packages/protocol/src/provider-manifest.ts b/packages/protocol/src/provider-manifest.ts
-index 0d7076f0b..d0310a277 100644
+index 0d7076f..d0310a2 100644
 --- a/packages/protocol/src/provider-manifest.ts
 +++ b/packages/protocol/src/provider-manifest.ts
 @@ -169,6 +169,45 @@ export const OMP_MODES: AgentProviderModeDefinition[] = [
@@ -4670,7 +4670,7 @@ index 0d7076f0b..d0310a277 100644
  
  export const DEV_AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
 diff --git a/packages/protocol/src/tool-call-display.test.ts b/packages/protocol/src/tool-call-display.test.ts
-index 0dd49eba0..606e97b7f 100644
+index 0dd49eb..606e97b 100644
 --- a/packages/protocol/src/tool-call-display.test.ts
 +++ b/packages/protocol/src/tool-call-display.test.ts
 @@ -175,6 +175,20 @@ describe("shared tool-call display mapping", () => {
@@ -4695,7 +4695,7 @@ index 0dd49eba0..606e97b7f 100644
      const display = buildToolCallDisplayModel({
        name: "plan",
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6db2..e00c20d62 100644
+index db0aa6d..e00c20d 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
@@ -4712,7 +4712,7 @@ index db0aa6db2..e00c20d62 100644
    return trimmed
      .replace(/[._-]+/g, " ")
 diff --git a/packages/server/scripts/supervisor.ts b/packages/server/scripts/supervisor.ts
-index 2d29e87b4..fdcb39c47 100644
+index 2d29e87..fdcb39c 100644
 --- a/packages/server/scripts/supervisor.ts
 +++ b/packages/server/scripts/supervisor.ts
 @@ -1,9 +1,10 @@
@@ -4748,7 +4748,7 @@ index 2d29e87b4..fdcb39c47 100644
          stdio: ["inherit", "pipe", "pipe", "ipc"],
          env: workerEnv,
 diff --git a/packages/server/src/server/agent-attention-policy.test.ts b/packages/server/src/server/agent-attention-policy.test.ts
-index ac9d92f16..5b1fda9f9 100644
+index ac9d92f..5b1fda9 100644
 --- a/packages/server/src/server/agent-attention-policy.test.ts
 +++ b/packages/server/src/server/agent-attention-policy.test.ts
 @@ -223,6 +223,28 @@ describe("computeNotificationPlan", () => {
@@ -4781,7 +4781,7 @@ index ac9d92f16..5b1fda9f9 100644
  
  describe("isPushEligibleAttentionReason", () => {
 diff --git a/packages/server/src/server/agent-attention-policy.ts b/packages/server/src/server/agent-attention-policy.ts
-index 98b3a4dcd..c2a1446a8 100644
+index 98b3a4d..c2a1446 100644
 --- a/packages/server/src/server/agent-attention-policy.ts
 +++ b/packages/server/src/server/agent-attention-policy.ts
 @@ -13,6 +13,7 @@ export type AttentionFocusTarget = { kind: "agent"; id: string } | { kind: "term
@@ -4824,10 +4824,10 @@ index 98b3a4dcd..c2a1446a8 100644
  }
  
 diff --git a/packages/server/src/server/agent/agent-manager.ts b/packages/server/src/server/agent/agent-manager.ts
-index 76d9a1db5..db6959783 100644
+index f1f66ec..6e6e028 100644
 --- a/packages/server/src/server/agent/agent-manager.ts
 +++ b/packages/server/src/server/agent/agent-manager.ts
-@@ -43,6 +43,8 @@ import {
+@@ -47,6 +47,8 @@ import {
    type AgentResumeSessionOptions,
    type AgentDraftControls,
    type AgentOptionControl,
@@ -4836,7 +4836,7 @@ index 76d9a1db5..db6959783 100644
    type AgentLaunchContext,
    type AgentSlashCommand,
    type AgentMode,
-@@ -132,7 +134,11 @@ import { withTimeout } from "../../utils/promise-timeout.js";
+@@ -136,7 +138,11 @@ import { withTimeout } from "../../utils/promise-timeout.js";
  import { buildSessionConfig, extractAttention } from "../persistence-hooks.js";
  
  const RELOAD_SESSION_CLOSE_TIMEOUT_MS = 3_000;
@@ -4849,7 +4849,7 @@ index 76d9a1db5..db6959783 100644
  const IMPORTABLE_SESSION_LIST_TIMEOUT_MS = 90_000;
  const STORED_AGENT_CAPABILITIES: AgentCapabilityFlags = {
    supportsStreaming: false,
-@@ -518,6 +524,8 @@ interface ManagedAgentBase {
+@@ -542,6 +548,8 @@ interface ManagedAgentBase {
    lastUsage?: AgentUsage;
    /** Provider-owned session metrics, replaced whole on every provider update. */
    sessionMetrics?: AgentMetric[];
@@ -4858,7 +4858,7 @@ index 76d9a1db5..db6959783 100644
    lastError?: string;
    attention: AttentionState;
    foregroundTurnWaiters: Set<ForegroundTurnWaiter>;
-@@ -891,6 +899,11 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
+@@ -915,6 +923,11 @@ function detachedAgentLabelPatch(labels: Record<string, string>): AgentLabelPatc
   */
  const RETIRED_INTERNAL_AGENT_TTL_MS = 10 * 60 * 1000;
  const RETIRED_INTERNAL_AGENT_LIMIT = 500;
@@ -4870,7 +4870,7 @@ index 76d9a1db5..db6959783 100644
  
  export interface RetiredInternalAgent {
    record: ArchivedStoredAgentRecord;
-@@ -922,6 +935,9 @@ export class AgentManager {
+@@ -946,6 +959,9 @@ export class AgentManager {
    private readonly registry?: AgentStorage;
    private readonly durableTimelineStore?: AgentTimelineStore;
    private readonly previousStatuses = new Map<string, AgentLifecycleStatus>();
@@ -4880,7 +4880,7 @@ index 76d9a1db5..db6959783 100644
    private readonly backgroundTasks = new Set<Promise<void>>();
    private readonly agentRegistrationTasks = new Set<Promise<void>>();
    private readonly inFlightAgentCloses = new Map<string, Promise<void>>();
-@@ -2546,6 +2562,18 @@ export class AgentManager {
+@@ -2690,6 +2706,18 @@ export class AgentManager {
    async setAgentMode(agentId: string, modeId: string): Promise<AgentProviderNotice | null> {
      return this.runLifecycleMutation(agentId, () =>
        this.withLiveInteractiveSessionUnlocked(agentId, async (agent) => {
@@ -4899,7 +4899,7 @@ index 76d9a1db5..db6959783 100644
          const notice = (await agent.session.setMode(modeId)) ?? null;
          await this.drainSessionEvents(agentId);
          const currentMode = (await agent.session.getCurrentMode()) ?? modeId;
-@@ -3305,7 +3333,7 @@ export class AgentManager {
+@@ -3483,7 +3511,7 @@ export class AgentManager {
          });
          agent.pendingReplacement = false;
          if (!agent.activeForegroundTurnId) agent.lifecycle = "idle";
@@ -4908,7 +4908,7 @@ index 76d9a1db5..db6959783 100644
          throw error;
        }
        agent.pendingReplacement = false;
-@@ -3326,7 +3354,7 @@ export class AgentManager {
+@@ -3504,7 +3532,7 @@ export class AgentManager {
          this.finalizeForegroundTurn(agent);
        } finally {
          // A steer waiting on this start is released only once the run is cleared.
@@ -4917,7 +4917,7 @@ index 76d9a1db5..db6959783 100644
        }
        throw error;
      }
-@@ -3548,7 +3576,7 @@ export class AgentManager {
+@@ -3735,7 +3763,7 @@ export class AgentManager {
          if (turnStream) {
            this.runs.deleteWaiter(agent, turnStream.waiter);
          }
@@ -4926,7 +4926,7 @@ index 76d9a1db5..db6959783 100644
          if (!agent.activeForegroundTurnId) {
            await this.refreshRuntimeInfo(agent);
          }
-@@ -3610,6 +3638,24 @@ export class AgentManager {
+@@ -3797,6 +3825,24 @@ export class AgentManager {
      agent.activeTurnStartedAt = startedAt;
    }
  
@@ -4951,7 +4951,7 @@ index 76d9a1db5..db6959783 100644
    private applyActiveTurnTerminal(
      agent: ActiveManagedAgent,
      turnId?: string,
-@@ -4100,13 +4146,25 @@ export class AgentManager {
+@@ -4287,13 +4333,25 @@ export class AgentManager {
          reason: "interrupted",
          turnId: runTurnId,
        });
@@ -4979,7 +4979,7 @@ index 76d9a1db5..db6959783 100644
        if (!agent.pendingReplacement) {
          agent.lifecycle = "idle";
          this.touchUpdatedAt(agent);
-@@ -4250,7 +4308,7 @@ export class AgentManager {
+@@ -4437,7 +4495,7 @@ export class AgentManager {
        );
        throw error;
      } finally {
@@ -4988,7 +4988,7 @@ index 76d9a1db5..db6959783 100644
      }
    }
  
-@@ -4756,7 +4814,13 @@ export class AgentManager {
+@@ -4945,7 +5003,13 @@ export class AgentManager {
        owner: options?.owner,
        launchEnv: options?.launchEnv,
        session,
@@ -5003,7 +5003,7 @@ index 76d9a1db5..db6959783 100644
        config,
        // What the session opened with. Provider defaults edited later reach it when it next opens.
        effectiveOptions,
-@@ -4812,6 +4876,7 @@ export class AgentManager {
+@@ -5001,6 +5065,7 @@ export class AgentManager {
      this.agentStreamCoalescer.flushAndDiscard(agent.id);
      this.agents.delete(agent.id);
      this.previousStatuses.delete(agent.id);
@@ -5011,7 +5011,7 @@ index 76d9a1db5..db6959783 100644
      if (agent.unsubscribeSession) {
        agent.unsubscribeSession();
        agent.unsubscribeSession = null;
-@@ -4896,9 +4961,28 @@ export class AgentManager {
+@@ -5090,9 +5155,28 @@ export class AgentManager {
        .then(async () => {
          const current = this.agents.get(agentId);
          if (!current) {
@@ -5040,7 +5040,7 @@ index 76d9a1db5..db6959783 100644
            return;
          }
          this.logger.trace(
-@@ -4963,6 +5047,7 @@ export class AgentManager {
+@@ -5157,6 +5241,7 @@ export class AgentManager {
            ? this.backgroundWork.clear(agent.id)
            : this.backgroundWork.apply(agent.id, event.items);
        this.publishBackgroundWork(agent.id, items);
@@ -5048,7 +5048,7 @@ index 76d9a1db5..db6959783 100644
        return;
      }
      // Resolve notice membership before selecting the foreground run's waiters.
-@@ -5483,6 +5568,8 @@ export class AgentManager {
+@@ -5677,6 +5762,8 @@ export class AgentManager {
    }): Promise<void> | undefined {
      const { agent, event, options, isForegroundEvent, eventTurnId, terminalDisposition, flags } =
        params;
@@ -5057,7 +5057,7 @@ index 76d9a1db5..db6959783 100644
      switch (event.type) {
        case "thread_started":
          this.onStreamThreadStarted(agent);
-@@ -5492,7 +5579,6 @@ export class AgentManager {
+@@ -5686,7 +5773,6 @@ export class AgentManager {
          this.emitState(agent);
          return undefined;
        case "session_metrics_updated":
@@ -5065,7 +5065,7 @@ index 76d9a1db5..db6959783 100644
          agent.sessionMetrics = sanitizeAgentMetrics(event.metrics);
          flags.shouldDispatchEvent = false;
          this.emitState(agent);
-@@ -5500,9 +5586,7 @@ export class AgentManager {
+@@ -5694,9 +5780,7 @@ export class AgentManager {
        case "mode_changed":
          this.applyObservedMode(agent, event.currentModeId);
          agent.availableModes = event.availableModes;
@@ -5076,7 +5076,7 @@ index 76d9a1db5..db6959783 100644
          flags.shouldDispatchEvent = false;
          this.emitState(agent);
          return undefined;
-@@ -5510,8 +5594,7 @@ export class AgentManager {
+@@ -5704,8 +5788,7 @@ export class AgentManager {
          agent.runtimeInfo = event.runtimeInfo;
          if (!agent.persistence && event.runtimeInfo.sessionId) {
            agent.persistence = normalizePersistenceForConfig(
@@ -5086,7 +5086,7 @@ index 76d9a1db5..db6959783 100644
            );
          }
          this.applyObservedMode(agent, event.runtimeInfo.modeId ?? agent.currentModeId);
-@@ -5521,6 +5604,14 @@ export class AgentManager {
+@@ -5715,6 +5798,14 @@ export class AgentManager {
        case "thinking_option_changed":
          this.onStreamThinkingOptionChanged({ agent, event, flags });
          return undefined;
@@ -5101,7 +5101,7 @@ index 76d9a1db5..db6959783 100644
        case "options_changed":
          this.onStreamOptionsChanged({ agent, patch: event.patch, flags });
          return undefined;
-@@ -5567,7 +5658,68 @@ export class AgentManager {
+@@ -5761,7 +5852,68 @@ export class AgentManager {
          return undefined;
      }
    }
@@ -5171,7 +5171,7 @@ index 76d9a1db5..db6959783 100644
    private onStreamThreadStarted(agent: ActiveManagedAgent): void {
      const previousSessionId = agent.persistence?.sessionId ?? null;
      this.refreshSessionPersistence(agent);
-@@ -6056,6 +6208,98 @@ export class AgentManager {
+@@ -6250,6 +6402,98 @@ export class AgentManager {
      }
    }
  
@@ -5270,7 +5270,7 @@ index 76d9a1db5..db6959783 100644
    private checkAndSetAttention(agent: ManagedAgent): void {
      const previousStatus = this.previousStatuses.get(agent.id);
      const currentStatus = agent.lifecycle;
-@@ -6063,11 +6307,17 @@ export class AgentManager {
+@@ -6257,11 +6501,17 @@ export class AgentManager {
      // Track the new status
      this.previousStatuses.set(agent.id, currentStatus);
  
@@ -5288,7 +5288,7 @@ index 76d9a1db5..db6959783 100644
        this.raiseErrorAttention(agent);
        return;
      }
-@@ -6082,6 +6332,26 @@ export class AgentManager {
+@@ -6276,6 +6526,26 @@ export class AgentManager {
      }
  
      if (finished) {
@@ -5316,10 +5316,10 @@ index 76d9a1db5..db6959783 100644
          requiresAttention: true,
          attentionReason: "finished",
 diff --git a/packages/server/src/server/agent/agent-messages/envelope.ts b/packages/server/src/server/agent/agent-messages/envelope.ts
-index f48b866e9..3ce071795 100644
+index c0025df..bfb37b9 100644
 --- a/packages/server/src/server/agent/agent-messages/envelope.ts
 +++ b/packages/server/src/server/agent/agent-messages/envelope.ts
-@@ -252,7 +252,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
+@@ -253,7 +253,15 @@ export function formatSystemNotificationPrompt(reason: string): string {
    return `<paseo-system>\n${reason}\n</paseo-system>`;
  }
  
@@ -5337,7 +5337,7 @@ index f48b866e9..3ce071795 100644
  export function isSystemInjectedEnvelope(text: string): boolean {
    return SYSTEM_ENVELOPE_PATTERN.test(text);
 diff --git a/packages/server/src/server/agent/agent-projections.test.ts b/packages/server/src/server/agent/agent-projections.test.ts
-index 34a8c5036..56fb33411 100644
+index 34a8c50..56fb334 100644
 --- a/packages/server/src/server/agent/agent-projections.test.ts
 +++ b/packages/server/src/server/agent/agent-projections.test.ts
 @@ -534,6 +534,32 @@ describe("toAgentPayload", () => {
@@ -5374,7 +5374,7 @@ index 34a8c5036..56fb33411 100644
      const agent = createManagedAgent({
        lastUsage: {
 diff --git a/packages/server/src/server/agent/agent-projections.ts b/packages/server/src/server/agent/agent-projections.ts
-index 74618d5f4..cfa68a174 100644
+index 74618d5..cfa68a1 100644
 --- a/packages/server/src/server/agent/agent-projections.ts
 +++ b/packages/server/src/server/agent/agent-projections.ts
 @@ -181,6 +181,14 @@ export function toAgentPayload(
@@ -5393,7 +5393,7 @@ index 74618d5f4..cfa68a174 100644
      payload.lastError = agent.lastError;
    }
 diff --git a/packages/server/src/server/agent/agent-prompt.test.ts b/packages/server/src/server/agent/agent-prompt.test.ts
-index 6a169c6df..3f399c841 100644
+index 6a169c6..3f399c8 100644
 --- a/packages/server/src/server/agent/agent-prompt.test.ts
 +++ b/packages/server/src/server/agent/agent-prompt.test.ts
 @@ -14,7 +14,11 @@ import { join } from "node:path";
@@ -5488,10 +5488,10 @@ index 6a169c6df..3f399c841 100644
  const EXPECTED_RUN_START_BUDGET_MS = 60_000;
  // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 4644f9d95..2a9df615e 100644
+index 244c7fa..a600fe6 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
-@@ -189,6 +189,11 @@ export interface AgentCapabilityFlags {
+@@ -190,6 +190,11 @@ export interface AgentCapabilityFlags {
    supportsRewindConversation?: boolean;
    supportsRewindFiles?: boolean;
    supportsRewindBoth?: boolean;
@@ -5503,7 +5503,7 @@ index 4644f9d95..2a9df615e 100644
  }
  
  export interface AgentPersistenceHandle {
-@@ -237,6 +242,49 @@ export interface AgentUsage {
+@@ -238,6 +243,49 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -5553,7 +5553,7 @@ index 4644f9d95..2a9df615e 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -436,6 +484,13 @@ export type AgentStreamEvent =
+@@ -437,6 +485,13 @@ export type AgentStreamEvent =
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
    /** Full replacement of the metrics shown for the session. An empty list clears them. */
    | { type: "session_metrics_updated"; provider: AgentProvider; metrics: AgentMetric[] }
@@ -5569,7 +5569,7 @@ index 4644f9d95..2a9df615e 100644
        provider: AgentProvider;
 diff --git a/packages/server/src/server/agent/provider-icon.ts b/packages/server/src/server/agent/provider-icon.ts
 new file mode 100644
-index 000000000..1a298d5c2
+index 0000000..1a298d5
 --- /dev/null
 +++ b/packages/server/src/server/agent/provider-icon.ts
 @@ -0,0 +1,83 @@
@@ -5657,7 +5657,7 @@ index 000000000..1a298d5c2
 +  }
 +}
 diff --git a/packages/server/src/server/agent/provider-registry.test.ts b/packages/server/src/server/agent/provider-registry.test.ts
-index d9096d2fd..20b4707c6 100644
+index 005d062..c33e293 100644
 --- a/packages/server/src/server/agent/provider-registry.test.ts
 +++ b/packages/server/src/server/agent/provider-registry.test.ts
 @@ -33,6 +33,7 @@ const mockState = vi.hoisted(() => {
@@ -5750,7 +5750,15 @@ index d9096d2fd..20b4707c6 100644
  import {
    AGENT_PROVIDER_DEFINITIONS,
    buildProviderRegistry,
-@@ -708,6 +763,56 @@ test("new provider extending acp uses GenericACPAgentClient", () => {
+@@ -664,6 +719,7 @@ test("launch-wrap support comes from the provider contract and follows extends",
+     opencode: true,
+     pi: true,
+     omp: true,
++    antigravity: true,
+     mock: false,
+     "mock-slow": false,
+     "my-claude": true,
+@@ -734,6 +790,56 @@ test("new provider extending acp uses GenericACPAgentClient", () => {
    ]);
  });
  
@@ -5808,7 +5816,7 @@ index d9096d2fd..20b4707c6 100644
    const registry = buildProviderRegistry(logger, {
      providerOverrides: {
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index bff07dece..f7f5c50c9 100644
+index 82946a1..5d2727c 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -25,6 +25,7 @@ import {
@@ -5855,7 +5863,7 @@ index bff07dece..f7f5c50c9 100644
    enabled: boolean;
    /**
     * The id of another *registered* provider this one extends (e.g. a Z.AI
-@@ -97,9 +112,8 @@ export interface ProviderDefinition extends AgentProviderDefinition {
+@@ -98,9 +113,8 @@ export interface ProviderDefinition extends AgentProviderDefinition {
  }
  
  /** Provider metadata and an unconfigured factory; the registry owns override application. */
@@ -5864,9 +5872,9 @@ index bff07dece..f7f5c50c9 100644
    requiresConfiguration?: boolean;
 -  iconSvg?: string;
    supportsExactMcpPreapproval: boolean;
+   supportsLaunchWrap: boolean;
    createClient: (logger: Logger, runtimeSettings?: ProviderRuntimeSettings) => AgentClient;
- }
-@@ -134,7 +148,7 @@ type ProviderClientFactory = (
+@@ -136,7 +150,7 @@ type ProviderClientFactory = (
  ) => AgentClient;
  
  interface ResolvedProvider {
@@ -5875,7 +5883,15 @@ index bff07dece..f7f5c50c9 100644
    runtimeSettings?: ProviderRuntimeSettings;
    profileModels: ProviderProfileModel[];
    additionalModels: ProviderProfileModel[];
-@@ -225,6 +239,11 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
+@@ -163,6 +177,7 @@ const PROVIDER_CONTRACTS: Record<string, ProviderContract> = {
+   opencode: { supportsExactMcpPreapproval: true, supportsLaunchWrap: true },
+   pi: { supportsExactMcpPreapproval: false, supportsLaunchWrap: true },
+   omp: { supportsExactMcpPreapproval: false, supportsLaunchWrap: true },
++  antigravity: { supportsExactMcpPreapproval: false, supportsLaunchWrap: true },
+ };
+ 
+ const UNSUPPORTED_PROVIDER_CONTRACT: ProviderContract = {
+@@ -240,6 +255,11 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
        runtimeSettings,
        runtime: options?.ompRuntime,
      }),
@@ -5887,7 +5903,7 @@ index bff07dece..f7f5c50c9 100644
    mock: (logger) => new MockLoadTestAgentClient(logger),
    "mock-slow": () => new MockSlowProviderClient(),
  };
-@@ -292,9 +311,9 @@ function mergeRuntimeSettings(
+@@ -307,9 +327,9 @@ function mergeRuntimeSettings(
  }
  
  function applyOverrideToDefinition(
@@ -5899,7 +5915,7 @@ index bff07dece..f7f5c50c9 100644
    if (!override) {
      return definition;
    }
-@@ -303,6 +322,7 @@ function applyOverrideToDefinition(
+@@ -318,6 +338,7 @@ function applyOverrideToDefinition(
      ...definition,
      label: override.label ?? definition.label,
      description: override.description ?? definition.description,
@@ -5907,7 +5923,7 @@ index bff07dece..f7f5c50c9 100644
    };
  }
  
-@@ -310,7 +330,7 @@ function createDerivedDefinition(
+@@ -325,7 +346,7 @@ function createDerivedDefinition(
    providerId: string,
    baseDefinition: AgentProviderDefinition,
    override: ProviderOverride,
@@ -5916,7 +5932,7 @@ index bff07dece..f7f5c50c9 100644
    if (!override.label) {
      throw new Error(`Custom provider '${providerId}' requires a label`);
    }
-@@ -320,6 +340,7 @@ function createDerivedDefinition(
+@@ -335,6 +356,7 @@ function createDerivedDefinition(
      id: providerId,
      label: override.label,
      description: override.description ?? baseDefinition.description,
@@ -5924,7 +5940,7 @@ index bff07dece..f7f5c50c9 100644
    };
  }
  
-@@ -664,8 +685,10 @@ function createRegistryEntry(
+@@ -683,8 +705,10 @@ function createRegistryEntry(
    const hasStaticModes = resolved.definition.modes.length > 0;
  
    const { createBaseClient: _createBaseClient, contract: _contract, ...configuration } = resolved;
@@ -5936,7 +5952,7 @@ index bff07dece..f7f5c50c9 100644
      configuration,
      enabled: resolved.enabled,
      derivedFromProviderId: resolved.derivedFromProviderId,
-@@ -875,7 +898,37 @@ function addDerivedProviders(
+@@ -896,7 +920,37 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -5976,7 +5992,7 @@ index bff07dece..f7f5c50c9 100644
          contract:
            providerId === HUB_E2E_PROVIDER_ID
 diff --git a/packages/server/src/server/agent/providers/acp-agent.test.ts b/packages/server/src/server/agent/providers/acp-agent.test.ts
-index 748d2b462..d5d336858 100644
+index c0d46ab..dd8e293 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.test.ts
 @@ -1,6 +1,6 @@
@@ -5987,7 +6003,7 @@ index 748d2b462..d5d336858 100644
  import { createRequire } from "node:module";
  import { tmpdir } from "node:os";
  import path from "node:path";
-@@ -25,13 +25,18 @@ import {
+@@ -26,13 +26,18 @@ import {
  import {
    ACPAgentClient,
    ACPAgentSession,
@@ -6006,7 +6022,7 @@ index 748d2b462..d5d336858 100644
    resolveACPModeSelection,
    resolveACPModelSelection,
    summarizeACPRequestError,
-@@ -49,12 +54,14 @@ import {
+@@ -51,12 +56,14 @@ import {
    transformCopilotSessionResponse,
    writeCopilotProviderMode,
  } from "./copilot-acp-agent.js";
@@ -6022,7 +6038,7 @@ index 748d2b462..d5d336858 100644
    AgentSession,
    ProviderRefreshContext,
  } from "../agent-sdk-types.js";
-@@ -102,6 +109,7 @@ interface ACPSessionInternals {
+@@ -104,6 +111,7 @@ interface ACPSessionInternals {
    connection: {
      prompt: (...args: unknown[]) => Promise<PromptResponse>;
      signal: AbortSignal;
@@ -6030,7 +6046,7 @@ index 748d2b462..d5d336858 100644
    };
    activeForegroundTurnId: string | null;
    configOptions: SessionConfigOption[];
-@@ -215,14 +223,25 @@ class FakeTerminator {
+@@ -217,14 +225,25 @@ class FakeTerminator {
    }
  }
  
@@ -6056,7 +6072,7 @@ index 748d2b462..d5d336858 100644
  ): ACPAgentSession {
    return new ACPAgentSession(
      {
-@@ -237,6 +256,12 @@ function createSessionWithConfig(
+@@ -239,6 +258,12 @@ function createSessionWithConfig(
        logger,
        defaultCommand: ["claude", "--acp"],
        defaultModes: [],
@@ -6069,7 +6085,7 @@ index 748d2b462..d5d336858 100644
        capabilities: {
          supportsStreaming: true,
          supportsSessionPersistence: true,
-@@ -244,7 +269,9 @@ function createSessionWithConfig(
+@@ -246,7 +271,9 @@ function createSessionWithConfig(
          supportsMcpServers: true,
          supportsReasoningStream: true,
          supportsToolInvocations: true,
@@ -6079,7 +6095,7 @@ index 748d2b462..d5d336858 100644
      },
    );
  }
-@@ -892,6 +919,117 @@ describe("ACPAgentSession terminal tools", () => {
+@@ -894,6 +921,117 @@ describe("ACPAgentSession terminal tools", () => {
        exitStatus: { exitCode: 0, signal: null },
      });
    });
@@ -6197,7 +6213,7 @@ index 748d2b462..d5d336858 100644
  });
  
  describe("mapACPUsage", () => {
-@@ -1483,6 +1621,64 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1485,6 +1623,64 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -6262,7 +6278,7 @@ index 748d2b462..d5d336858 100644
    test("preserves ACP permission requests after invalid selected actions", async () => {
      const session = createSessionWithConfig({ provider: "generic-acp" });
      const events: AgentStreamEvent[] = [];
-@@ -1536,6 +1732,203 @@ describe("ACPAgentSession Zed parity", () => {
+@@ -1538,6 +1734,203 @@ describe("ACPAgentSession Zed parity", () => {
      });
    });
  
@@ -6466,7 +6482,7 @@ index 748d2b462..d5d336858 100644
    test("auto-accepts ACP permission requests when the shared feature is enabled", async () => {
      const session = createSessionWithConfig({
        provider: "cursor-acp",
-@@ -3150,14 +3543,120 @@ describe("ACPAgentSession", () => {
+@@ -3596,14 +3989,120 @@ describe("ACPAgentSession", () => {
      );
    });
  
@@ -6592,7 +6608,7 @@ index 748d2b462..d5d336858 100644
  
      await session.extNotification("_kiro.dev/commands/available", {
        sessionId: "session-1",
-@@ -3386,7 +3885,7 @@ describe("ACPAgentSession", () => {
+@@ -3832,7 +4331,7 @@ describe("ACPAgentSession", () => {
      ]);
    });
  
@@ -6601,7 +6617,7 @@ index 748d2b462..d5d336858 100644
      const session = createSession();
      asInternals<ACPSessionInternals>(session).sessionId = "session-1";
  
-@@ -3404,22 +3903,23 @@ describe("ACPAgentSession", () => {
+@@ -3850,22 +4349,23 @@ describe("ACPAgentSession", () => {
        } as SessionUpdate,
      });
  
@@ -6640,7 +6656,7 @@ index 748d2b462..d5d336858 100644
    });
  
    test("startTurn returns before the ACP prompt settles and completes later via subscribers", async () => {
-@@ -3460,128 +3960,276 @@ describe("ACPAgentSession", () => {
+@@ -3906,128 +4406,276 @@ describe("ACPAgentSession", () => {
      expect(asInternals<ACPSessionInternals>(session).activeForegroundTurnId).toBeNull();
    });
  
@@ -7008,7 +7024,7 @@ index 748d2b462..d5d336858 100644
      const events: AgentStreamEvent[] = [];
      let resolvePrompt!: (value: PromptResponse) => void;
      const prompt = vi.fn(
-@@ -3590,1831 +4238,4043 @@ describe("ACPAgentSession", () => {
+@@ -4036,1832 +4684,4044 @@ describe("ACPAgentSession", () => {
            resolvePrompt = resolve;
          }),
      );
@@ -12522,8 +12538,9 @@ index 748d2b462..d5d336858 100644
 +    expect(liveEvents.filter((e) => e.type === "turn_started" || e.type === "timeline")).toHaveLength(0);
    });
  });
+ 
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index 0086e9b6d..ce6248a08 100644
+index b23ac68..f3b8009 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
 @@ -20,11 +20,12 @@ import type {
@@ -12961,8 +12978,8 @@ index 0086e9b6d..ce6248a08 100644
    modeIdTransformer?: (modeId: string) => string | null;
    toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    providerModeWriter?: (
-@@ -550,7 +880,11 @@ interface ACPAgentSessionOptions {
-   launchEnv?: Record<string, string>;
+@@ -552,7 +882,11 @@ interface ACPAgentSessionOptions {
+   wrap?: AgentLaunchContext["wrap"];
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
 +  lateTimelineGraceMs?: number;
@@ -12973,7 +12990,7 @@ index 0086e9b6d..ce6248a08 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -647,6 +981,13 @@ class ACPImportHistoryCollector {
+@@ -651,6 +985,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -12987,7 +13004,7 @@ index 0086e9b6d..ce6248a08 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -664,6 +1005,32 @@ interface PendingPermission {
+@@ -668,6 +1009,32 @@ interface PendingPermission {
    toolCallId: string;
  }
  
@@ -13020,7 +13037,7 @@ index 0086e9b6d..ce6248a08 100644
  interface PendingUserMessage {
    text: string;
    messageId?: string;
-@@ -681,6 +1048,8 @@ interface TerminalEntry {
+@@ -685,6 +1052,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -13029,7 +13046,7 @@ index 0086e9b6d..ce6248a08 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -1065,6 +1434,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1069,6 +1438,10 @@ export class ACPAgentClient implements AgentClient {
    private readonly configFeatureOptions: ACPConfigFeatureOption[];
    private readonly clientCapabilities?: ACPClientCapabilities;
    private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -13040,7 +13057,7 @@ index 0086e9b6d..ce6248a08 100644
    private readonly modeIdTransformer?: (modeId: string) => string | null;
    private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    private readonly providerModeWriter?: (
-@@ -1080,8 +1453,20 @@ export class ACPAgentClient implements AgentClient {
+@@ -1084,8 +1457,20 @@ export class ACPAgentClient implements AgentClient {
    ) => Promise<void>;
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
@@ -13061,7 +13078,7 @@ index 0086e9b6d..ce6248a08 100644
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
  
-@@ -1104,6 +1489,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1108,6 +1493,10 @@ export class ACPAgentClient implements AgentClient {
      this.configFeatureOptions = options.configFeatureOptions ?? [];
      this.clientCapabilities = options.clientCapabilities;
      this.clientCapabilityMeta = options.clientCapabilityMeta;
@@ -13072,7 +13089,7 @@ index 0086e9b6d..ce6248a08 100644
      this.modeIdTransformer = options.modeIdTransformer;
      this.toolSnapshotTransformer = options.toolSnapshotTransformer;
      this.providerModeWriter = options.providerModeWriter;
-@@ -1111,10 +1500,20 @@ export class ACPAgentClient implements AgentClient {
+@@ -1115,10 +1504,20 @@ export class ACPAgentClient implements AgentClient {
      this.thinkingOptionWriter = options.thinkingOptionWriter;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -13093,7 +13110,7 @@ index 0086e9b6d..ce6248a08 100644
    async createSession(
      config: AgentSessionConfig,
      launchContext?: AgentLaunchContext,
-@@ -1129,14 +1528,22 @@ export class ACPAgentClient implements AgentClient {
+@@ -1133,14 +1532,22 @@ export class ACPAgentClient implements AgentClient {
          usageProvider: this.usageProvider,
          logger: this.logger,
          runtimeSettings: this.runtimeSettings,
@@ -13118,7 +13135,7 @@ index 0086e9b6d..ce6248a08 100644
          modeIdTransformer: this.modeIdTransformer,
          toolSnapshotTransformer: this.toolSnapshotTransformer,
          providerModeWriter: this.providerModeWriter,
-@@ -1153,6 +1560,8 @@ export class ACPAgentClient implements AgentClient {
+@@ -1158,6 +1565,8 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -13127,7 +13144,7 @@ index 0086e9b6d..ce6248a08 100644
        },
      );
      await session.initializeNewSession();
-@@ -1187,14 +1596,22 @@ export class ACPAgentClient implements AgentClient {
+@@ -1192,14 +1601,22 @@ export class ACPAgentClient implements AgentClient {
        usageProvider: this.usageProvider,
        logger: this.logger,
        runtimeSettings: this.runtimeSettings,
@@ -13152,7 +13169,7 @@ index 0086e9b6d..ce6248a08 100644
        modeIdTransformer: this.modeIdTransformer,
        toolSnapshotTransformer: this.toolSnapshotTransformer,
        providerModeWriter: this.providerModeWriter,
-@@ -1213,70 +1630,47 @@ export class ACPAgentClient implements AgentClient {
+@@ -1219,70 +1636,47 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -13251,7 +13268,7 @@ index 0086e9b6d..ce6248a08 100644
        const transformed = this.transformSessionResponse(response);
        const derivedModels = deriveModelDefinitionsFromACP(
          this.provider,
-@@ -1286,9 +1680,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1292,9 +1686,9 @@ export class ACPAgentClient implements AgentClient {
        const models = this.catalogModelResolver
          ? await runProviderRefreshActivity(context, "catalog.resolve", () =>
              raceProviderRefreshAbort(
@@ -13263,7 +13280,7 @@ index 0086e9b6d..ce6248a08 100644
                  sessionId: response.sessionId,
                  models: derivedModels,
                  configOptions: transformed.configOptions,
-@@ -1309,47 +1703,280 @@ export class ACPAgentClient implements AgentClient {
+@@ -1315,47 +1709,280 @@ export class ACPAgentClient implements AgentClient {
          transformed.configOptions,
        );
        return {
@@ -13574,16 +13591,16 @@ index 0086e9b6d..ce6248a08 100644
      }
    }
  
-@@ -1529,7 +2156,7 @@ export class ACPAgentClient implements AgentClient {
-       const initialize = await this.initializeTransport(
-         transport,
-         options?.initializeTimeoutMs,
--        configuredOptions.clientCapabilities,
-+        mergeACPClientCapabilities(this.clientCapabilities, configuredOptions.clientCapabilities),
+@@ -1602,7 +2229,7 @@ export class ACPAgentClient implements AgentClient {
+         this.initializeTransport(
+           spawned,
+           options?.initializeTimeoutMs,
+-          configuredOptions.clientCapabilities,
++          mergeACPClientCapabilities(this.clientCapabilities, configuredOptions.clientCapabilities),
+         ),
        );
-       const initializedProbe: SpawnedACPProcess = {
-         ...probe,
-@@ -1644,6 +2271,12 @@ export class ACPAgentClient implements AgentClient {
+       const initializedProbe: ACPProbeProcess = {
+@@ -1737,6 +2364,12 @@ export class ACPAgentClient implements AgentClient {
        async createTerminal() {
          throw new Error("ACP model probe does not support terminal execution");
        },
@@ -13596,7 +13613,7 @@ index 0086e9b6d..ce6248a08 100644
      };
    }
  
-@@ -1828,6 +2461,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1921,6 +2554,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -13616,7 +13633,7 @@ index 0086e9b6d..ce6248a08 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1847,6 +2493,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1940,6 +2586,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private readonly configuredModelIds: ReadonlySet<string>;
    private readonly clientCapabilities?: ACPClientCapabilities;
    private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -13627,7 +13644,7 @@ index 0086e9b6d..ce6248a08 100644
    private readonly modeIdTransformer?: (modeId: string) => string | null;
    private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    private readonly providerModeWriter?: (
-@@ -1867,9 +2517,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1961,9 +2611,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private readonly harnessEnvironment: Record<string, string>;
    private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
    private readonly pendingPermissions = new Map<string, PendingPermission>();
@@ -13639,7 +13656,7 @@ index 0086e9b6d..ce6248a08 100644
    private readonly terminalEntries = new Map<string, TerminalEntry>();
    private readonly persistedHistory: AgentTimelineItem[] = [];
    private readonly initialHandle?: AgentPersistenceHandle;
-@@ -1879,6 +2531,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1973,6 +2625,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private child: ChildProcessWithoutNullStreams | null = null;
    private connection: ClientSideConnection | null = null;
    private agentCapabilities: ACPAgentCapabilities | null = null;
@@ -13648,7 +13665,7 @@ index 0086e9b6d..ce6248a08 100644
    private sessionId: string | null = null;
    private readonly earlySessionUpdates: SessionNotification[] = [];
    private currentMode: string | null = null;
-@@ -1900,14 +2554,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -1994,14 +2648,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -13712,7 +13729,7 @@ index 0086e9b6d..ce6248a08 100644
    private bootstrapThreadEventPending = false;
    private readonly terminateProcess: ProcessTerminator;
  
-@@ -1926,6 +2629,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2020,6 +2723,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.configuredModelIds = new Set(options.configuredModelIds);
      this.clientCapabilities = options.clientCapabilities;
      this.clientCapabilityMeta = options.clientCapabilityMeta;
@@ -13723,7 +13740,7 @@ index 0086e9b6d..ce6248a08 100644
      this.modeIdTransformer = options.modeIdTransformer;
      this.toolSnapshotTransformer = options.toolSnapshotTransformer;
      this.providerModeWriter = options.providerModeWriter;
-@@ -1948,7 +2655,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2043,7 +2750,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -13743,7 +13760,7 @@ index 0086e9b6d..ce6248a08 100644
    }
  
    get id(): string | null {
-@@ -1971,11 +2690,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2066,11 +2785,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.child = spawned.child;
        this.connection = spawned.connection;
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
@@ -13758,7 +13775,7 @@ index 0086e9b6d..ce6248a08 100644
          }),
        );
        this.sessionId = response.sessionId;
-@@ -1985,6 +2707,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2080,6 +2802,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -13766,7 +13783,7 @@ index 0086e9b6d..ce6248a08 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -2008,19 +2731,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2103,19 +2826,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.child = spawned.child;
        this.connection = spawned.connection;
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
@@ -13791,7 +13808,7 @@ index 0086e9b6d..ce6248a08 100644
          this.deliverTranslatedEvents(this.flushPendingUserMessage());
          this.replayingHistory = false;
          this.historyPending = this.persistedHistory.length > 0;
-@@ -2031,6 +2759,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2126,6 +2854,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              sessionId: handle.sessionId,
              cwd: this.config.cwd,
              mcpServers: this.acpMcpServers(),
@@ -13799,7 +13816,7 @@ index 0086e9b6d..ce6248a08 100644
            }),
          );
          this.applySessionState(response);
-@@ -2039,6 +2768,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2134,6 +2863,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -13807,7 +13824,7 @@ index 0086e9b6d..ce6248a08 100644
  
        if (this.resumePurpose === "history") {
          await this.releaseHistoryRuntime();
-@@ -2048,6 +2778,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2143,6 +2873,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -13847,14 +13864,12 @@ index 0086e9b6d..ce6248a08 100644
    // History resumes exist to replay persisted events into the canonical
    // timeline; the provider process is released once replay finishes so
    // archived agents hold no resident runtime. Interactive work goes through
-@@ -2083,10 +2846,641 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2178,8 +2941,639 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
 -  async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
 -    const result = await runProviderTurn({
--      prompt,
--      runOptions: options,
 +  private providerHookContext(): ACPProviderHookContext | null {
 +    const sessionId = this.sessionId;
 +    if (!sessionId) {
@@ -14488,12 +14503,10 @@ index 0086e9b6d..ce6248a08 100644
 +
 +  async run(prompt: AgentPromptInput, options?: AgentRunOptions): Promise<AgentRunResult> {
 +    const result = await runProviderTurn({
-+      prompt,
-+      runOptions: options,
+       prompt,
+       runOptions: options,
        startTurn: (p, o) => this.startTurn(p, o),
-       subscribe: (callback) => this.subscribe(callback),
-       getSessionId: () => this.sessionId ?? "",
-@@ -2103,6 +3497,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2198,6 +3592,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    async startTurn(
      prompt: AgentPromptInput,
      options?: AgentRunOptions,
@@ -14514,7 +14527,7 @@ index 0086e9b6d..ce6248a08 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2113,35 +3521,169 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2208,35 +3616,169 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (this.connection.signal.aborted) {
        throw new Error(describeACPDisconnect(this.child));
      }
@@ -14692,7 +14705,7 @@ index 0086e9b6d..ce6248a08 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2152,9 +3694,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2247,9 +3789,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            turnId,
          });
        })
@@ -14703,7 +14716,7 @@ index 0086e9b6d..ce6248a08 100644
    }
  
    // The SDK aborts the connection without rejecting the pending prompt, and before the child's
-@@ -2220,7 +3760,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2315,7 +3855,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    get controls(): AgentOptionControl[] {
      return [
@@ -14712,7 +14725,7 @@ index 0086e9b6d..ce6248a08 100644
        ...deriveControlsFromACP(this.configOptions, this.configFeatureOptions),
      ];
    }
-@@ -2410,7 +3950,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2505,7 +4045,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return { model: this.currentModel };
      }
  
@@ -14735,7 +14748,7 @@ index 0086e9b6d..ce6248a08 100644
      return { model: this.currentModel };
    }
  
-@@ -2720,15 +4274,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2815,15 +4369,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    getPendingPermissions(): AgentPermissionRequest[] {
@@ -14765,7 +14778,7 @@ index 0086e9b6d..ce6248a08 100644
      const selectedOption = selectPermissionOption(pending.options, response);
      if (response.selectedActionId !== undefined && !selectedOption) {
        throw new Error(
-@@ -2737,16 +4303,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2832,16 +4398,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
  
      this.pendingPermissions.delete(requestId);
@@ -14804,7 +14817,7 @@ index 0086e9b6d..ce6248a08 100644
  
      this.pushEvent({
        type: "permission_resolved",
-@@ -2759,6 +4337,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2854,6 +4432,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -14828,7 +14841,7 @@ index 0086e9b6d..ce6248a08 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2784,28 +4379,80 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2879,28 +4474,80 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
      this.cancelPendingPermissions();
  
@@ -14916,7 +14929,7 @@ index 0086e9b6d..ce6248a08 100644
  
      this.cancelPendingPermissions();
  
-@@ -2852,11 +4499,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2947,11 +4594,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -14935,7 +14948,7 @@ index 0086e9b6d..ce6248a08 100644
      if (canAutoAccept) {
        const allowOption = selectPermissionOption(params.options, { behavior: "allow" });
        if (allowOption) {
-@@ -2900,6 +4553,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2995,6 +4648,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      return promise;
    }
  
@@ -15026,7 +15039,7 @@ index 0086e9b6d..ce6248a08 100644
    async sessionUpdate(params: SessionNotification): Promise<void> {
      this.logger.trace(
        {
-@@ -2915,10 +4652,54 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3010,10 +4747,54 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -15081,7 +15094,7 @@ index 0086e9b6d..ce6248a08 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -2935,6 +4716,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3030,6 +4811,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -15100,7 +15113,7 @@ index 0086e9b6d..ce6248a08 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -2960,6 +4753,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3055,6 +4848,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -15148,7 +15161,7 @@ index 0086e9b6d..ce6248a08 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -3051,6 +4885,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3148,6 +4982,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -15156,7 +15169,7 @@ index 0086e9b6d..ce6248a08 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3241,7 +5076,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3339,7 +5174,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        const selection = this.resolveModeSelection(configuredModeId);
        await this.setModeWithSelection({ modeId: configuredModeId, selection });
      }
@@ -15176,7 +15189,7 @@ index 0086e9b6d..ce6248a08 100644
      let switchedModel = false;
      if (configuredModelId && configuredModelId !== this.currentModel) {
        try {
-@@ -3260,8 +5106,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3358,8 +5204,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          );
        }
      }
@@ -15188,7 +15201,7 @@ index 0086e9b6d..ce6248a08 100644
      }
      const configuredFeatureValues = this.config.providerOptions ?? {};
      for (const featureOption of this.configFeatureOptions) {
-@@ -3325,11 +5172,82 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3423,11 +5270,82 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
@@ -15272,7 +15285,7 @@ index 0086e9b6d..ce6248a08 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3342,19 +5260,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3440,19 +5358,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
        case "tool_call":
          this.fallbackAssistantMessageId = null;
@@ -15313,7 +15326,7 @@ index 0086e9b6d..ce6248a08 100644
        case "plan":
          this.fallbackAssistantMessageId = null;
          return [...pendingUserEvents, this.wrapTimeline(mapPlanToTimeline(update))];
-@@ -3508,7 +5438,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3606,7 +5536,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        });
        // Copilot config updates name real modes; Hermes config values are a separate policy namespace.
        if (configMode && modes.availableModes.some((mode) => mode.id === configMode.currentValue)) {
@@ -15327,7 +15340,7 @@ index 0086e9b6d..ce6248a08 100644
        }
        modes = { ...modes, currentModeId };
      }
-@@ -3600,9 +5535,159 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3698,9 +5633,159 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -15488,7 +15501,7 @@ index 0086e9b6d..ce6248a08 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3624,10 +5709,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3722,10 +5807,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -15552,7 +15565,7 @@ index 0086e9b6d..ce6248a08 100644
    private wrapTimeline(item: AgentTimelineItem): AgentStreamEvent {
      return {
        type: "timeline",
-@@ -3638,19 +5776,166 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3736,19 +5874,166 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private pushEvent(event: AgentStreamEvent): void {
@@ -15725,7 +15738,7 @@ index 0086e9b6d..ce6248a08 100644
    }
  
    private emitSubmittedUserMessage(
-@@ -3694,22 +5979,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3792,22 +6077,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private finishTurn(
      event: Extract<AgentStreamEvent, { type: "turn_completed" | "turn_failed" | "turn_canceled" }>,
    ): void {
@@ -15755,7 +15768,7 @@ index 0086e9b6d..ce6248a08 100644
    ): void {
      for (const [requestId, pending] of this.pendingPermissions) {
        if (!matches(pending)) continue;
-@@ -3723,6 +6014,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3821,6 +6112,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          turnId: pending.turnId ?? undefined,
        });
      }
@@ -15774,7 +15787,7 @@ index 0086e9b6d..ce6248a08 100644
    }
  
    private emitBootstrapThreadEvent(): void {
-@@ -3971,7 +6274,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -4069,7 +6372,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -15795,7 +15808,7 @@ index 0086e9b6d..ce6248a08 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -3983,7 +6298,7 @@ function extractPromptText(prompt: AgentPromptInput): string {
+@@ -4081,7 +6396,7 @@ function extractPromptText(prompt: AgentPromptInput): string {
      .join("");
  }
  
@@ -15804,7 +15817,7 @@ index 0086e9b6d..ce6248a08 100644
    switch (content.type) {
      case "text":
        return content.text;
-@@ -4037,6 +6352,7 @@ function mergeToolSnapshot(
+@@ -4135,6 +6450,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -15812,7 +15825,7 @@ index 0086e9b6d..ce6248a08 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -4046,6 +6362,27 @@ function mergeToolSnapshot(
+@@ -4144,6 +6460,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -15840,7 +15853,7 @@ index 0086e9b6d..ce6248a08 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -4062,10 +6399,18 @@ function mapToolSnapshotToTimeline(
+@@ -4160,10 +6497,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -15860,7 +15873,7 @@ index 0086e9b6d..ce6248a08 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -4157,8 +6502,40 @@ function mapToolDetail(
+@@ -4255,8 +6600,40 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -15902,7 +15915,7 @@ index 0086e9b6d..ce6248a08 100644
  }
  
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-@@ -4301,13 +6678,157 @@ function extractTerminalContent(
+@@ -4399,13 +6776,157 @@ function extractTerminalContent(
    };
  }
  
@@ -16061,7 +16074,7 @@ index 0086e9b6d..ce6248a08 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -4316,11 +6837,11 @@ function mapPermissionRequest(
+@@ -4414,11 +6935,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -16075,7 +16088,7 @@ index 0086e9b6d..ce6248a08 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -4334,6 +6855,7 @@ function mapPermissionRequest(
+@@ -4432,6 +6953,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -16083,7 +16096,7 @@ index 0086e9b6d..ce6248a08 100644
      },
    };
  }
-@@ -4362,6 +6884,65 @@ function selectPermissionOption(
+@@ -4460,6 +6982,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -16149,7 +16162,7 @@ index 0086e9b6d..ce6248a08 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4378,19 +6959,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4476,19 +7057,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
  
  function appendTerminalOutput(entry: TerminalEntry, chunk: string): void {
    entry.output += chunk;
@@ -16180,7 +16193,7 @@ index 0086e9b6d..ce6248a08 100644
    entry.truncated = true;
  }
  
-@@ -4411,10 +6995,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -4509,10 +7093,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -16208,7 +16221,7 @@ index 0086e9b6d..ce6248a08 100644
    for (const key of keys) {
      const value = record[key];
      if (typeof value === "number" && Number.isFinite(value)) {
-@@ -4482,3 +7082,284 @@ async function terminateChildProcess(
+@@ -4584,3 +7184,284 @@ async function terminateChildProcess(
      child.stderr.destroy();
    }
  }
@@ -16495,7 +16508,7 @@ index 0086e9b6d..ce6248a08 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 new file mode 100644
-index 000000000..c93178b3c
+index 0000000..c93178b
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.test.ts
 @@ -0,0 +1,347 @@
@@ -16848,7 +16861,7 @@ index 000000000..c93178b3c
 +});
 diff --git a/packages/server/src/server/agent/providers/antigravity-acp-agent.ts b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 new file mode 100644
-index 000000000..8e3d0c7ac
+index 0000000..8e3d0c7
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity-acp-agent.ts
 @@ -0,0 +1,376 @@
@@ -17230,7 +17243,7 @@ index 000000000..8e3d0c7ac
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 new file mode 100644
-index 000000000..36af7a68d
+index 0000000..36af7a6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.test.ts
 @@ -0,0 +1,2158 @@
@@ -19394,7 +19407,7 @@ index 000000000..36af7a68d
 +});
 diff --git a/packages/server/src/server/agent/providers/antigravity/native-bridge.ts b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 new file mode 100644
-index 000000000..e47139578
+index 0000000..e471395
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/native-bridge.ts
 @@ -0,0 +1,2205 @@
@@ -21605,7 +21618,7 @@ index 000000000..e47139578
 +}
 diff --git a/packages/server/src/server/agent/providers/antigravity/transcript-log.ts b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 new file mode 100644
-index 000000000..a4718a997
+index 0000000..a4718a9
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/antigravity/transcript-log.ts
 @@ -0,0 +1,801 @@
@@ -22411,10 +22424,10 @@ index 000000000..a4718a997
 +  }
 +}
 diff --git a/packages/server/src/server/agent/providers/claude/agent.test.ts b/packages/server/src/server/agent/providers/claude/agent.test.ts
-index e5873e14e..519c73648 100644
+index dfa763f..1bb14c5 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.test.ts
-@@ -4594,6 +4594,634 @@ describe("ClaudeAgentSession context window usage", () => {
+@@ -4741,6 +4741,634 @@ describe("ClaudeAgentSession context window usage", () => {
    });
  });
  
@@ -23050,7 +23063,7 @@ index e5873e14e..519c73648 100644
    test("preserves alwaysLoad on stdio servers", () => {
      expect(
 diff --git a/packages/server/src/server/agent/providers/claude/agent.ts b/packages/server/src/server/agent/providers/claude/agent.ts
-index ffc0ac9fe..f2f9296a9 100644
+index f5e31fc..3755e3c 100644
 --- a/packages/server/src/server/agent/providers/claude/agent.ts
 +++ b/packages/server/src/server/agent/providers/claude/agent.ts
 @@ -43,9 +43,12 @@ import {
@@ -23066,7 +23079,7 @@ index ffc0ac9fe..f2f9296a9 100644
    resolveConfiguredClaudeModel,
  } from "./models.js";
  import {
-@@ -140,6 +143,7 @@ import {
+@@ -147,6 +150,7 @@ import {
    type AgentSession,
    type AgentSessionConfig,
    type AgentSlashCommand,
@@ -23074,7 +23087,7 @@ index ffc0ac9fe..f2f9296a9 100644
    type SteerActiveTurnOptions,
    type SteerResult,
    type AgentStreamEvent,
-@@ -2471,6 +2475,31 @@ class ClaudeAgentSession implements AgentSession {
+@@ -2491,6 +2495,31 @@ class ClaudeAgentSession implements AgentSession {
    /** Human steers whose text has not reached Claude yet and therefore supersede blocking cards. */
    private readonly permissionClearingSteerUuids = new Set<string>();
    private claudeSessionId: string | null;
@@ -23106,8 +23119,8 @@ index ffc0ac9fe..f2f9296a9 100644
    private persistence: AgentPersistenceHandle | null;
    private currentMode: PermissionMode;
    private planResumeMode: PermissionMode | null = null;
-@@ -2591,7 +2620,7 @@ class ClaudeAgentSession implements AgentSession {
-     this.independentUltracode = options.independentUltracode;
+@@ -2613,7 +2642,7 @@ class ClaudeAgentSession implements AgentSession {
+     this.resolveMcpServersDelivery = options.resolveMcpServersDelivery;
      this.rewindSdk = options.rewindSdk ?? realClaudeRewindSdk;
      this.contextUsage = new ClaudeContextUsageState(
 -      getClaudeContextWindowMaxTokens(this.config.model),
@@ -23115,7 +23128,7 @@ index ffc0ac9fe..f2f9296a9 100644
      );
      const handle = options.handle;
  
-@@ -3000,7 +3029,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -3021,7 +3050,7 @@ class ClaudeAgentSession implements AgentSession {
        this.cachedRuntimeInfo = null;
      }
      this.contextUsage.setInitialContextWindowMaxTokens(
@@ -23124,7 +23137,7 @@ index ffc0ac9fe..f2f9296a9 100644
      );
      this.lastOptionsModel = normalizedModelId ?? this.lastOptionsModel;
      this.lastRuntimeModel = null;
-@@ -3987,6 +4016,24 @@ class ClaudeAgentSession implements AgentSession {
+@@ -4014,6 +4043,24 @@ class ClaudeAgentSession implements AgentSession {
      };
    }
  
@@ -23149,7 +23162,7 @@ index ffc0ac9fe..f2f9296a9 100644
    private buildSdkEnv() {
      return createProviderEnv({
        baseEnv: process.env,
-@@ -5000,6 +5047,12 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5038,6 +5085,12 @@ class ClaudeAgentSession implements AgentSession {
  
      this.forgetStartedMessage(message);
  
@@ -23162,7 +23175,7 @@ index ffc0ac9fe..f2f9296a9 100644
      switch (message.type) {
        case "system":
          this.appendSystemMessageEvents(message, events);
-@@ -5017,6 +5070,7 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5055,6 +5108,7 @@ class ClaudeAgentSession implements AgentSession {
            events.push({ type: "timeline", item, provider: "claude" });
          }
          this.appendSidechainResultEvents(message, events);
@@ -23170,7 +23183,7 @@ index ffc0ac9fe..f2f9296a9 100644
          break;
        }
        case "stream_event":
-@@ -5043,6 +5097,200 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5081,6 +5135,200 @@ class ClaudeAgentSession implements AgentSession {
      this.permissionClearingSteerUuids.delete(lifecycle.commandUuid);
    }
  
@@ -23371,7 +23384,7 @@ index ffc0ac9fe..f2f9296a9 100644
    private appendTaskStateEvent(message: SDKMessage, events: AgentStreamEvent[]): void {
      const item = this.taskState.observe(message);
      if (item) events.push({ type: "timeline", provider: "claude", item });
-@@ -5384,12 +5632,9 @@ class ClaudeAgentSession implements AgentSession {
+@@ -5422,12 +5670,9 @@ class ClaudeAgentSession implements AgentSession {
      );
      this.appendTurnOutcomeEvents(message, metrics.turn, events);
      if (metrics.session?.length) {
@@ -23386,7 +23399,7 @@ index ffc0ac9fe..f2f9296a9 100644
    }
  
    private appendTurnOutcomeEvents(
-@@ -6855,6 +7100,146 @@ function readClaudeReplayTaskDeclaration(
+@@ -6912,6 +7157,146 @@ function readClaudeReplayTaskDeclaration(
    };
  }
  
@@ -23534,7 +23547,7 @@ index ffc0ac9fe..f2f9296a9 100644
    return /agentId:\s*([\w-]+)/.exec(JSON.stringify(content))?.[1];
  }
 diff --git a/packages/server/src/server/agent/providers/claude/models.test.ts b/packages/server/src/server/agent/providers/claude/models.test.ts
-index d67a01548..640eb8cf5 100644
+index d67a015..640eb8c 100644
 --- a/packages/server/src/server/agent/providers/claude/models.test.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.test.ts
 @@ -20,6 +20,8 @@ import {
@@ -23624,7 +23637,7 @@ index d67a01548..640eb8cf5 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/claude/models.ts b/packages/server/src/server/agent/providers/claude/models.ts
-index 80f5a38e6..3f0ebee71 100644
+index 80f5a38..3f0ebee 100644
 --- a/packages/server/src/server/agent/providers/claude/models.ts
 +++ b/packages/server/src/server/agent/providers/claude/models.ts
 @@ -1,3 +1,4 @@
@@ -23710,7 +23723,7 @@ index 80f5a38e6..3f0ebee71 100644
    configDir: string,
 diff --git a/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts b/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts
 new file mode 100644
-index 000000000..4ab51c2cb
+index 0000000..4ab51c2
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/goal-projection.test.ts
 @@ -0,0 +1,303 @@
@@ -24019,7 +24032,7 @@ index 000000000..4ab51c2cb
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/goal-projection.ts b/packages/server/src/server/agent/providers/dsh/goal-projection.ts
 new file mode 100644
-index 000000000..32445f680
+index 0000000..32445f6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/goal-projection.ts
 @@ -0,0 +1,220 @@
@@ -24245,7 +24258,7 @@ index 000000000..32445f680
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
 new file mode 100644
-index 000000000..7bfc0bb24
+index 0000000..7bfc0bb
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.test.ts
 @@ -0,0 +1,255 @@
@@ -24506,7 +24519,7 @@ index 000000000..7bfc0bb24
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/native-bridge.ts b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
 new file mode 100644
-index 000000000..4e2df199f
+index 0000000..4e2df19
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/native-bridge.ts
 @@ -0,0 +1,246 @@
@@ -24758,7 +24771,7 @@ index 000000000..4e2df199f
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
 new file mode 100644
-index 000000000..30d9abd37
+index 0000000..30d9abd
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.test.ts
 @@ -0,0 +1,169 @@
@@ -24933,7 +24946,7 @@ index 000000000..30d9abd37
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/provider-hooks.ts b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
 new file mode 100644
-index 000000000..4c30e73fe
+index 0000000..4c30e73
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/provider-hooks.ts
 @@ -0,0 +1,183 @@
@@ -25122,7 +25135,7 @@ index 000000000..4c30e73fe
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/session-store.test.ts b/packages/server/src/server/agent/providers/dsh/session-store.test.ts
 new file mode 100644
-index 000000000..88732e614
+index 0000000..88732e6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/session-store.test.ts
 @@ -0,0 +1,227 @@
@@ -25355,7 +25368,7 @@ index 000000000..88732e614
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/session-store.ts b/packages/server/src/server/agent/providers/dsh/session-store.ts
 new file mode 100644
-index 000000000..43ed8fb34
+index 0000000..43ed8fb
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/session-store.ts
 @@ -0,0 +1,371 @@
@@ -25732,7 +25745,7 @@ index 000000000..43ed8fb34
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/subagents.test.ts b/packages/server/src/server/agent/providers/dsh/subagents.test.ts
 new file mode 100644
-index 000000000..bafafdb04
+index 0000000..bafafdb
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/subagents.test.ts
 @@ -0,0 +1,256 @@
@@ -25994,7 +26007,7 @@ index 000000000..bafafdb04
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/subagents.ts b/packages/server/src/server/agent/providers/dsh/subagents.ts
 new file mode 100644
-index 000000000..50baf0282
+index 0000000..50baf02
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/subagents.ts
 @@ -0,0 +1,300 @@
@@ -26300,7 +26313,7 @@ index 000000000..50baf0282
 +}
 diff --git a/packages/server/src/server/agent/providers/dsh/trajectory.test.ts b/packages/server/src/server/agent/providers/dsh/trajectory.test.ts
 new file mode 100644
-index 000000000..ead712fe6
+index 0000000..ead712f
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/trajectory.test.ts
 @@ -0,0 +1,130 @@
@@ -26436,7 +26449,7 @@ index 000000000..ead712fe6
 +});
 diff --git a/packages/server/src/server/agent/providers/dsh/trajectory.ts b/packages/server/src/server/agent/providers/dsh/trajectory.ts
 new file mode 100644
-index 000000000..ba9ed9020
+index 0000000..ba9ed90
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/dsh/trajectory.ts
 @@ -0,0 +1,294 @@
@@ -26735,7 +26748,7 @@ index 000000000..ba9ed9020
 +  return typeof value === "number" && Number.isFinite(value) ? value : null;
 +}
 diff --git a/packages/server/src/server/agent/providers/generic-acp-agent.ts b/packages/server/src/server/agent/providers/generic-acp-agent.ts
-index 37db4d02d..1edde6438 100644
+index 37db4d0..1edde64 100644
 --- a/packages/server/src/server/agent/providers/generic-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/generic-acp-agent.ts
 @@ -1,5 +1,6 @@
@@ -26810,7 +26823,7 @@ index 37db4d02d..1edde6438 100644
  
      this.command = options.command;
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
-index b388fdb01..89de568b4 100644
+index b388fdb..89de568 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.test.ts
 @@ -1,9 +1,18 @@
@@ -27078,7 +27091,7 @@ index b388fdb01..89de568b4 100644
 +  });
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi-acp-agent.ts b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
-index 7ae144f65..03c94e383 100644
+index 7ae144f..03c94e3 100644
 --- a/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/kimi-acp-agent.ts
 @@ -1,13 +1,25 @@
@@ -27367,7 +27380,7 @@ index 7ae144f65..03c94e383 100644
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 new file mode 100644
-index 000000000..6fd558122
+index 0000000..6fd5581
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.test.ts
 @@ -0,0 +1,448 @@
@@ -27821,7 +27834,7 @@ index 000000000..6fd558122
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 new file mode 100644
-index 000000000..40b8a27b4
+index 0000000..40b8a27
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/main-turn-renderer.ts
 @@ -0,0 +1,543 @@
@@ -28370,7 +28383,7 @@ index 000000000..40b8a27b4
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/native-bridge.ts b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 new file mode 100644
-index 000000000..dd69669b8
+index 0000000..dd69669
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/native-bridge.ts
 @@ -0,0 +1,302 @@
@@ -28678,7 +28691,7 @@ index 000000000..dd69669b8
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.test.ts b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 new file mode 100644
-index 000000000..38af58b0b
+index 0000000..38af58b
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.test.ts
 @@ -0,0 +1,2113 @@
@@ -30797,7 +30810,7 @@ index 000000000..38af58b0b
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/session-log.ts b/packages/server/src/server/agent/providers/kimi/session-log.ts
 new file mode 100644
-index 000000000..d771115c2
+index 0000000..d771115
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/session-log.ts
 @@ -0,0 +1,2142 @@
@@ -32945,7 +32958,7 @@ index 000000000..d771115c2
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 new file mode 100644
-index 000000000..38364a3a5
+index 0000000..38364a3
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.test.ts
 @@ -0,0 +1,449 @@
@@ -33400,7 +33413,7 @@ index 000000000..38364a3a5
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-log.ts b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 new file mode 100644
-index 000000000..936b1b445
+index 0000000..936b1b4
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-log.ts
 @@ -0,0 +1,340 @@
@@ -33746,7 +33759,7 @@ index 000000000..936b1b445
 +}
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
 new file mode 100644
-index 000000000..bb16a2b83
+index 0000000..bb16a2b
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.test.ts
 @@ -0,0 +1,62 @@
@@ -33814,7 +33827,7 @@ index 000000000..bb16a2b83
 +});
 diff --git a/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
 new file mode 100644
-index 000000000..99488f6d8
+index 0000000..99488f6
 --- /dev/null
 +++ b/packages/server/src/server/agent/providers/kimi/subagent-presentation.ts
 @@ -0,0 +1,45 @@
@@ -33864,7 +33877,7 @@ index 000000000..99488f6d8
 +  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/authorization/operation-permissions.ts b/packages/server/src/server/authorization/operation-permissions.ts
-index a0247cc8b..a0386f40b 100644
+index d679c55..25636c8 100644
 --- a/packages/server/src/server/authorization/operation-permissions.ts
 +++ b/packages/server/src/server/authorization/operation-permissions.ts
 @@ -19,6 +19,7 @@ const INBOUND_PERMISSION = {
@@ -33875,7 +33888,7 @@ index a0247cc8b..a0386f40b 100644
    "agent.provider_subagents.list.request": "workspace.read",
    "agent.background_work.list.request": "workspace.read",
    "agent.background_work.stop.request": ["workspace.write", "hub.execute"],
-@@ -264,6 +265,7 @@ const OUTBOUND_PERMISSION = {
+@@ -265,6 +266,7 @@ const OUTBOUND_PERMISSION = {
    "agent.config.apply.response": ["workspace.write", "hub.execute"],
    "agent.detach.response": "workspace.write",
    "agent.fork_context.response": "workspace.read",
@@ -33884,7 +33897,7 @@ index a0247cc8b..a0386f40b 100644
    "agent.provider_subagents.timeline.get.response": "workspace.read",
    "agent.provider_subagents.update": "workspace.read",
 diff --git a/packages/server/src/server/plugins/builtin/index.ts b/packages/server/src/server/plugins/builtin/index.ts
-index 9ffb4cadb..0633079f7 100644
+index 8abf038..714a072 100644
 --- a/packages/server/src/server/plugins/builtin/index.ts
 +++ b/packages/server/src/server/plugins/builtin/index.ts
 @@ -3,7 +3,7 @@ import path from "node:path";
@@ -33897,7 +33910,7 @@ index 9ffb4cadb..0633079f7 100644
    "codex-usage-source",
    "copilot-usage-source",
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 49dc6a5e4..49feb9952 100644
+index 2c44bf7..489f188 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -28,7 +28,7 @@ import type {
@@ -33919,7 +33932,7 @@ index 49dc6a5e4..49feb9952 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/push/index.test.ts b/packages/server/src/server/push/index.test.ts
-index 1cd4c1baa..9fb3bccac 100644
+index 1cd4c1b..9fb3bcc 100644
 --- a/packages/server/src/server/push/index.test.ts
 +++ b/packages/server/src/server/push/index.test.ts
 @@ -64,4 +64,29 @@ describe("push notifications", () => {
@@ -33953,7 +33966,7 @@ index 1cd4c1baa..9fb3bccac 100644
 +  });
  });
 diff --git a/packages/server/src/server/push/index.ts b/packages/server/src/server/push/index.ts
-index 3f1a8e090..3e9f9ffb2 100644
+index 3f1a8e0..3e9f9ff 100644
 --- a/packages/server/src/server/push/index.ts
 +++ b/packages/server/src/server/push/index.ts
 @@ -10,10 +10,12 @@ const PUSH_TOKEN_LEASE_MS = 48 * 60 * 60 * 1000;
@@ -33981,7 +33994,7 @@ index 3f1a8e090..3e9f9ffb2 100644
        const tokens = store.getActiveTokens();
        options.logger.info({ tokenCount: tokens.length }, "Sending push notification");
 diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
-index c6812e334..4db7f14e4 100644
+index ef6ca45..167c42b 100644
 --- a/packages/server/src/server/session.ts
 +++ b/packages/server/src/server/session.ts
 @@ -21,6 +21,19 @@ import type {
@@ -34004,7 +34017,7 @@ index c6812e334..4db7f14e4 100644
  import type {
    AgentActiveTurnBehavior,
    CreationSnapshot,
-@@ -3221,6 +3234,8 @@ export class Session {
+@@ -3256,6 +3269,8 @@ export class Session {
          return this.handleAgentTimelineSearchRequest(msg, source);
        case "agent.timeline.list_prompts.request":
          return this.handleAgentTimelineListPromptsRequest(msg, source);
@@ -34013,7 +34026,7 @@ index c6812e334..4db7f14e4 100644
        case "agent.provider_subagents.list.request":
          return this.handleProviderSubagentListRequest(msg);
        case "agent.background_work.list.request":
-@@ -8847,6 +8862,54 @@ export class Session {
+@@ -8943,6 +8958,54 @@ export class Session {
      }
    }
  
@@ -34069,7 +34082,7 @@ index c6812e334..4db7f14e4 100644
      msg: Extract<SessionInboundMessage, { type: "agent.provider_subagents.list.request" }>,
    ): Promise<void> {
 diff --git a/packages/server/src/server/speech/providers/local/worker-client.ts b/packages/server/src/server/speech/providers/local/worker-client.ts
-index 1f0fa96b9..7136338b7 100644
+index 1f0fa96..7136338 100644
 --- a/packages/server/src/server/speech/providers/local/worker-client.ts
 +++ b/packages/server/src/server/speech/providers/local/worker-client.ts
 @@ -1,4 +1,4 @@
@@ -34088,7 +34101,7 @@ index 1f0fa96b9..7136338b7 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/server/websocket-server.notifications.test.ts b/packages/server/src/server/websocket-server.notifications.test.ts
-index 6cd3a8a12..3e4e93c3e 100644
+index 6cd3a8a..3e4e93c 100644
 --- a/packages/server/src/server/websocket-server.notifications.test.ts
 +++ b/packages/server/src/server/websocket-server.notifications.test.ts
 @@ -77,6 +77,11 @@ function createWorkspaceAutoNameStub(): WorkspaceAutoName {
@@ -34127,10 +34140,10 @@ index 6cd3a8a12..3e4e93c3e 100644
 +  });
  });
 diff --git a/packages/server/src/server/websocket-server.ts b/packages/server/src/server/websocket-server.ts
-index 75de0205e..4250f006e 100644
+index dca1300..9758605 100644
 --- a/packages/server/src/server/websocket-server.ts
 +++ b/packages/server/src/server/websocket-server.ts
-@@ -2995,6 +2995,7 @@ export class VoiceAssistantWebSocketServer {
+@@ -3015,6 +3015,7 @@ export class VoiceAssistantWebSocketServer {
        permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
      });
  
@@ -34138,7 +34151,7 @@ index 75de0205e..4250f006e 100644
      const plan = this.planOncePerUnreadFinish(
        params,
        computeNotificationPlan({
-@@ -3002,6 +3003,7 @@ export class VoiceAssistantWebSocketServer {
+@@ -3022,6 +3023,7 @@ export class VoiceAssistantWebSocketServer {
          focusTarget: { kind: "agent", id: params.agentId },
          pushEligible: isPushEligibleAttentionReason(params.reason),
          nowMs,
@@ -34146,7 +34159,7 @@ index 75de0205e..4250f006e 100644
        }),
      );
  
-@@ -3012,9 +3014,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -3032,9 +3034,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
@@ -34160,7 +34173,7 @@ index 75de0205e..4250f006e 100644
        const timestamp = new Date().toISOString();
        const connection = this.sessions.get(ws);
        const attentionPayload = {
-@@ -3066,9 +3069,9 @@ export class VoiceAssistantWebSocketServer {
+@@ -3086,9 +3089,9 @@ export class VoiceAssistantWebSocketServer {
      }
      const unreadFinishAt = params.attentionTimestamp.getTime();
      if (this.notifiedUnreadFinishAt.get(params.agentId) === unreadFinishAt) {
@@ -34172,7 +34185,7 @@ index 75de0205e..4250f006e 100644
        this.notifiedUnreadFinishAt.set(params.agentId, unreadFinishAt);
      }
      return plan;
-@@ -3113,11 +3116,13 @@ export class VoiceAssistantWebSocketServer {
+@@ -3133,11 +3136,13 @@ export class VoiceAssistantWebSocketServer {
      const nowMs = Date.now();
      const workspaceId = params.workspaceId;
  
@@ -34186,7 +34199,7 @@ index 75de0205e..4250f006e 100644
      });
  
      const title = terminalAttentionTitle(params.reason);
-@@ -3144,9 +3149,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -3164,9 +3169,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
@@ -34201,16 +34214,16 @@ index 75de0205e..4250f006e 100644
          type: "terminal_attention_required",
          payload: {
 diff --git a/packages/server/src/utils/spawn.ts b/packages/server/src/utils/spawn.ts
-index b26104c63..5efa1df0b 100644
+index c615102..9c62901 100644
 --- a/packages/server/src/utils/spawn.ts
 +++ b/packages/server/src/utils/spawn.ts
 @@ -1,4 +1,4 @@
--import type { ChildProcess, SpawnOptions } from "node:child_process";
-+import { fork, type ChildProcess, type ForkOptions, type SpawnOptions } from "node:child_process";
- import { spawnProcess as spawnCli, execCommand as execCli } from "@getpaseo/plugin/server";
- import { createExternalCommandProcessEnv, type ProcessEnvRecord } from "../server/paseo-env.js";
- 
-@@ -49,6 +49,19 @@ export function spawnProcess(
+-import type { ChildProcess } from "node:child_process";
++import { fork, type ChildProcess, type ForkOptions } from "node:child_process";
+ import {
+   spawnProcess as spawnCli,
+   execCommand as execCli,
+@@ -59,6 +59,19 @@ export function spawnProcess(
    });
  }
  
@@ -34232,7 +34245,7 @@ index b26104c63..5efa1df0b 100644
    args: string[],
 diff --git a/plugins/antigravity-usage-source/icon.svg b/plugins/antigravity-usage-source/icon.svg
 new file mode 100644
-index 000000000..0576d92a8
+index 0000000..0576d92
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/icon.svg
 @@ -0,0 +1,3 @@
@@ -34241,7 +34254,7 @@ index 000000000..0576d92a8
 +</svg>
 diff --git a/plugins/antigravity-usage-source/index.server.ts b/plugins/antigravity-usage-source/index.server.ts
 new file mode 100644
-index 000000000..3ebe5f0df
+index 0000000..3ebe5f0
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/index.server.ts
 @@ -0,0 +1,15 @@
@@ -34262,14 +34275,14 @@ index 000000000..3ebe5f0df
 +}
 diff --git a/plugins/antigravity-usage-source/paseo-plugin.json b/plugins/antigravity-usage-source/paseo-plugin.json
 new file mode 100644
-index 000000000..33cc7f39c
+index 0000000..33cc7f3
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/paseo-plugin.json
 @@ -0,0 +1 @@
 +{ "id": "antigravity-usage-source", "requirements": { "paseo": ">=0.11.0" } }
 diff --git a/plugins/antigravity-usage-source/server/usage.test.ts b/plugins/antigravity-usage-source/server/usage.test.ts
 new file mode 100644
-index 000000000..a0e4ea43f
+index 0000000..a0e4ea4
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.test.ts
 @@ -0,0 +1,649 @@
@@ -34924,7 +34937,7 @@ index 000000000..a0e4ea43f
 +});
 diff --git a/plugins/antigravity-usage-source/server/usage.ts b/plugins/antigravity-usage-source/server/usage.ts
 new file mode 100644
-index 000000000..161fc64f0
+index 0000000..161fc64
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/server/usage.ts
 @@ -0,0 +1,737 @@
@@ -35667,7 +35680,7 @@ index 000000000..161fc64f0
 +}
 diff --git a/plugins/antigravity-usage-source/shared/input.ts b/plugins/antigravity-usage-source/shared/input.ts
 new file mode 100644
-index 000000000..b25318ead
+index 0000000..b25318e
 --- /dev/null
 +++ b/plugins/antigravity-usage-source/shared/input.ts
 @@ -0,0 +1,28 @@

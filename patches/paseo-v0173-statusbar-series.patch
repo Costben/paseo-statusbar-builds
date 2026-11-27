@@ -1,5 +1,5 @@
 diff --git a/packages/app/app.config.js b/packages/app/app.config.js
-index 713f34371..009107b23 100644
+index 713f343..009107b 100644
 --- a/packages/app/app.config.js
 +++ b/packages/app/app.config.js
 @@ -1,11 +1,15 @@
@@ -41,7 +41,7 @@ index 713f34371..009107b23 100644
        withAndroidOptionalCamera,
 diff --git a/packages/app/plugins/android-process-guard/ProcessGuard.kt b/packages/app/plugins/android-process-guard/ProcessGuard.kt
 new file mode 100644
-index 000000000..8ff2fad1b
+index 0000000..8ff2fad
 --- /dev/null
 +++ b/packages/app/plugins/android-process-guard/ProcessGuard.kt
 @@ -0,0 +1,194 @@
@@ -241,7 +241,7 @@ index 000000000..8ff2fad1b
 +}
 diff --git a/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt b/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt
 new file mode 100644
-index 000000000..35d742bf5
+index 0000000..35d742b
 --- /dev/null
 +++ b/packages/app/plugins/android-process-guard/ProcessGuardProvider.kt
 @@ -0,0 +1,41 @@
@@ -288,7 +288,7 @@ index 000000000..35d742bf5
 +}
 diff --git a/packages/app/plugins/with-android-multidisplay-manifest.js b/packages/app/plugins/with-android-multidisplay-manifest.js
 new file mode 100644
-index 000000000..bcb0943dd
+index 0000000..bcb0943
 --- /dev/null
 +++ b/packages/app/plugins/with-android-multidisplay-manifest.js
 @@ -0,0 +1,24 @@
@@ -318,7 +318,7 @@ index 000000000..bcb0943dd
 +module.exports = withAndroidMultidisplayManifest;
 diff --git a/packages/app/plugins/with-android-process-guard.js b/packages/app/plugins/with-android-process-guard.js
 new file mode 100644
-index 000000000..b55b4a78b
+index 0000000..b55b4a7
 --- /dev/null
 +++ b/packages/app/plugins/with-android-process-guard.js
 @@ -0,0 +1,68 @@
@@ -392,7 +392,7 @@ index 000000000..b55b4a78b
 +module.exports = withAndroidProcessGuard;
 diff --git a/packages/app/plugins/with-android-rotation-delay.js b/packages/app/plugins/with-android-rotation-delay.js
 new file mode 100644
-index 000000000..b86ccbc51
+index 0000000..b86ccbc
 --- /dev/null
 +++ b/packages/app/plugins/with-android-rotation-delay.js
 @@ -0,0 +1,242 @@
@@ -639,7 +639,7 @@ index 000000000..b86ccbc51
 +module.exports = withAndroidRotationDelay;
 +module.exports.configureMainActivity = configureMainActivity;
 diff --git a/packages/app/src/agent-controls/labels.test.ts b/packages/app/src/agent-controls/labels.test.ts
-index 731046489..0cd5e6040 100644
+index 7310464..0cd5e60 100644
 --- a/packages/app/src/agent-controls/labels.test.ts
 +++ b/packages/app/src/agent-controls/labels.test.ts
 @@ -40,4 +40,16 @@ describe("formatThinkingOptionLabel", () => {
@@ -660,7 +660,7 @@ index 731046489..0cd5e6040 100644
 +  });
  });
 diff --git a/packages/app/src/agent-controls/labels.ts b/packages/app/src/agent-controls/labels.ts
-index 704298f78..dd1da9eeb 100644
+index 704298f..dd1da9e 100644
 --- a/packages/app/src/agent-controls/labels.ts
 +++ b/packages/app/src/agent-controls/labels.ts
 @@ -32,13 +32,21 @@ export function formatAgentModeLabel(mode: ControlLabelInput): string {
@@ -690,7 +690,7 @@ index 704298f78..dd1da9eeb 100644
  }
 diff --git a/packages/app/src/android/rotation-delay.ts b/packages/app/src/android/rotation-delay.ts
 new file mode 100644
-index 000000000..ed1765b7c
+index 0000000..ed1765b
 --- /dev/null
 +++ b/packages/app/src/android/rotation-delay.ts
 @@ -0,0 +1,32 @@
@@ -727,7 +727,7 @@ index 000000000..ed1765b7c
 +  }
 +}
 diff --git a/packages/app/src/app/_layout.tsx b/packages/app/src/app/_layout.tsx
-index bc4b84c4b..bdf89d021 100644
+index 4a4ebc9..6c2bcd5 100644
 --- a/packages/app/src/app/_layout.tsx
 +++ b/packages/app/src/app/_layout.tsx
 @@ -31,6 +31,7 @@ import {
@@ -738,7 +738,7 @@ index bc4b84c4b..bdf89d021 100644
  import { GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
  import { KeyboardProvider } from "react-native-keyboard-controller";
  import { StyleSheet, useUnistyles } from "react-native-unistyles";
-@@ -1025,6 +1026,7 @@ function RootProviders({ children }: { children: ReactNode }) {
+@@ -1027,6 +1028,7 @@ function RootProviders({ children }: { children: ReactNode }) {
  function RootAppTree() {
    return (
      <GestureHandlerRootView style={flexStyle}>
@@ -747,7 +747,7 @@ index bc4b84c4b..bdf89d021 100644
          <LucideProvider strokeWidth={ICON_STROKE_WIDTH}>
            <AddHostProvider>
 diff --git a/packages/app/src/components/markdown/renderer.test.ts b/packages/app/src/components/markdown/renderer.test.ts
-index af6daab5e..656563053 100644
+index af6daab..6565630 100644
 --- a/packages/app/src/components/markdown/renderer.test.ts
 +++ b/packages/app/src/components/markdown/renderer.test.ts
 @@ -599,6 +599,44 @@ describe("bare URL sentence punctuation", () => {
@@ -796,7 +796,7 @@ index af6daab5e..656563053 100644
    const source = "`src/app/[id].tsx` and `src/a+b.ts` and `README.md` and `/tmp/file.ts`";
    const withoutWorkspace = prepareMarkdownSource(source).linkRecognition.inlineCode;
 diff --git a/packages/app/src/components/markdown/source.ts b/packages/app/src/components/markdown/source.ts
-index a71534162..a02adc4de 100644
+index a715341..a02adc4 100644
 --- a/packages/app/src/components/markdown/source.ts
 +++ b/packages/app/src/components/markdown/source.ts
 @@ -25,6 +25,36 @@ const FILE_NAME = String.raw`${PATH_SEGMENT}\.(?:${FILE_EXTENSIONS})`;
@@ -884,10 +884,10 @@ index a71534162..a02adc4de 100644
    visit(getTree());
    return {
 diff --git a/packages/app/src/composer/agent-controls/model-sheet.tsx b/packages/app/src/composer/agent-controls/model-sheet.tsx
-index cf95e9d9c..6a61c31f2 100644
+index 8d00ca9..ab97c4d 100644
 --- a/packages/app/src/composer/agent-controls/model-sheet.tsx
 +++ b/packages/app/src/composer/agent-controls/model-sheet.tsx
-@@ -628,7 +628,8 @@ const styles = StyleSheet.create((theme) => ({
+@@ -639,7 +639,8 @@ const styles = StyleSheet.create((theme) => ({
      flexShrink: 0,
    },
    triggerThinking: {
@@ -899,7 +899,7 @@ index cf95e9d9c..6a61c31f2 100644
      fontWeight: theme.fontWeight.normal,
 diff --git a/packages/app/src/composer/background-task-pill.tsx b/packages/app/src/composer/background-task-pill.tsx
 new file mode 100644
-index 000000000..612c2a3e4
+index 0000000..612c2a3
 --- /dev/null
 +++ b/packages/app/src/composer/background-task-pill.tsx
 @@ -0,0 +1,175 @@
@@ -1079,7 +1079,7 @@ index 000000000..612c2a3e4
 +  );
 +}
 diff --git a/packages/app/src/composer/dock/index.native.tsx b/packages/app/src/composer/dock/index.native.tsx
-index ab26fe561..1990684c2 100644
+index ab26fe5..1990684 100644
 --- a/packages/app/src/composer/dock/index.native.tsx
 +++ b/packages/app/src/composer/dock/index.native.tsx
 @@ -7,7 +7,7 @@ import { useIsCompactFormFactor } from "@/constants/layout";
@@ -1200,7 +1200,7 @@ index ab26fe561..1990684c2 100644
        </KeyboardTranslateView>
        {overlay}
 diff --git a/packages/app/src/composer/dock/index.tsx b/packages/app/src/composer/dock/index.tsx
-index 0456cd628..c1b645b47 100644
+index 0456cd6..c1b645b 100644
 --- a/packages/app/src/composer/dock/index.tsx
 +++ b/packages/app/src/composer/dock/index.tsx
 @@ -5,6 +5,7 @@ import { useState, useCallback, useMemo, useRef, type ReactNode } from "react";
@@ -1257,7 +1257,7 @@ index 0456cd628..c1b645b47 100644
        {overlay}
      </View>
 diff --git a/packages/app/src/composer/dock/internal/capacity.test.ts b/packages/app/src/composer/dock/internal/capacity.test.ts
-index 973c7f240..4685458ea 100644
+index 973c7f2..4685458 100644
 --- a/packages/app/src/composer/dock/internal/capacity.test.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.test.ts
 @@ -223,3 +223,43 @@ describe("composer viewport", () => {
@@ -1305,7 +1305,7 @@ index 973c7f240..4685458ea 100644
 +  });
 +});
 diff --git a/packages/app/src/composer/dock/internal/capacity.ts b/packages/app/src/composer/dock/internal/capacity.ts
-index d9be8b925..6ddd43cbd 100644
+index d9be8b9..6ddd43c 100644
 --- a/packages/app/src/composer/dock/internal/capacity.ts
 +++ b/packages/app/src/composer/dock/internal/capacity.ts
 @@ -95,6 +95,13 @@ export function resolveInlineComposerCapacity(
@@ -1333,7 +1333,7 @@ index d9be8b925..6ddd43cbd 100644
  }
 diff --git a/packages/app/src/composer/dock/internal/chrome.test.ts b/packages/app/src/composer/dock/internal/chrome.test.ts
 new file mode 100644
-index 000000000..a0de3d897
+index 0000000..a0de3d8
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.test.ts
 @@ -0,0 +1,31 @@
@@ -1370,7 +1370,7 @@ index 000000000..a0de3d897
 +});
 diff --git a/packages/app/src/composer/dock/internal/chrome.ts b/packages/app/src/composer/dock/internal/chrome.ts
 new file mode 100644
-index 000000000..cd3cc0318
+index 0000000..cd3cc03
 --- /dev/null
 +++ b/packages/app/src/composer/dock/internal/chrome.ts
 @@ -0,0 +1,35 @@
@@ -1410,7 +1410,7 @@ index 000000000..cd3cc0318
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 1b070ebdc..cb8f6bfa8 100644
+index 1b070eb..cb8f6bf 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -10,6 +10,7 @@ import invariant from "tiny-invariant";
@@ -1463,7 +1463,7 @@ index 1b070ebdc..cb8f6bfa8 100644
            </View>
 diff --git a/packages/app/src/composer/goal-pill.test.ts b/packages/app/src/composer/goal-pill.test.ts
 new file mode 100644
-index 000000000..2c20c7f26
+index 0000000..2c20c7f
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.test.ts
 @@ -0,0 +1,137 @@
@@ -1606,7 +1606,7 @@ index 000000000..2c20c7f26
 +});
 diff --git a/packages/app/src/composer/goal-pill.tsx b/packages/app/src/composer/goal-pill.tsx
 new file mode 100644
-index 000000000..213410e7e
+index 0000000..213410e
 --- /dev/null
 +++ b/packages/app/src/composer/goal-pill.tsx
 @@ -0,0 +1,421 @@
@@ -2032,7 +2032,7 @@ index 000000000..213410e7e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 5a495cd47..5d4cad979 100644
+index 5a495cd..5d4cad9 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -67,6 +67,8 @@ import {
@@ -2183,7 +2183,7 @@ index 5a495cd47..5d4cad979 100644
      ...toolbarSlot(),
      flexShrink: 0,
 diff --git a/packages/app/src/composer/input/input.tsx b/packages/app/src/composer/input/input.tsx
-index fc0dbe872..115a2895b 100644
+index fc0dbe8..115a289 100644
 --- a/packages/app/src/composer/input/input.tsx
 +++ b/packages/app/src/composer/input/input.tsx
 @@ -28,7 +28,7 @@ import {
@@ -2343,7 +2343,7 @@ index fc0dbe872..115a2895b 100644
    focusHintText: {
      position: "absolute",
 diff --git a/packages/app/src/composer/input/state.test.ts b/packages/app/src/composer/input/state.test.ts
-index abb271f9d..f377b5628 100644
+index abb271f..f377b56 100644
 --- a/packages/app/src/composer/input/state.test.ts
 +++ b/packages/app/src/composer/input/state.test.ts
 @@ -196,9 +196,15 @@ describe("dictation transcript behavior", () => {
@@ -2366,7 +2366,7 @@ index abb271f9d..f377b5628 100644
  
    function actions() {
 diff --git a/packages/app/src/composer/input/state.ts b/packages/app/src/composer/input/state.ts
-index 2fe296940..05d42159e 100644
+index 2fe2969..05d4215 100644
 --- a/packages/app/src/composer/input/state.ts
 +++ b/packages/app/src/composer/input/state.ts
 @@ -9,8 +9,14 @@ export type SendBehavior = ActiveTurnBehavior | "queue";
@@ -2386,7 +2386,7 @@ index 2fe296940..05d42159e 100644
  
  interface ComposerSurfaceState {
 diff --git a/packages/app/src/composer/pill-styles.ts b/packages/app/src/composer/pill-styles.ts
-index 3ab03c877..69a992346 100644
+index 3ab03c8..69a9923 100644
 --- a/packages/app/src/composer/pill-styles.ts
 +++ b/packages/app/src/composer/pill-styles.ts
 @@ -28,6 +28,10 @@ export const composerPillStyles = StyleSheet.create((theme) => ({
@@ -2401,7 +2401,7 @@ index 3ab03c877..69a992346 100644
      paddingHorizontal: theme.spacing[3],
      paddingVertical: theme.spacing[1],
 diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
-index 9113b2e6e..928fd1422 100644
+index 9113b2e..928fd14 100644
 --- a/packages/app/src/hooks/use-settings/index.ts
 +++ b/packages/app/src/hooks/use-settings/index.ts
 @@ -1,6 +1,7 @@
@@ -2428,7 +2428,7 @@ index 9113b2e6e..928fd1422 100644
      settings,
      isLoading: isPending,
 diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
-index 11ba437dd..24fed7a2e 100644
+index 11ba437..24fed7a 100644
 --- a/packages/app/src/hooks/use-settings/storage.ts
 +++ b/packages/app/src/hooks/use-settings/storage.ts
 @@ -108,6 +108,8 @@ export interface AppSettings {
@@ -2457,10 +2457,10 @@ index 11ba437dd..24fed7a2e 100644
      // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
      toolCallDetailLevel: z
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 6642a0d76..44ef11ddb 100644
+index 6b16c2f..e615322 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2514,6 +2514,10 @@ export const ar: TranslationResources = {
+@@ -2585,6 +2585,10 @@ export const ar: TranslationResources = {
      },
      general: {
        title: "عام",
@@ -2472,10 +2472,10 @@ index 6642a0d76..44ef11ddb 100644
        setup: {
          label: "الإعداد الأولي",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index d36956e5b..1bf6c81dc 100644
+index 01f858e..0184709 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2609,6 +2609,10 @@ export const en = {
+@@ -2682,6 +2682,10 @@ export const en = {
      },
      general: {
        title: "General",
@@ -2487,10 +2487,10 @@ index d36956e5b..1bf6c81dc 100644
        setup: {
          label: "First-run setup",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 56d1eeeb0..d5244dea9 100644
+index 324788a..b721b74 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2527,6 +2527,10 @@ export const es: TranslationResources = {
+@@ -2605,6 +2605,10 @@ export const es: TranslationResources = {
      },
      general: {
        title: "General",
@@ -2502,10 +2502,10 @@ index 56d1eeeb0..d5244dea9 100644
        setup: {
          label: "Configuración inicial",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 8448dc543..a0db768eb 100644
+index 5f747f6..d8df65a 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2528,6 +2528,10 @@ export const fr: TranslationResources = {
+@@ -2604,6 +2604,10 @@ export const fr: TranslationResources = {
      },
      general: {
        title: "Général",
@@ -2517,10 +2517,10 @@ index 8448dc543..a0db768eb 100644
        setup: {
          label: "Configuration initiale",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index 88913c858..ed306fcfe 100644
+index a92243a..641ff65 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2501,6 +2501,10 @@ export const ja: TranslationResources = {
+@@ -2574,6 +2574,10 @@ export const ja: TranslationResources = {
      },
      general: {
        title: "一般",
@@ -2532,10 +2532,10 @@ index 88913c858..ed306fcfe 100644
        setup: {
          label: "初回セットアップ",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index fad9469e9..c10f221a3 100644
+index 0d55a12..ff22539 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2489,6 +2489,10 @@ export const ko: TranslationResources = {
+@@ -2561,6 +2561,10 @@ export const ko: TranslationResources = {
      },
      general: {
        title: "일반",
@@ -2547,10 +2547,10 @@ index fad9469e9..c10f221a3 100644
        setup: {
          label: "초기 설정",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index e264f670b..4c285423c 100644
+index 55a89ed..066c100 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2512,6 +2512,10 @@ export const ptBR: TranslationResources = {
+@@ -2589,6 +2589,10 @@ export const ptBR: TranslationResources = {
      },
      general: {
        title: "Geral",
@@ -2562,10 +2562,10 @@ index e264f670b..4c285423c 100644
        setup: {
          label: "Configuração inicial",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index 6813b83e7..40c091b07 100644
+index d0939fa..89537ae 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2516,6 +2516,10 @@ export const ru: TranslationResources = {
+@@ -2592,6 +2592,10 @@ export const ru: TranslationResources = {
      },
      general: {
        title: "Основные",
@@ -2577,10 +2577,10 @@ index 6813b83e7..40c091b07 100644
        setup: {
          label: "Первоначальная настройка",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index aa91dd793..b4e1f5987 100644
+index 8c7e941..56ff40f 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2454,6 +2454,10 @@ export const zhCN: TranslationResources = {
+@@ -2524,6 +2524,10 @@ export const zhCN: TranslationResources = {
      },
      general: {
        title: "通用",
@@ -2592,21 +2592,21 @@ index aa91dd793..b4e1f5987 100644
        setup: {
          label: "首次设置",
 diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
-index 0288d8270..2b5865a8b 100644
+index d624fa1..955ffe2 100644
 --- a/packages/app/src/screens/settings-screen.tsx
 +++ b/packages/app/src/screens/settings-screen.tsx
-@@ -4,7 +4,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
+@@ -5,7 +5,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
  import { useAddHost } from "@/hosts/add-host";
- import { useCallback, useMemo, useRef, useState } from "react";
+ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  import type { ComponentType, ReactNode } from "react";
 -import { Alert, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
 +import { Alert, Platform, Pressable, ScrollView, View, type PressableStateCallbackType } from "react-native";
- import { useRouter } from "expo-router";
- import { useFocusEffect } from "expo-router/react-navigation";
+ import { useNavigation, useRouter } from "expo-router";
+ import { useFocusEffect, usePreventRemove } from "expo-router/react-navigation";
  import { useSafeAreaInsets } from "react-native-safe-area-context";
-@@ -41,7 +41,9 @@ import {
-   MessageSquare,
-   ChevronRight,
+@@ -37,7 +37,9 @@ import {
+   Layers,
+   Laptop,
  } from "lucide-react-native";
 +import { syncRotationDelay } from "@/android/rotation-delay";
  import { DropdownTrigger } from "@/components/ui/dropdown-trigger";
@@ -2614,7 +2614,7 @@ index 0288d8270..2b5865a8b 100644
  import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
  import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
  import { HostPicker as SharedHostPicker } from "@/components/hosts/host-picker";
-@@ -393,12 +395,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
+@@ -349,12 +351,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
              </DropdownMenuContent>
            </DropdownMenu>
          </View>
@@ -2655,10 +2655,10 @@ index 0288d8270..2b5865a8b 100644
    const { t } = useTranslation();
    const openOnboarding = useOpenOnboarding();
 diff --git a/packages/app/src/stores/session-store.ts b/packages/app/src/stores/session-store.ts
-index 55d2c43a2..78f359cf3 100644
+index 49c7010..02c85d1 100644
 --- a/packages/app/src/stores/session-store.ts
 +++ b/packages/app/src/stores/session-store.ts
-@@ -38,6 +38,8 @@ import type {
+@@ -39,6 +39,8 @@ import type {
  } from "@getpaseo/protocol/agent-types";
  import type {
    AgentBackgroundWorkSummary,
@@ -2667,7 +2667,7 @@ index 55d2c43a2..78f359cf3 100644
    ServerInfoStatusPayload,
    ProjectPlacementPayload,
    ServerCapabilities,
-@@ -96,6 +98,8 @@ export interface Agent {
+@@ -97,6 +99,8 @@ export interface Agent {
    lastUsage?: AgentUsage;
    /** What the provider reports about the session, as label and value rows. */
    sessionMetrics?: AgentMetric[];
@@ -2677,7 +2677,7 @@ index 55d2c43a2..78f359cf3 100644
    title: string | null;
    cwd: string;
 diff --git a/packages/app/src/utils/agent-directory-update-policy.ts b/packages/app/src/utils/agent-directory-update-policy.ts
-index 60735a024..db3e9f97d 100644
+index 60735a0..db3e9f9 100644
 --- a/packages/app/src/utils/agent-directory-update-policy.ts
 +++ b/packages/app/src/utils/agent-directory-update-policy.ts
 @@ -1,10 +1,13 @@
@@ -2713,7 +2713,7 @@ index 60735a024..db3e9f97d 100644
 +  return merged;
  }
 diff --git a/packages/app/src/utils/agent-snapshots.ts b/packages/app/src/utils/agent-snapshots.ts
-index 05e3c9a10..b74afc20f 100644
+index 05e3c9a..b74afc2 100644
 --- a/packages/app/src/utils/agent-snapshots.ts
 +++ b/packages/app/src/utils/agent-snapshots.ts
 @@ -82,6 +82,8 @@ export function projectAgentSnapshot(agent: Agent): AgentSnapshotPayload {
@@ -2735,10 +2735,10 @@ index 05e3c9a10..b74afc20f 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 01d2c51b0..8cd405d4d 100644
+index 266c7cb..aeaffa7 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -472,6 +472,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -473,6 +473,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -2747,7 +2747,7 @@ index 01d2c51b0..8cd405d4d 100644
    })
    .catchall(z.boolean());
  
-@@ -920,6 +922,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
+@@ -921,6 +923,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
  
  export type AgentBackgroundWorkSummary = z.infer<typeof AgentBackgroundWorkSummarySchema>;
  
@@ -2791,7 +2791,7 @@ index 01d2c51b0..8cd405d4d 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -949,6 +988,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -950,6 +989,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
    sessionMetrics: z.array(AgentMetricSchema).optional(),
@@ -2801,7 +2801,7 @@ index 01d2c51b0..8cd405d4d 100644
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
 diff --git a/packages/protocol/src/tool-call-display.ts b/packages/protocol/src/tool-call-display.ts
-index db0aa6db2..e00c20d62 100644
+index db0aa6d..e00c20d 100644
 --- a/packages/protocol/src/tool-call-display.ts
 +++ b/packages/protocol/src/tool-call-display.ts
 @@ -41,6 +41,12 @@ function humanizeToolName(name: string): string {
