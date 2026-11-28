@@ -2251,7 +2251,7 @@ index 0000000..cd3cc03
 +  return total;
 +}
 diff --git a/packages/app/src/composer/draft/workspace-tab.tsx b/packages/app/src/composer/draft/workspace-tab.tsx
-index 1b070eb..cb8f6bf 100644
+index bffe241..48c3917 100644
 --- a/packages/app/src/composer/draft/workspace-tab.tsx
 +++ b/packages/app/src/composer/draft/workspace-tab.tsx
 @@ -10,6 +10,7 @@ import invariant from "tiny-invariant";
@@ -2262,7 +2262,7 @@ index 1b070eb..cb8f6bf 100644
  import { COMPOSER_PILL_CLEARANCE } from "@/composer/pill-styles";
  import { composerWorkspaceAttachment } from "@/composer/attachments/workspace";
  import { useAgentInputDraft } from "@/composer/draft/input-draft";
-@@ -526,6 +527,26 @@ export function WorkspaceDraftComposer({
+@@ -554,6 +555,26 @@ export function WorkspaceDraftComposer({
      focusInputRef.current?.();
    }, []);
    const importPillPress = resolveImportPillPress(onOpenImportSheet, isSubmitting);
@@ -2289,7 +2289,7 @@ index 1b070eb..cb8f6bf 100644
    const composerAgentControls = useMemo(
      () => ({
        ...composerState.agentControls,
-@@ -537,7 +558,11 @@ export function WorkspaceDraftComposer({
+@@ -565,7 +586,11 @@ export function WorkspaceDraftComposer({
    return (
      <View style={animatedStaticStyles.inputAreaWrapper} onLayout={onInputAreaLayout}>
        {importPillPress && !isComposerFullscreen ? (
@@ -3047,7 +3047,7 @@ index 0000000..213410e
 +  );
 +}
 diff --git a/packages/app/src/composer/index.tsx b/packages/app/src/composer/index.tsx
-index 5a495cd..8f42f29 100644
+index 3ad58a0..217cb75 100644
 --- a/packages/app/src/composer/index.tsx
 +++ b/packages/app/src/composer/index.tsx
 @@ -67,6 +67,11 @@ import {
@@ -3121,7 +3121,7 @@ index 5a495cd..8f42f29 100644
      };
    };
  }
-@@ -1689,10 +1730,10 @@ function ComposerContentImpl({
+@@ -1698,10 +1739,10 @@ function ComposerContentImpl({
          agentIdRef.current,
          text,
          submitAttachments,
@@ -3134,7 +3134,7 @@ index 5a495cd..8f42f29 100644
    );
  
    useEffect(() => {
-@@ -1756,6 +1797,7 @@ function ComposerContentImpl({
+@@ -1765,6 +1806,7 @@ function ComposerContentImpl({
    const activeSendBehavior = resolveActiveSendBehavior(
      appSettings.sendBehavior,
      hasPendingPermission,
@@ -3142,7 +3142,7 @@ index 5a495cd..8f42f29 100644
    );
    const hasAgent = agentState.status !== null;
  
-@@ -2219,19 +2261,99 @@ function ComposerContentImpl({
+@@ -2229,19 +2271,99 @@ function ComposerContentImpl({
      ],
    );
  
@@ -3252,7 +3252,7 @@ index 5a495cd..8f42f29 100644
          </View>
        ) : null,
      [
-@@ -2243,6 +2365,8 @@ function ComposerContentImpl({
+@@ -2253,6 +2375,8 @@ function ComposerContentImpl({
        agentState.totalCostUsd,
        agentState.sessionMetrics,
        controlSizing,
@@ -3261,7 +3261,7 @@ index 5a495cd..8f42f29 100644
      ],
    );
  
-@@ -2641,6 +2765,7 @@ function ComposerContentImpl({
+@@ -2651,6 +2775,7 @@ function ComposerContentImpl({
                    disabled={isSubmitLoading}
                    leftContent={leftContent}
                    beforeVoiceContent={beforeVoiceContent}
@@ -3269,7 +3269,7 @@ index 5a495cd..8f42f29 100644
                    voiceModeContent={voiceModeContent}
                    activeActionContent={activeActionContent}
                    voiceServerId={serverId}
-@@ -2765,6 +2890,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
+@@ -2775,6 +2900,12 @@ const styles = StyleSheet.create((theme: Theme) => ({
      alignItems: "center",
      gap: TOOLBAR_CONTROL_GAP,
    },
@@ -3575,7 +3575,7 @@ index 0000000..8753fff
 +  label: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 14 },
 +}));
 diff --git a/packages/app/src/hooks/use-settings/index.ts b/packages/app/src/hooks/use-settings/index.ts
-index 9113b2e..928fd14 100644
+index 79b9ada..7094d09 100644
 --- a/packages/app/src/hooks/use-settings/index.ts
 +++ b/packages/app/src/hooks/use-settings/index.ts
 @@ -1,6 +1,7 @@
@@ -3587,7 +3587,7 @@ index 9113b2e..928fd14 100644
  import { queryClient as appQueryClient } from "@/data/query-client";
  import type { AppLanguage } from "@/i18n/locales";
  import {
-@@ -175,6 +176,13 @@ export function useAppSettings(): UseAppSettingsReturn {
+@@ -179,6 +180,13 @@ export function useAppSettings(): UseAppSettingsReturn {
    }, [queryClient]);
    const settings = useMemo(() => normalizeAppSettings(data), [data]);
  
@@ -3602,10 +3602,10 @@ index 9113b2e..928fd14 100644
      settings,
      isLoading: isPending,
 diff --git a/packages/app/src/hooks/use-settings/storage.ts b/packages/app/src/hooks/use-settings/storage.ts
-index 11ba437..24fed7a 100644
+index 4a17790..d455e84 100644
 --- a/packages/app/src/hooks/use-settings/storage.ts
 +++ b/packages/app/src/hooks/use-settings/storage.ts
-@@ -108,6 +108,8 @@ export interface AppSettings {
+@@ -113,6 +113,8 @@ export interface AppSettings {
    /** How usage reads and which windows the sidebar summary shows. */
    usage: UsagePreferences;
    autoExpandReasoning: boolean;
@@ -3614,7 +3614,7 @@ index 11ba437..24fed7a 100644
    chatDisplay: ChatDisplay;
    chatOutlineEnabled: boolean;
    vimKeybindings: boolean;
-@@ -166,6 +168,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
+@@ -172,6 +174,7 @@ export const DEFAULT_CLIENT_SETTINGS: AppSettings = {
    sidebarFooterItems: [],
    usage: DEFAULT_USAGE_PREFERENCES,
    autoExpandReasoning: false,
@@ -3622,7 +3622,7 @@ index 11ba437..24fed7a 100644
    chatDisplay: "collapseTurns",
    chatOutlineEnabled: true,
    vimKeybindings: false,
-@@ -266,6 +269,7 @@ const StoredAppSettingsSchema = z
+@@ -273,6 +276,7 @@ const StoredAppSettingsSchema = z
      sidebarFooterItems: z.array(z.object({ key: z.string(), visible: z.boolean() })).catch([]),
      usage: UsagePreferencesSchema,
      autoExpandReasoning: z.boolean().catch(false),
@@ -3631,10 +3631,10 @@ index 11ba437..24fed7a 100644
      // COMPAT(toolCallDetailLevel): replaced by chatDisplay in v0.13, remove after 2027-04-24.
      toolCallDetailLevel: z
 diff --git a/packages/app/src/i18n/resources/ar.ts b/packages/app/src/i18n/resources/ar.ts
-index 6b16c2f..9ceaeae 100644
+index 6d2b6e8..add5b47 100644
 --- a/packages/app/src/i18n/resources/ar.ts
 +++ b/packages/app/src/i18n/resources/ar.ts
-@@ -2272,6 +2272,25 @@ export const ar: TranslationResources = {
+@@ -2290,6 +2290,25 @@ export const ar: TranslationResources = {
      sessionCost: "تكلفة الجلسة{{cost}}",
      accessibility: "تم استخدام نافذة السياق{{percentage}}%",
    },
@@ -3660,7 +3660,7 @@ index 6b16c2f..9ceaeae 100644
    review: {
      feedback: {
        send: "إرسال الملاحظات ({{count}})",
-@@ -2585,6 +2604,10 @@ export const ar: TranslationResources = {
+@@ -2648,6 +2667,10 @@ export const ar: TranslationResources = {
      },
      general: {
        title: "عام",
@@ -3672,10 +3672,10 @@ index 6b16c2f..9ceaeae 100644
        setup: {
          label: "الإعداد الأولي",
 diff --git a/packages/app/src/i18n/resources/en.ts b/packages/app/src/i18n/resources/en.ts
-index 01f858e..93545d9 100644
+index 4e564eb..a1de966 100644
 --- a/packages/app/src/i18n/resources/en.ts
 +++ b/packages/app/src/i18n/resources/en.ts
-@@ -2302,6 +2302,25 @@ export const en = {
+@@ -2320,6 +2320,25 @@ export const en = {
      sessionCost: "Session cost {{cost}}",
      accessibility: "Context window {{percentage}}% used",
    },
@@ -3701,7 +3701,7 @@ index 01f858e..93545d9 100644
    review: {
      feedback: {
        send: "Send feedback ({{count}})",
-@@ -2682,6 +2701,10 @@ export const en = {
+@@ -2746,6 +2765,10 @@ export const en = {
      },
      general: {
        title: "General",
@@ -3713,10 +3713,10 @@ index 01f858e..93545d9 100644
        setup: {
          label: "First-run setup",
 diff --git a/packages/app/src/i18n/resources/es.ts b/packages/app/src/i18n/resources/es.ts
-index 324788a..6b5ee47 100644
+index 30f918c..9ae1155 100644
 --- a/packages/app/src/i18n/resources/es.ts
 +++ b/packages/app/src/i18n/resources/es.ts
-@@ -2328,6 +2328,25 @@ export const es: TranslationResources = {
+@@ -2346,6 +2346,25 @@ export const es: TranslationResources = {
      sessionCost: "Costo de la sesión{{cost}}",
      accessibility: "Ventana de contexto{{percentage}}% utilizada",
    },
@@ -3742,7 +3742,7 @@ index 324788a..6b5ee47 100644
    review: {
      feedback: {
        send: "Enviar comentarios ({{count}})",
-@@ -2605,6 +2624,10 @@ export const es: TranslationResources = {
+@@ -2670,6 +2689,10 @@ export const es: TranslationResources = {
      },
      general: {
        title: "General",
@@ -3754,10 +3754,10 @@ index 324788a..6b5ee47 100644
        setup: {
          label: "Configuración inicial",
 diff --git a/packages/app/src/i18n/resources/fr.ts b/packages/app/src/i18n/resources/fr.ts
-index 5f747f6..749ef01 100644
+index 7758645..950a60f 100644
 --- a/packages/app/src/i18n/resources/fr.ts
 +++ b/packages/app/src/i18n/resources/fr.ts
-@@ -2326,6 +2326,25 @@ export const fr: TranslationResources = {
+@@ -2344,6 +2344,25 @@ export const fr: TranslationResources = {
      sessionCost: "Coût de la session : {{cost}}",
      accessibility: "Fenêtre de contexte : {{percentage}} % utilisés",
    },
@@ -3783,7 +3783,7 @@ index 5f747f6..749ef01 100644
    review: {
      feedback: {
        send: "Envoyer les commentaires ({{count}})",
-@@ -2604,6 +2623,10 @@ export const fr: TranslationResources = {
+@@ -2670,6 +2689,10 @@ export const fr: TranslationResources = {
      },
      general: {
        title: "Général",
@@ -3795,10 +3795,10 @@ index 5f747f6..749ef01 100644
        setup: {
          label: "Configuration initiale",
 diff --git a/packages/app/src/i18n/resources/ja.ts b/packages/app/src/i18n/resources/ja.ts
-index a92243a..3681b25 100644
+index 5ce0fdc..bdaa560 100644
 --- a/packages/app/src/i18n/resources/ja.ts
 +++ b/packages/app/src/i18n/resources/ja.ts
-@@ -2296,6 +2296,25 @@ export const ja: TranslationResources = {
+@@ -2314,6 +2314,25 @@ export const ja: TranslationResources = {
      sessionCost: "セッションコスト: {{cost}}",
      accessibility: "コンテキストウィンドウ{{percentage}}%使用",
    },
@@ -3824,7 +3824,7 @@ index a92243a..3681b25 100644
    review: {
      feedback: {
        send: "フィードバックを送信 ({{count}})",
-@@ -2574,6 +2593,10 @@ export const ja: TranslationResources = {
+@@ -2638,6 +2657,10 @@ export const ja: TranslationResources = {
      },
      general: {
        title: "一般",
@@ -3836,10 +3836,10 @@ index a92243a..3681b25 100644
        setup: {
          label: "初回セットアップ",
 diff --git a/packages/app/src/i18n/resources/ko.ts b/packages/app/src/i18n/resources/ko.ts
-index 0d55a12..0f01736 100644
+index c2efa7e..f126840 100644
 --- a/packages/app/src/i18n/resources/ko.ts
 +++ b/packages/app/src/i18n/resources/ko.ts
-@@ -2284,6 +2284,25 @@ export const ko: TranslationResources = {
+@@ -2302,6 +2302,25 @@ export const ko: TranslationResources = {
      sessionCost: "세션 비용 {{cost}}",
      accessibility: "컨텍스트 윈도우 {{percentage}}% 사용됨",
    },
@@ -3865,7 +3865,7 @@ index 0d55a12..0f01736 100644
    review: {
      feedback: {
        send: "피드백 보내기 ({{count}})",
-@@ -2561,6 +2580,10 @@ export const ko: TranslationResources = {
+@@ -2624,6 +2643,10 @@ export const ko: TranslationResources = {
      },
      general: {
        title: "일반",
@@ -3877,10 +3877,10 @@ index 0d55a12..0f01736 100644
        setup: {
          label: "초기 설정",
 diff --git a/packages/app/src/i18n/resources/pt-BR.ts b/packages/app/src/i18n/resources/pt-BR.ts
-index 55a89ed..878f18c 100644
+index 957ab31..ddcab15 100644
 --- a/packages/app/src/i18n/resources/pt-BR.ts
 +++ b/packages/app/src/i18n/resources/pt-BR.ts
-@@ -2312,6 +2312,25 @@ export const ptBR: TranslationResources = {
+@@ -2330,6 +2330,25 @@ export const ptBR: TranslationResources = {
      sessionCost: "Custo da sessão {{cost}}",
      accessibility: "Janela de contexto {{percentage}}% usada",
    },
@@ -3906,7 +3906,7 @@ index 55a89ed..878f18c 100644
    review: {
      feedback: {
        send: "Enviar comentários ({{count}})",
-@@ -2589,6 +2608,10 @@ export const ptBR: TranslationResources = {
+@@ -2655,6 +2674,10 @@ export const ptBR: TranslationResources = {
      },
      general: {
        title: "Geral",
@@ -3918,10 +3918,10 @@ index 55a89ed..878f18c 100644
        setup: {
          label: "Configuração inicial",
 diff --git a/packages/app/src/i18n/resources/ru.ts b/packages/app/src/i18n/resources/ru.ts
-index d0939fa..a66b7e0 100644
+index c3b35fa..9c26e90 100644
 --- a/packages/app/src/i18n/resources/ru.ts
 +++ b/packages/app/src/i18n/resources/ru.ts
-@@ -2313,6 +2313,25 @@ export const ru: TranslationResources = {
+@@ -2331,6 +2331,25 @@ export const ru: TranslationResources = {
      sessionCost: "Стоимость сессии: {{cost}}",
      accessibility: "Использовано {{percentage}}% контекстного окна",
    },
@@ -3947,7 +3947,7 @@ index d0939fa..a66b7e0 100644
    review: {
      feedback: {
        send: "Отправить отзыв ({{count}})",
-@@ -2592,6 +2611,10 @@ export const ru: TranslationResources = {
+@@ -2657,6 +2676,10 @@ export const ru: TranslationResources = {
      },
      general: {
        title: "Основные",
@@ -3959,10 +3959,10 @@ index d0939fa..a66b7e0 100644
        setup: {
          label: "Первоначальная настройка",
 diff --git a/packages/app/src/i18n/resources/zh-CN.ts b/packages/app/src/i18n/resources/zh-CN.ts
-index 8c7e941..18261ce 100644
+index 458ff50..a755dd6 100644
 --- a/packages/app/src/i18n/resources/zh-CN.ts
 +++ b/packages/app/src/i18n/resources/zh-CN.ts
-@@ -2249,6 +2249,25 @@ export const zhCN: TranslationResources = {
+@@ -2267,6 +2267,25 @@ export const zhCN: TranslationResources = {
      sessionCost: "会话费用 {{cost}}",
      accessibility: "上下文窗口已使用 {{percentage}}%",
    },
@@ -3988,7 +3988,7 @@ index 8c7e941..18261ce 100644
    review: {
      feedback: {
        send: "发送反馈 ({{count}})",
-@@ -2524,6 +2543,10 @@ export const zhCN: TranslationResources = {
+@@ -2587,6 +2606,10 @@ export const zhCN: TranslationResources = {
      },
      general: {
        title: "通用",
@@ -4036,7 +4036,7 @@ index c4abe7a..ee19265 100644
        <AgentTaskList tasks={tasks} />
        <SubagentsTrack
 diff --git a/packages/app/src/screens/settings-screen.tsx b/packages/app/src/screens/settings-screen.tsx
-index d624fa1..955ffe2 100644
+index cb685e3..37b0eb1 100644
 --- a/packages/app/src/screens/settings-screen.tsx
 +++ b/packages/app/src/screens/settings-screen.tsx
 @@ -5,7 +5,7 @@ import { useHardwareKeyboardPresent } from "@/keyboard";
@@ -4058,7 +4058,7 @@ index d624fa1..955ffe2 100644
  import { ComboboxTrigger } from "@/components/ui/combobox-trigger";
  import { SidebarHeaderRow } from "@/components/sidebar/sidebar-header-row";
  import { HostPicker as SharedHostPicker } from "@/components/hosts/host-picker";
-@@ -349,12 +351,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
+@@ -348,12 +350,39 @@ function GeneralSection({ settings, handleLanguageChange }: GeneralSectionProps)
              </DropdownMenuContent>
            </DropdownMenu>
          </View>
@@ -4256,10 +4256,10 @@ index 05e3c9a..b74afc2 100644
      title: snapshot.title ?? null,
      cwd: snapshot.cwd,
 diff --git a/packages/client/src/daemon-client.ts b/packages/client/src/daemon-client.ts
-index fef8b50..bb63425 100644
+index 4fac27d..14a7ca0 100644
 --- a/packages/client/src/daemon-client.ts
 +++ b/packages/client/src/daemon-client.ts
-@@ -787,6 +787,10 @@ export type ProviderSubagentListPayload = Extract<
+@@ -789,6 +789,10 @@ export type ProviderSubagentListPayload = Extract<
    SessionOutboundMessage,
    { type: "agent.provider_subagents.list.response" }
  >["payload"];
@@ -4270,7 +4270,7 @@ index fef8b50..bb63425 100644
  export type ProviderSubagentTimelinePayload = Extract<
    SessionOutboundMessage,
    { type: "agent.provider_subagents.timeline.get.response" }
-@@ -4176,6 +4180,34 @@ export class DaemonClient {
+@@ -4179,6 +4183,34 @@ export class DaemonClient {
      }
    }
  
@@ -4429,10 +4429,10 @@ index 97f44c1..7c7c3e6 100644
      return true;
    });
 diff --git a/packages/protocol/src/messages.ts b/packages/protocol/src/messages.ts
-index 266c7cb..43a568c 100644
+index a3d59bf..1374d50 100644
 --- a/packages/protocol/src/messages.ts
 +++ b/packages/protocol/src/messages.ts
-@@ -473,6 +473,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
+@@ -495,6 +495,8 @@ const AgentCapabilityFlagsSchema: z.ZodType<AgentCapabilityFlags> = z
      supportsRewindFiles: z.boolean().optional().default(false),
      // COMPAT(rewind): added in v0.1.X, drop when floor >= v0.1.X.
      supportsRewindBoth: z.boolean().optional().default(false),
@@ -4441,7 +4441,7 @@ index 266c7cb..43a568c 100644
    })
    .catchall(z.boolean());
  
-@@ -921,6 +923,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
+@@ -943,6 +945,43 @@ export const AgentBackgroundWorkSummarySchema = z.object({
  
  export type AgentBackgroundWorkSummary = z.infer<typeof AgentBackgroundWorkSummarySchema>;
  
@@ -4485,7 +4485,7 @@ index 266c7cb..43a568c 100644
  export const AgentSnapshotPayloadSchema = z.object({
    id: z.string(),
    provider: AgentProviderSchema,
-@@ -950,6 +989,8 @@ export const AgentSnapshotPayloadSchema = z.object({
+@@ -972,6 +1011,8 @@ export const AgentSnapshotPayloadSchema = z.object({
    usageScopeKey: z.string().optional(),
    lastUsage: AgentUsageSchema.optional(),
    sessionMetrics: z.array(AgentMetricSchema).optional(),
@@ -4494,7 +4494,7 @@ index 266c7cb..43a568c 100644
    lastError: z.string().optional(),
    title: z.string().nullable(),
    labels: z.record(z.string(), z.string()).default({}),
-@@ -2154,6 +2195,12 @@ export const AgentBackgroundWorkStopRequestMessageSchema = z.object({
+@@ -2176,6 +2217,12 @@ export const AgentBackgroundWorkStopRequestMessageSchema = z.object({
    requestId: z.string(),
  });
  
@@ -4507,7 +4507,7 @@ index 266c7cb..43a568c 100644
  export const ProviderSubagentTimelineRequestMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.request"),
    parentAgentId: z.string(),
-@@ -3695,6 +3742,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
+@@ -3725,6 +3772,7 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
    FetchAgentTimelineRequestMessageSchema,
    AgentTimelineSearchRequestMessageSchema,
    AgentTimelineListPromptsRequestMessageSchema,
@@ -4515,7 +4515,7 @@ index 266c7cb..43a568c 100644
    ProviderSubagentListRequestMessageSchema,
    AgentBackgroundWorkListRequestMessageSchema,
    AgentBackgroundWorkStopRequestMessageSchema,
-@@ -5315,6 +5363,49 @@ export const AgentBackgroundWorkUpdateMessageSchema = z.object({
+@@ -5353,6 +5401,49 @@ export const AgentBackgroundWorkUpdateMessageSchema = z.object({
    }),
  });
  
@@ -4565,7 +4565,7 @@ index 266c7cb..43a568c 100644
  export const ProviderSubagentTimelineResponseMessageSchema = z.object({
    type: z.literal("agent.provider_subagents.timeline.get.response"),
    payload: z.object({
-@@ -7819,6 +7910,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
+@@ -7902,6 +7993,7 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
    AgentTimelineReplacementMessageSchema,
    AgentTimelineSearchResponseMessageSchema,
    AgentTimelineListPromptsResponseMessageSchema,
@@ -4604,10 +4604,10 @@ index c94f8ca..0f46edd 100644
  
  export const ProviderOverridesSchema = z
 diff --git a/packages/protocol/src/provider-manifest.ts b/packages/protocol/src/provider-manifest.ts
-index 0d7076f..d0310a2 100644
+index c72f886..1807070 100644
 --- a/packages/protocol/src/provider-manifest.ts
 +++ b/packages/protocol/src/provider-manifest.ts
-@@ -169,6 +169,45 @@ export const OMP_MODES: AgentProviderModeDefinition[] = [
+@@ -172,6 +172,45 @@ export const OMP_MODES: AgentProviderModeDefinition[] = [
    },
  ];
  
@@ -4653,7 +4653,7 @@ index 0d7076f..d0310a2 100644
  const MOCK_LOAD_TEST_MODES: AgentProviderModeDefinition[] = [
    {
      id: "load-test",
-@@ -263,6 +302,15 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
+@@ -267,6 +306,15 @@ export const AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [
      defaultModeId: "full",
      modes: OMP_MODES,
    },
@@ -4748,7 +4748,7 @@ index 2d29e87..fdcb39c 100644
          stdio: ["inherit", "pipe", "pipe", "ipc"],
          env: workerEnv,
 diff --git a/packages/server/src/server/agent-attention-policy.test.ts b/packages/server/src/server/agent-attention-policy.test.ts
-index ac9d92f..5b1fda9 100644
+index 3403c4d..4d202b9 100644
 --- a/packages/server/src/server/agent-attention-policy.test.ts
 +++ b/packages/server/src/server/agent-attention-policy.test.ts
 @@ -223,6 +223,28 @@ describe("computeNotificationPlan", () => {
@@ -4781,7 +4781,7 @@ index ac9d92f..5b1fda9 100644
  
  describe("isPushEligibleAttentionReason", () => {
 diff --git a/packages/server/src/server/agent-attention-policy.ts b/packages/server/src/server/agent-attention-policy.ts
-index 98b3a4d..c2a1446 100644
+index a608026..532d13e 100644
 --- a/packages/server/src/server/agent-attention-policy.ts
 +++ b/packages/server/src/server/agent-attention-policy.ts
 @@ -13,6 +13,7 @@ export type AttentionFocusTarget = { kind: "agent"; id: string } | { kind: "term
@@ -5488,10 +5488,10 @@ index 6a169c6..3f399c8 100644
  const EXPECTED_RUN_START_BUDGET_MS = 60_000;
  // The slowest provider startup budget the run-start wait has to sit outside of today
 diff --git a/packages/server/src/server/agent/agent-sdk-types.ts b/packages/server/src/server/agent/agent-sdk-types.ts
-index 244c7fa..a600fe6 100644
+index 8066186..3230efc 100644
 --- a/packages/server/src/server/agent/agent-sdk-types.ts
 +++ b/packages/server/src/server/agent/agent-sdk-types.ts
-@@ -190,6 +190,11 @@ export interface AgentCapabilityFlags {
+@@ -191,6 +191,11 @@ export interface AgentCapabilityFlags {
    supportsRewindConversation?: boolean;
    supportsRewindFiles?: boolean;
    supportsRewindBoth?: boolean;
@@ -5503,7 +5503,7 @@ index 244c7fa..a600fe6 100644
  }
  
  export interface AgentPersistenceHandle {
-@@ -238,6 +243,49 @@ export interface AgentUsage {
+@@ -239,6 +244,49 @@ export interface AgentUsage {
    contextWindowUsedTokens?: number;
  }
  
@@ -5553,7 +5553,7 @@ index 244c7fa..a600fe6 100644
  export const TOOL_CALL_ICON_NAMES = [
    "wrench",
    "square_terminal",
-@@ -437,6 +485,13 @@ export type AgentStreamEvent =
+@@ -438,6 +486,13 @@ export type AgentStreamEvent =
    | { type: "usage_updated"; provider: AgentProvider; usage: AgentUsage; turnId?: string }
    /** Full replacement of the metrics shown for the session. An empty list clears them. */
    | { type: "session_metrics_updated"; provider: AgentProvider; metrics: AgentMetric[] }
@@ -5816,7 +5816,7 @@ index 005d062..c33e293 100644
    const registry = buildProviderRegistry(logger, {
      providerOverrides: {
 diff --git a/packages/server/src/server/agent/provider-registry.ts b/packages/server/src/server/agent/provider-registry.ts
-index 82946a1..5d2727c 100644
+index f7574a0..551cedb 100644
 --- a/packages/server/src/server/agent/provider-registry.ts
 +++ b/packages/server/src/server/agent/provider-registry.ts
 @@ -25,6 +25,7 @@ import {
@@ -5863,7 +5863,7 @@ index 82946a1..5d2727c 100644
    enabled: boolean;
    /**
     * The id of another *registered* provider this one extends (e.g. a Z.AI
-@@ -98,9 +113,8 @@ export interface ProviderDefinition extends AgentProviderDefinition {
+@@ -110,9 +125,8 @@ export interface ProviderDefinition extends AgentProviderDefinition {
  }
  
  /** Provider metadata and an unconfigured factory; the registry owns override application. */
@@ -5874,7 +5874,7 @@ index 82946a1..5d2727c 100644
    supportsExactMcpPreapproval: boolean;
    supportsLaunchWrap: boolean;
    createClient: (logger: Logger, runtimeSettings?: ProviderRuntimeSettings) => AgentClient;
-@@ -136,7 +150,7 @@ type ProviderClientFactory = (
+@@ -148,7 +162,7 @@ type ProviderClientFactory = (
  ) => AgentClient;
  
  interface ResolvedProvider {
@@ -5883,7 +5883,7 @@ index 82946a1..5d2727c 100644
    runtimeSettings?: ProviderRuntimeSettings;
    profileModels: ProviderProfileModel[];
    additionalModels: ProviderProfileModel[];
-@@ -163,6 +177,7 @@ const PROVIDER_CONTRACTS: Record<string, ProviderContract> = {
+@@ -175,6 +189,7 @@ const PROVIDER_CONTRACTS: Record<string, ProviderContract> = {
    opencode: { supportsExactMcpPreapproval: true, supportsLaunchWrap: true },
    pi: { supportsExactMcpPreapproval: false, supportsLaunchWrap: true },
    omp: { supportsExactMcpPreapproval: false, supportsLaunchWrap: true },
@@ -5891,7 +5891,7 @@ index 82946a1..5d2727c 100644
  };
  
  const UNSUPPORTED_PROVIDER_CONTRACT: ProviderContract = {
-@@ -240,6 +255,11 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
+@@ -252,6 +267,11 @@ const PROVIDER_CLIENT_FACTORIES: Record<string, ProviderClientFactory> = {
        runtimeSettings,
        runtime: options?.ompRuntime,
      }),
@@ -5903,7 +5903,7 @@ index 82946a1..5d2727c 100644
    mock: (logger) => new MockLoadTestAgentClient(logger),
    "mock-slow": () => new MockSlowProviderClient(),
  };
-@@ -307,9 +327,9 @@ function mergeRuntimeSettings(
+@@ -319,9 +339,9 @@ function mergeRuntimeSettings(
  }
  
  function applyOverrideToDefinition(
@@ -5915,7 +5915,7 @@ index 82946a1..5d2727c 100644
    if (!override) {
      return definition;
    }
-@@ -318,6 +338,7 @@ function applyOverrideToDefinition(
+@@ -330,6 +350,7 @@ function applyOverrideToDefinition(
      ...definition,
      label: override.label ?? definition.label,
      description: override.description ?? definition.description,
@@ -5923,7 +5923,7 @@ index 82946a1..5d2727c 100644
    };
  }
  
-@@ -325,7 +346,7 @@ function createDerivedDefinition(
+@@ -337,7 +358,7 @@ function createDerivedDefinition(
    providerId: string,
    baseDefinition: AgentProviderDefinition,
    override: ProviderOverride,
@@ -5932,7 +5932,7 @@ index 82946a1..5d2727c 100644
    if (!override.label) {
      throw new Error(`Custom provider '${providerId}' requires a label`);
    }
-@@ -335,6 +356,7 @@ function createDerivedDefinition(
+@@ -347,6 +368,7 @@ function createDerivedDefinition(
      id: providerId,
      label: override.label,
      description: override.description ?? baseDefinition.description,
@@ -5940,8 +5940,8 @@ index 82946a1..5d2727c 100644
    };
  }
  
-@@ -683,8 +705,10 @@ function createRegistryEntry(
-   const hasStaticModes = resolved.definition.modes.length > 0;
+@@ -764,10 +786,12 @@ function createRegistryEntry(
+   };
  
    const { createBaseClient: _createBaseClient, contract: _contract, ...configuration } = resolved;
 +  const { iconSource, ...definition } = resolved.definition;
@@ -5949,10 +5949,13 @@ index 82946a1..5d2727c 100644
 -    ...resolved.definition,
 +    ...definition,
 +    iconSvg: definition.iconSvg ?? resolveProviderIconSvg(provider, iconSource, logger),
+     catalogRefresh:
+-      resolved.definition.catalogRefresh ?? modelClient.catalogRefresh ?? "background",
++      definition.catalogRefresh ?? modelClient.catalogRefresh ?? "background",
      configuration,
      enabled: resolved.enabled,
      derivedFromProviderId: resolved.derivedFromProviderId,
-@@ -896,7 +920,37 @@ function addDerivedProviders(
+@@ -943,7 +967,37 @@ function addDerivedProviders(
            if (providerId === "traecli") {
              return new TraeACPAgentClient(acpOptions);
            }
@@ -12540,10 +12543,10 @@ index c0d46ab..dd8e293 100644
  });
  
 diff --git a/packages/server/src/server/agent/providers/acp-agent.ts b/packages/server/src/server/agent/providers/acp-agent.ts
-index b23ac68..f3b8009 100644
+index f23eec1..60ffc48 100644
 --- a/packages/server/src/server/agent/providers/acp-agent.ts
 +++ b/packages/server/src/server/agent/providers/acp-agent.ts
-@@ -20,11 +20,12 @@ import type {
+@@ -22,11 +22,12 @@ import type {
  import {
    ClientSideConnection,
    PROTOCOL_VERSION,
@@ -12557,7 +12560,7 @@ index b23ac68..f3b8009 100644
    type ConfigOptionUpdate,
    type ContentBlock,
    type CreateTerminalRequest,
-@@ -80,13 +81,17 @@ import {
+@@ -82,13 +83,17 @@ import {
    type AgentPermissionRequest,
    type AgentPermissionRequestKind,
    type AgentPermissionResponse,
@@ -12575,7 +12578,7 @@ index b23ac68..f3b8009 100644
    type AgentRunResult,
    type AgentRuntimeInfo,
    type AgentSession,
-@@ -96,6 +101,7 @@ import {
+@@ -98,6 +103,7 @@ import {
    type AgentTimelineItem,
    type AgentUsage,
    type AgentUsageSession,
@@ -12583,7 +12586,7 @@ index b23ac68..f3b8009 100644
    type FetchCatalogOptions,
    type ProviderRefreshContext,
    type ImportableProviderSession,
-@@ -142,6 +148,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
+@@ -145,6 +151,16 @@ import { withTimeout } from "../../../utils/promise-timeout.js";
  
  const ACP_AUTO_ACCEPT_FEATURE_ID = "auto_accept";
  
@@ -12600,7 +12603,7 @@ index b23ac68..f3b8009 100644
  function assertChildWithPipes(
    child: ChildProcess,
  ): asserts child is ChildProcessWithoutNullStreams {
-@@ -187,6 +203,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
+@@ -190,6 +206,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
    return value != null && typeof value === "object" && !Array.isArray(value);
  }
  
@@ -12617,7 +12620,7 @@ index b23ac68..f3b8009 100644
  function isACPError(value: unknown): value is ACPError {
    return isRecord(value) && typeof value.message === "string" && typeof value.code === "number";
  }
-@@ -305,6 +331,13 @@ function acpSessionListRequest(cursor: string | null | undefined, cwd: string |
+@@ -308,6 +334,13 @@ function acpSessionListRequest(cursor: string | null | undefined, cwd: string |
    };
  }
  
@@ -12631,7 +12634,7 @@ index b23ac68..f3b8009 100644
  const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
    fs: {
      readTextFile: false,
-@@ -315,6 +348,36 @@ const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
+@@ -318,6 +351,36 @@ const BASE_ACP_CLIENT_CAPABILITIES: ACPClientCapabilities = {
  
  export type ACPClientCapabilityMeta = Record<string, unknown>;
  
@@ -12668,7 +12671,7 @@ index b23ac68..f3b8009 100644
  export function buildACPClientCapabilities(
    meta?: ACPClientCapabilityMeta,
    override?: ACPClientCapabilities,
-@@ -335,6 +398,11 @@ export function buildACPClientCapabilities(
+@@ -338,6 +401,11 @@ export function buildACPClientCapabilities(
  // NO_BROWSER is honored by Gemini CLI; other ACP agents ignore it.
  const PROBE_ENV: Record<string, string> = { NO_BROWSER: "true" };
  const ACP_DIAGNOSTIC_PHASE_TIMEOUT_MS = 20_000;
@@ -12680,7 +12683,7 @@ index b23ac68..f3b8009 100644
  const ACP_PROBE_CLOSE_TIMEOUT_MS = 2_000;
  // Archive and delete await close(). The ACP SDK does not reject a pending
  // request when the provider never answers, so these calls must be bounded
-@@ -343,6 +411,47 @@ const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
+@@ -346,6 +414,47 @@ const ACP_CLOSE_REQUEST_TIMEOUT_MS = 2_000;
  const ACP_DISCONNECT_EXIT_GRACE_MS = 1_000;
  const ACP_IMPORT_HISTORY_LOAD_TIMEOUT_MS = 30_000;
  const ACP_IMPORT_HISTORY_BUDGET_MS = 60_000;
@@ -12728,7 +12731,7 @@ index b23ac68..f3b8009 100644
  
  /**
   * An ACP agent publishes its slash-command inventory incrementally. Wait this
-@@ -483,6 +592,205 @@ export type ACPCatalogModelResolver = (
+@@ -486,6 +595,205 @@ export type ACPCatalogModelResolver = (
    context: ACPCatalogModelResolverContext,
  ) => Promise<AgentModelDefinition[]>;
  
@@ -12934,7 +12937,7 @@ index b23ac68..f3b8009 100644
  interface ACPAgentClientOptions {
    provider: string;
    // Provider id usage sources match a session against; ACP sessions without one report no usage.
-@@ -498,6 +806,10 @@ interface ACPAgentClientOptions {
+@@ -501,6 +809,10 @@ interface ACPAgentClientOptions {
    configFeatureOptions?: ACPConfigFeatureOption[];
    clientCapabilities?: ACPClientCapabilities;
    clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -12945,7 +12948,7 @@ index b23ac68..f3b8009 100644
    modeIdTransformer?: (modeId: string) => string | null;
    toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    providerModeWriter?: (
-@@ -513,7 +825,21 @@ interface ACPAgentClientOptions {
+@@ -516,7 +828,21 @@ interface ACPAgentClientOptions {
    extensionCommandsParser?: ACPExtensionCommandsParser;
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -12967,7 +12970,7 @@ index b23ac68..f3b8009 100644
    now?: () => number;
  }
  
-@@ -530,6 +856,10 @@ interface ACPAgentSessionOptions {
+@@ -533,6 +859,10 @@ interface ACPAgentSessionOptions {
    configFeatureOptions?: ACPConfigFeatureOption[];
    clientCapabilities?: ACPClientCapabilities;
    clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -12978,7 +12981,7 @@ index b23ac68..f3b8009 100644
    modeIdTransformer?: (modeId: string) => string | null;
    toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    providerModeWriter?: (
-@@ -552,7 +882,11 @@ interface ACPAgentSessionOptions {
+@@ -555,7 +885,11 @@ interface ACPAgentSessionOptions {
    wrap?: AgentLaunchContext["wrap"];
    waitForInitialCommands?: boolean;
    initialCommandsWaitTimeoutMs?: number;
@@ -12990,7 +12993,7 @@ index b23ac68..f3b8009 100644
  }
  
  export interface SpawnedACPProcess {
-@@ -651,6 +985,13 @@ class ACPImportHistoryCollector {
+@@ -654,6 +988,13 @@ class ACPImportHistoryCollector {
  export interface ACPToolSnapshot {
    toolCallId: string;
    title: string;
@@ -13004,7 +13007,7 @@ index b23ac68..f3b8009 100644
    kind?: ToolKind | null;
    status?: ToolCallStatus | null;
    content?: ToolCallContent[] | null;
-@@ -668,6 +1009,32 @@ interface PendingPermission {
+@@ -671,6 +1012,32 @@ interface PendingPermission {
    toolCallId: string;
  }
  
@@ -13037,7 +13040,7 @@ index b23ac68..f3b8009 100644
  interface PendingUserMessage {
    text: string;
    messageId?: string;
-@@ -685,6 +1052,8 @@ interface TerminalEntry {
+@@ -688,6 +1055,8 @@ interface TerminalEntry {
    id: string;
    child: ChildProcess;
    output: string;
@@ -13046,7 +13049,7 @@ index b23ac68..f3b8009 100644
    truncated: boolean;
    outputByteLimit: number | null;
    exit: TerminalExit | null;
-@@ -1069,6 +1438,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1086,6 +1455,10 @@ export class ACPAgentClient implements AgentClient {
    private readonly configFeatureOptions: ACPConfigFeatureOption[];
    private readonly clientCapabilities?: ACPClientCapabilities;
    private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -13057,7 +13060,7 @@ index b23ac68..f3b8009 100644
    private readonly modeIdTransformer?: (modeId: string) => string | null;
    private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    private readonly providerModeWriter?: (
-@@ -1084,8 +1457,20 @@ export class ACPAgentClient implements AgentClient {
+@@ -1101,8 +1474,20 @@ export class ACPAgentClient implements AgentClient {
    ) => Promise<void>;
    private readonly waitForInitialCommands: boolean;
    private readonly initialCommandsWaitTimeoutMs: number;
@@ -13078,7 +13081,7 @@ index b23ac68..f3b8009 100644
    private readonly now: () => number;
    protected readonly terminateProcess: ProcessTerminator;
  
-@@ -1108,6 +1493,10 @@ export class ACPAgentClient implements AgentClient {
+@@ -1125,6 +1510,10 @@ export class ACPAgentClient implements AgentClient {
      this.configFeatureOptions = options.configFeatureOptions ?? [];
      this.clientCapabilities = options.clientCapabilities;
      this.clientCapabilityMeta = options.clientCapabilityMeta;
@@ -13089,7 +13092,7 @@ index b23ac68..f3b8009 100644
      this.modeIdTransformer = options.modeIdTransformer;
      this.toolSnapshotTransformer = options.toolSnapshotTransformer;
      this.providerModeWriter = options.providerModeWriter;
-@@ -1115,10 +1504,20 @@ export class ACPAgentClient implements AgentClient {
+@@ -1132,10 +1521,20 @@ export class ACPAgentClient implements AgentClient {
      this.thinkingOptionWriter = options.thinkingOptionWriter;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -13110,7 +13113,7 @@ index b23ac68..f3b8009 100644
    async createSession(
      config: AgentSessionConfig,
      launchContext?: AgentLaunchContext,
-@@ -1133,14 +1532,22 @@ export class ACPAgentClient implements AgentClient {
+@@ -1150,14 +1549,22 @@ export class ACPAgentClient implements AgentClient {
          usageProvider: this.usageProvider,
          logger: this.logger,
          runtimeSettings: this.runtimeSettings,
@@ -13135,7 +13138,7 @@ index b23ac68..f3b8009 100644
          modeIdTransformer: this.modeIdTransformer,
          toolSnapshotTransformer: this.toolSnapshotTransformer,
          providerModeWriter: this.providerModeWriter,
-@@ -1158,6 +1565,8 @@ export class ACPAgentClient implements AgentClient {
+@@ -1175,6 +1582,8 @@ export class ACPAgentClient implements AgentClient {
          extensionCommandsParser: this.extensionCommandsParser,
          waitForInitialCommands: this.waitForInitialCommands,
          initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -13144,7 +13147,7 @@ index b23ac68..f3b8009 100644
        },
      );
      await session.initializeNewSession();
-@@ -1192,14 +1601,22 @@ export class ACPAgentClient implements AgentClient {
+@@ -1209,14 +1618,22 @@ export class ACPAgentClient implements AgentClient {
        usageProvider: this.usageProvider,
        logger: this.logger,
        runtimeSettings: this.runtimeSettings,
@@ -13169,7 +13172,7 @@ index b23ac68..f3b8009 100644
        modeIdTransformer: this.modeIdTransformer,
        toolSnapshotTransformer: this.toolSnapshotTransformer,
        providerModeWriter: this.providerModeWriter,
-@@ -1219,70 +1636,47 @@ export class ACPAgentClient implements AgentClient {
+@@ -1236,70 +1653,47 @@ export class ACPAgentClient implements AgentClient {
        extensionCommandsParser: this.extensionCommandsParser,
        waitForInitialCommands: this.waitForInitialCommands,
        initialCommandsWaitTimeoutMs: this.initialCommandsWaitTimeoutMs,
@@ -13268,7 +13271,7 @@ index b23ac68..f3b8009 100644
        const transformed = this.transformSessionResponse(response);
        const derivedModels = deriveModelDefinitionsFromACP(
          this.provider,
-@@ -1292,9 +1686,9 @@ export class ACPAgentClient implements AgentClient {
+@@ -1309,9 +1703,9 @@ export class ACPAgentClient implements AgentClient {
        const models = this.catalogModelResolver
          ? await runProviderRefreshActivity(context, "catalog.resolve", () =>
              raceProviderRefreshAbort(
@@ -13280,7 +13283,7 @@ index b23ac68..f3b8009 100644
                  sessionId: response.sessionId,
                  models: derivedModels,
                  configOptions: transformed.configOptions,
-@@ -1315,47 +1709,280 @@ export class ACPAgentClient implements AgentClient {
+@@ -1332,47 +1726,280 @@ export class ACPAgentClient implements AgentClient {
          transformed.configOptions,
        );
        return {
@@ -13591,7 +13594,7 @@ index b23ac68..f3b8009 100644
      }
    }
  
-@@ -1602,7 +2229,7 @@ export class ACPAgentClient implements AgentClient {
+@@ -1677,7 +2304,7 @@ export class ACPAgentClient implements AgentClient {
          this.initializeTransport(
            spawned,
            options?.initializeTimeoutMs,
@@ -13600,7 +13603,7 @@ index b23ac68..f3b8009 100644
          ),
        );
        const initializedProbe: ACPProbeProcess = {
-@@ -1737,6 +2364,12 @@ export class ACPAgentClient implements AgentClient {
+@@ -1812,6 +2439,12 @@ export class ACPAgentClient implements AgentClient {
        async createTerminal() {
          throw new Error("ACP model probe does not support terminal execution");
        },
@@ -13613,7 +13616,7 @@ index b23ac68..f3b8009 100644
      };
    }
  
-@@ -1921,6 +2554,19 @@ export class ACPAgentClient implements AgentClient {
+@@ -1996,6 +2629,19 @@ export class ACPAgentClient implements AgentClient {
    }
  }
  
@@ -13633,7 +13636,7 @@ index b23ac68..f3b8009 100644
  export class ACPAgentSession implements AgentSession, ACPClient {
    readonly provider: string;
    readonly capabilities: AgentCapabilityFlags;
-@@ -1940,6 +2586,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2015,6 +2661,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private readonly configuredModelIds: ReadonlySet<string>;
    private readonly clientCapabilities?: ACPClientCapabilities;
    private readonly clientCapabilityMeta?: ACPClientCapabilityMeta;
@@ -13644,7 +13647,7 @@ index b23ac68..f3b8009 100644
    private readonly modeIdTransformer?: (modeId: string) => string | null;
    private readonly toolSnapshotTransformer?: (snapshot: ACPToolSnapshot) => ACPToolSnapshot;
    private readonly providerModeWriter?: (
-@@ -1961,9 +2611,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2036,9 +2686,11 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private readonly harnessEnvironment: Record<string, string>;
    private readonly subscribers = new Set<(event: AgentStreamEvent) => void>();
    private readonly pendingPermissions = new Map<string, PendingPermission>();
@@ -13656,7 +13659,7 @@ index b23ac68..f3b8009 100644
    private readonly terminalEntries = new Map<string, TerminalEntry>();
    private readonly persistedHistory: AgentTimelineItem[] = [];
    private readonly initialHandle?: AgentPersistenceHandle;
-@@ -1973,6 +2625,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2048,6 +2700,8 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private child: ChildProcessWithoutNullStreams | null = null;
    private connection: ClientSideConnection | null = null;
    private agentCapabilities: ACPAgentCapabilities | null = null;
@@ -13665,7 +13668,7 @@ index b23ac68..f3b8009 100644
    private sessionId: string | null = null;
    private readonly earlySessionUpdates: SessionNotification[] = [];
    private currentMode: string | null = null;
-@@ -1994,14 +2648,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2069,14 +2723,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private commandsReadySettled = false;
    private waitForInitialCommands: boolean;
    private initialCommandsWaitTimeoutMs: number;
@@ -13729,7 +13732,7 @@ index b23ac68..f3b8009 100644
    private bootstrapThreadEventPending = false;
    private readonly terminateProcess: ProcessTerminator;
  
-@@ -2020,6 +2723,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2095,6 +2798,10 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.configuredModelIds = new Set(options.configuredModelIds);
      this.clientCapabilities = options.clientCapabilities;
      this.clientCapabilityMeta = options.clientCapabilityMeta;
@@ -13740,7 +13743,7 @@ index b23ac68..f3b8009 100644
      this.modeIdTransformer = options.modeIdTransformer;
      this.toolSnapshotTransformer = options.toolSnapshotTransformer;
      this.providerModeWriter = options.providerModeWriter;
-@@ -2043,7 +2750,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2118,7 +2825,19 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.currentTitle = config.title ?? null;
      this.waitForInitialCommands = options.waitForInitialCommands ?? false;
      this.initialCommandsWaitTimeoutMs = options.initialCommandsWaitTimeoutMs ?? 1500;
@@ -13760,7 +13763,7 @@ index b23ac68..f3b8009 100644
    }
  
    get id(): string | null {
-@@ -2066,11 +2785,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2141,11 +2860,14 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.child = spawned.child;
        this.connection = spawned.connection;
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
@@ -13775,7 +13778,7 @@ index b23ac68..f3b8009 100644
          }),
        );
        this.sessionId = response.sessionId;
-@@ -2080,6 +2802,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2155,6 +2877,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          await this.sessionUpdate(update);
        }
        await this.applyConfiguredOverrides();
@@ -13783,7 +13786,7 @@ index b23ac68..f3b8009 100644
      } catch (error) {
        await this.closeAfterInitializationFailure(error);
      }
-@@ -2103,19 +2826,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2178,19 +2901,24 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        this.child = spawned.child;
        this.connection = spawned.connection;
        this.agentCapabilities = spawned.initialize.agentCapabilities ?? null;
@@ -13808,7 +13811,7 @@ index b23ac68..f3b8009 100644
          this.deliverTranslatedEvents(this.flushPendingUserMessage());
          this.replayingHistory = false;
          this.historyPending = this.persistedHistory.length > 0;
-@@ -2126,6 +2854,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2201,6 +2929,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
              sessionId: handle.sessionId,
              cwd: this.config.cwd,
              mcpServers: this.acpMcpServers(),
@@ -13816,7 +13819,7 @@ index b23ac68..f3b8009 100644
            }),
          );
          this.applySessionState(response);
-@@ -2134,6 +2863,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2209,6 +2938,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
  
        await this.applyConfiguredOverrides();
@@ -13824,7 +13827,7 @@ index b23ac68..f3b8009 100644
  
        if (this.resumePurpose === "history") {
          await this.releaseHistoryRuntime();
-@@ -2143,6 +2873,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2218,6 +2948,39 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
    }
  
@@ -13864,7 +13867,7 @@ index b23ac68..f3b8009 100644
    // History resumes exist to replay persisted events into the canonical
    // timeline; the provider process is released once replay finishes so
    // archived agents hold no resident runtime. Interactive work goes through
-@@ -2178,8 +2941,639 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2259,8 +3022,639 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      throw error;
    }
  
@@ -14506,7 +14509,7 @@ index b23ac68..f3b8009 100644
        prompt,
        runOptions: options,
        startTurn: (p, o) => this.startTurn(p, o),
-@@ -2198,6 +3592,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2279,6 +3673,20 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    async startTurn(
      prompt: AgentPromptInput,
      options?: AgentRunOptions,
@@ -14527,9 +14530,9 @@ index b23ac68..f3b8009 100644
    ): Promise<{ turnId: string }> {
      if (this.closed) {
        throw new Error(`${this.provider} session is closed`);
-@@ -2208,35 +3616,169 @@ export class ACPAgentSession implements AgentSession, ACPClient {
-     if (this.connection.signal.aborted) {
-       throw new Error(describeACPDisconnect(this.child));
+@@ -2294,35 +3702,169 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       }
+       throw new Error(disconnect);
      }
 +    if (this.autonomousTurn) {
 +      this.closeAutonomousTurn("superseded");
@@ -14705,7 +14708,7 @@ index b23ac68..f3b8009 100644
          const summary = summarizeACPRequestError(error);
          this.finishTurn({
            type: "turn_failed",
-@@ -2247,9 +3789,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2333,9 +3875,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            turnId,
          });
        })
@@ -14716,7 +14719,7 @@ index b23ac68..f3b8009 100644
    }
  
    // The SDK aborts the connection without rejecting the pending prompt, and before the child's
-@@ -2315,7 +3855,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2401,7 +3941,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    get controls(): AgentOptionControl[] {
      return [
@@ -14725,7 +14728,7 @@ index b23ac68..f3b8009 100644
        ...deriveControlsFromACP(this.configOptions, this.configFeatureOptions),
      ];
    }
-@@ -2505,7 +4045,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2591,7 +4131,21 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return { model: this.currentModel };
      }
  
@@ -14748,7 +14751,7 @@ index b23ac68..f3b8009 100644
      return { model: this.currentModel };
    }
  
-@@ -2815,15 +4369,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2901,15 +4455,27 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    getPendingPermissions(): AgentPermissionRequest[] {
@@ -14778,7 +14781,7 @@ index b23ac68..f3b8009 100644
      const selectedOption = selectPermissionOption(pending.options, response);
      if (response.selectedActionId !== undefined && !selectedOption) {
        throw new Error(
-@@ -2832,16 +4398,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2918,16 +4484,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      }
  
      this.pendingPermissions.delete(requestId);
@@ -14817,7 +14820,7 @@ index b23ac68..f3b8009 100644
  
      this.pushEvent({
        type: "permission_resolved",
-@@ -2854,6 +4432,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2940,6 +4518,23 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      if (response.behavior === "deny" && response.interrupt && this.connection && this.sessionId) {
        await this.connection.cancel({ sessionId: this.sessionId });
      }
@@ -14841,7 +14844,7 @@ index b23ac68..f3b8009 100644
    }
  
    describePersistence(): AgentPersistenceHandle | null {
-@@ -2879,28 +4474,80 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -2965,18 +4560,49 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
      this.cancelPendingPermissions();
  
@@ -14897,11 +14900,10 @@ index b23ac68..f3b8009 100644
    }
  
    async close(): Promise<void> {
-     if (this.closed) {
+@@ -2984,9 +4610,30 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
--    this.closed = true;
-+    this.closed = true;
+     this.closed = true;
 +    if (this.autonomousIdleTimer) {
 +      clearTimeout(this.autonomousIdleTimer);
 +      this.autonomousIdleTimer = null;
@@ -14929,7 +14931,7 @@ index b23ac68..f3b8009 100644
  
      this.cancelPendingPermissions();
  
-@@ -2947,11 +4594,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3033,11 +4680,17 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      this.connection = null;
      this.child = null;
      this.activeForegroundTurnId = null;
@@ -14948,10 +14950,47 @@ index b23ac68..f3b8009 100644
      if (canAutoAccept) {
        const allowOption = selectPermissionOption(params.options, { behavior: "allow" });
        if (allowOption) {
-@@ -2995,6 +4648,90 @@ export class ACPAgentSession implements AgentSession, ACPClient {
-     return promise;
-   }
+@@ -3051,24 +4704,61 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+       }
+     }
  
+-    // Match Zed acp.rs:3189-3220 when Paseo is not handling the request locally.
+-    const requestId = randomUUID();
+-    let toolSnapshot =
+-      this.toolCalls.get(params.toolCall.toolCallId) ??
+-      mergeToolSnapshot(params.toolCall.toolCallId, params.toolCall);
+-    if (this.toolSnapshotTransformer) {
+-      toolSnapshot = this.toolSnapshotTransformer(toolSnapshot);
++    // Match Zed acp.rs:3189-3220 when Paseo is not handling the request locally.
++    const requestId = randomUUID();
++    let toolSnapshot =
++      this.toolCalls.get(params.toolCall.toolCallId) ??
++      mergeToolSnapshot(params.toolCall.toolCallId, params.toolCall);
++    if (this.toolSnapshotTransformer) {
++      toolSnapshot = this.toolSnapshotTransformer(toolSnapshot);
++    }
++    const request = mapPermissionRequest(this.provider, requestId, params, toolSnapshot);
++
++    const promise = new Promise<RequestPermissionResponse>((resolve, reject) => {
++      this.pendingPermissions.set(requestId, {
++        request,
++        options: params.options,
++        resolve,
++        reject,
++        turnId: this.activeForegroundTurnId,
++        toolCallId: params.toolCall.toolCallId,
++      });
++    });
++
++    this.pushEvent({
++      type: "permission_requested",
++      provider: this.provider,
++      request,
++      turnId: this.activeForegroundTurnId ?? undefined,
++    });
++    return promise;
++  }
++
 +  async extMethod(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
 +    if (method === "elicitation/create") {
 +      return await this.handleElicitationCreate(params);
@@ -14965,30 +15004,30 @@ index b23ac68..f3b8009 100644
 +    const parsed = parseACPElicitationRequest(params);
 +    if (!parsed || parsed.fields.length === 0) {
 +      return { action: "decline" };
-+    }
-+
+     }
+-    const request = mapPermissionRequest(this.provider, requestId, params, toolSnapshot);
+ 
+-    const promise = new Promise<RequestPermissionResponse>((resolve, reject) => {
+-      this.pendingPermissions.set(requestId, {
 +    const requestId = randomUUID();
 +    const request = buildACPElicitationPermissionRequest(this.provider, requestId, parsed);
 +    const promise = new Promise<Record<string, unknown>>((resolve, reject) => {
 +      this.pendingElicitations.set(requestId, {
-+        request,
+         request,
+-        options: params.options,
 +        fields: parsed.fields,
-+        resolve,
-+        reject,
-+        turnId: this.activeForegroundTurnId,
+         resolve,
+         reject,
+         turnId: this.activeForegroundTurnId,
+-        toolCallId: params.toolCall.toolCallId,
 +        toolCallId: parsed.toolCallId,
-+      });
-+    });
-+
-+    this.pushEvent({
-+      type: "permission_requested",
-+      provider: this.provider,
-+      request,
-+      turnId: this.activeForegroundTurnId ?? undefined,
-+    });
-+    return promise;
-+  }
-+
+       });
+     });
+ 
+@@ -3081,6 +4771,53 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+     return promise;
+   }
+ 
 +  private async respondToElicitation(
 +    requestId: string,
 +    pending: PendingElicitation,
@@ -15039,7 +15078,7 @@ index b23ac68..f3b8009 100644
    async sessionUpdate(params: SessionNotification): Promise<void> {
      this.logger.trace(
        {
-@@ -3010,10 +4747,54 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3096,10 +4833,54 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        return;
      }
      if (params.sessionId !== this.sessionId) {
@@ -15094,7 +15133,7 @@ index b23ac68..f3b8009 100644
      this.logger.trace(
        {
          agentId: this.agentId,
-@@ -3030,6 +4811,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3116,6 +4897,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
  
    private deliverTranslatedEvents(events: AgentStreamEvent[]): void {
      if (this.replayingHistory) {
@@ -15113,7 +15152,7 @@ index b23ac68..f3b8009 100644
        for (const event of events) {
          if (event.type === "timeline") {
            this.persistedHistory.push(event.item);
-@@ -3055,6 +4848,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3141,6 +4934,47 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        "provider.acp.extension_notification",
      );
  
@@ -15161,7 +15200,7 @@ index b23ac68..f3b8009 100644
      const parsedCommands = this.extensionCommandsParser?.(method, params);
      if (parsedCommands) {
        this.applyResolvedCommands(parsedCommands, {
-@@ -3148,6 +4982,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3234,6 +5068,7 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        id: terminalId,
        child,
        output: "",
@@ -15169,7 +15208,7 @@ index b23ac68..f3b8009 100644
        truncated: false,
        outputByteLimit: params.outputByteLimit ?? null,
        exit: null,
-@@ -3339,7 +5174,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3429,7 +5264,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        const selection = this.resolveModeSelection(configuredModeId);
        await this.setModeWithSelection({ modeId: configuredModeId, selection });
      }
@@ -15189,7 +15228,7 @@ index b23ac68..f3b8009 100644
      let switchedModel = false;
      if (configuredModelId && configuredModelId !== this.currentModel) {
        try {
-@@ -3358,8 +5204,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3448,8 +5294,9 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          );
        }
      }
@@ -15201,7 +15240,7 @@ index b23ac68..f3b8009 100644
      }
      const configuredFeatureValues = this.config.providerOptions ?? {};
      for (const featureOption of this.configFeatureOptions) {
-@@ -3423,11 +5270,82 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3513,11 +5360,82 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private translateSessionUpdate(update: SessionUpdate): AgentStreamEvent[] {
@@ -15285,7 +15324,7 @@ index b23ac68..f3b8009 100644
      switch (update.sessionUpdate) {
        case "agent_message_chunk": {
          const item = this.createMessageTimelineItem("assistant_message", update);
-@@ -3440,19 +5358,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3530,19 +5448,31 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        }
        case "tool_call":
          this.fallbackAssistantMessageId = null;
@@ -15326,7 +15365,7 @@ index b23ac68..f3b8009 100644
        case "plan":
          this.fallbackAssistantMessageId = null;
          return [...pendingUserEvents, this.wrapTimeline(mapPlanToTimeline(update))];
-@@ -3606,7 +5536,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3696,7 +5626,12 @@ export class ACPAgentSession implements AgentSession, ACPClient {
        });
        // Copilot config updates name real modes; Hermes config values are a separate policy namespace.
        if (configMode && modes.availableModes.some((mode) => mode.id === configMode.currentValue)) {
@@ -15340,7 +15379,7 @@ index b23ac68..f3b8009 100644
        }
        modes = { ...modes, currentModeId };
      }
-@@ -3698,9 +5633,159 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3788,9 +5723,159 @@ export class ACPAgentSession implements AgentSession, ACPClient {
      });
    }
  
@@ -15501,7 +15540,7 @@ index b23ac68..f3b8009 100644
      switch (response.stopReason) {
        case "cancelled":
          this.synthesizeCanceledToolCalls();
-@@ -3722,10 +5807,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3812,10 +5897,63 @@ export class ACPAgentSession implements AgentSession, ACPClient {
            usage: this.currentTurnUsage,
            turnId,
          });
@@ -15565,7 +15604,7 @@ index b23ac68..f3b8009 100644
    private wrapTimeline(item: AgentTimelineItem): AgentStreamEvent {
      return {
        type: "timeline",
-@@ -3736,19 +5874,166 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3826,19 +5964,166 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    }
  
    private pushEvent(event: AgentStreamEvent): void {
@@ -15738,7 +15777,7 @@ index b23ac68..f3b8009 100644
    }
  
    private emitSubmittedUserMessage(
-@@ -3792,22 +6077,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3882,22 +6167,28 @@ export class ACPAgentSession implements AgentSession, ACPClient {
    private finishTurn(
      event: Extract<AgentStreamEvent, { type: "turn_completed" | "turn_failed" | "turn_canceled" }>,
    ): void {
@@ -15768,7 +15807,7 @@ index b23ac68..f3b8009 100644
    ): void {
      for (const [requestId, pending] of this.pendingPermissions) {
        if (!matches(pending)) continue;
-@@ -3821,6 +6112,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
+@@ -3911,6 +6202,18 @@ export class ACPAgentSession implements AgentSession, ACPClient {
          turnId: pending.turnId ?? undefined,
        });
      }
@@ -15787,7 +15826,7 @@ index b23ac68..f3b8009 100644
    }
  
    private emitBootstrapThreadEvent(): void {
-@@ -4069,7 +6372,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
+@@ -4159,7 +6462,19 @@ function toACPContentBlocks(prompt: AgentPromptInput): ContentBlock[] {
    return contentBlocks;
  }
  
@@ -15808,7 +15847,7 @@ index b23ac68..f3b8009 100644
    if (typeof prompt === "string") {
      return prompt;
    }
-@@ -4081,7 +6396,7 @@ function extractPromptText(prompt: AgentPromptInput): string {
+@@ -4171,7 +6486,7 @@ function extractPromptText(prompt: AgentPromptInput): string {
      .join("");
  }
  
@@ -15817,7 +15856,7 @@ index b23ac68..f3b8009 100644
    switch (content.type) {
      case "text":
        return content.text;
-@@ -4135,6 +6450,7 @@ function mergeToolSnapshot(
+@@ -4225,6 +6540,7 @@ function mergeToolSnapshot(
    return {
      toolCallId,
      title: update.title ?? previous?.title ?? toolCallId,
@@ -15825,7 +15864,7 @@ index b23ac68..f3b8009 100644
      kind: update.kind ?? previous?.kind ?? null,
      status: update.status ?? previous?.status ?? null,
      content: coalesceDefined(update.content, previous?.content, null),
-@@ -4144,6 +6460,27 @@ function mergeToolSnapshot(
+@@ -4234,6 +6550,27 @@ function mergeToolSnapshot(
    };
  }
  
@@ -15853,7 +15892,7 @@ index b23ac68..f3b8009 100644
  function mapPlanToTimeline(plan: Plan): AgentTimelineItem {
    return {
      type: "todo",
-@@ -4160,10 +6497,18 @@ function mapToolSnapshotToTimeline(
+@@ -4250,10 +6587,18 @@ function mapToolSnapshotToTimeline(
  ): ToolCallTimelineItem {
    const status = mapToolStatus(snapshot.status);
    const detail = mapToolDetail(snapshot, terminals);
@@ -15873,7 +15912,7 @@ index b23ac68..f3b8009 100644
      detail,
      metadata: {
        kind: snapshot.kind ?? undefined,
-@@ -4255,8 +6600,40 @@ function mapToolDetail(
+@@ -4345,8 +6690,40 @@ function mapToolDetail(
          text: context.textContent ?? stringifyUnknown(snapshot.rawInput),
        };
      default:
@@ -15915,7 +15954,7 @@ index b23ac68..f3b8009 100644
  }
  
  function buildReadToolDetail(context: MapToolDetailContext): ToolCallDetail {
-@@ -4399,13 +6776,157 @@ function extractTerminalContent(
+@@ -4489,13 +6866,157 @@ function extractTerminalContent(
    };
  }
  
@@ -16074,7 +16113,7 @@ index b23ac68..f3b8009 100644
    const chooserText = isACPChooserRequest(params.options)
      ? extractToolText(params.toolCall.content)
      : undefined;
-@@ -4414,11 +6935,11 @@ function mapPermissionRequest(
+@@ -4504,11 +7025,11 @@ function mapPermissionRequest(
      provider,
      name: snapshot.kind ?? snapshot.title,
      kind,
@@ -16088,7 +16127,7 @@ index b23ac68..f3b8009 100644
            text: chooserText,
            icon: "wrench",
          }
-@@ -4432,6 +6953,7 @@ function mapPermissionRequest(
+@@ -4522,6 +7043,7 @@ function mapPermissionRequest(
        toolCallId: params.toolCall.toolCallId,
        rawRequest: params,
        options: params.options,
@@ -16096,7 +16135,7 @@ index b23ac68..f3b8009 100644
      },
    };
  }
-@@ -4460,6 +6982,65 @@ function selectPermissionOption(
+@@ -4550,6 +7072,65 @@ function selectPermissionOption(
    return null;
  }
  
@@ -16162,7 +16201,7 @@ index b23ac68..f3b8009 100644
  function isACPChooserRequest(options: PermissionOption[]): boolean {
    const allowKinds = new Set<PermissionOption["kind"]>();
    for (const option of options) {
-@@ -4476,19 +7057,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
+@@ -4566,19 +7147,22 @@ function isACPChooserRequest(options: PermissionOption[]): boolean {
  
  function appendTerminalOutput(entry: TerminalEntry, chunk: string): void {
    entry.output += chunk;
@@ -16193,7 +16232,7 @@ index b23ac68..f3b8009 100644
    entry.truncated = true;
  }
  
-@@ -4509,10 +7093,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
+@@ -4599,10 +7183,26 @@ function readString(record: Record<string, unknown> | null, keys: string[]): str
    return undefined;
  }
  
@@ -16221,7 +16260,7 @@ index b23ac68..f3b8009 100644
    for (const key of keys) {
      const value = record[key];
      if (typeof value === "number" && Number.isFinite(value)) {
-@@ -4584,3 +7184,284 @@ async function terminateChildProcess(
+@@ -4674,3 +7274,284 @@ async function terminateChildProcess(
      child.stderr.destroy();
    }
  }
@@ -33877,7 +33916,7 @@ index 0000000..99488f6
 +  return `${Math.round(totalTokens / 100) / 10}k tokens`;
 +}
 diff --git a/packages/server/src/server/authorization/operation-permissions.ts b/packages/server/src/server/authorization/operation-permissions.ts
-index d679c55..25636c8 100644
+index 8fcdce5..97c03d6 100644
 --- a/packages/server/src/server/authorization/operation-permissions.ts
 +++ b/packages/server/src/server/authorization/operation-permissions.ts
 @@ -19,6 +19,7 @@ const INBOUND_PERMISSION = {
@@ -33888,7 +33927,7 @@ index d679c55..25636c8 100644
    "agent.provider_subagents.list.request": "workspace.read",
    "agent.background_work.list.request": "workspace.read",
    "agent.background_work.stop.request": ["workspace.write", "hub.execute"],
-@@ -265,6 +266,7 @@ const OUTBOUND_PERMISSION = {
+@@ -266,6 +267,7 @@ const OUTBOUND_PERMISSION = {
    "agent.config.apply.response": ["workspace.write", "hub.execute"],
    "agent.detach.response": "workspace.write",
    "agent.fork_context.response": "workspace.read",
@@ -33910,7 +33949,7 @@ index 8abf038..714a072 100644
    "codex-usage-source",
    "copilot-usage-source",
 diff --git a/packages/server/src/server/plugins/runtime.ts b/packages/server/src/server/plugins/runtime.ts
-index 2c44bf7..489f188 100644
+index 1be3470..6d09de0 100644
 --- a/packages/server/src/server/plugins/runtime.ts
 +++ b/packages/server/src/server/plugins/runtime.ts
 @@ -28,7 +28,7 @@ import type {
@@ -33922,7 +33961,7 @@ index 2c44bf7..489f188 100644
  import path from "node:path";
  import { fileURLToPath } from "node:url";
  import { createHash, randomUUID } from "node:crypto";
-@@ -303,7 +303,7 @@ function resolveWorkerExecArgv(): string[] {
+@@ -305,7 +305,7 @@ function resolveWorkerExecArgv(): string[] {
  }
  
  function spawnPluginChild(): PluginChild {
@@ -33932,12 +33971,12 @@ index 2c44bf7..489f188 100644
      serialization: "advanced",
      stdio: ["ignore", "pipe", "pipe", "ipc"],
 diff --git a/packages/server/src/server/push/index.test.ts b/packages/server/src/server/push/index.test.ts
-index 1cd4c1b..9fb3bcc 100644
+index 949bde1..e1445de 100644
 --- a/packages/server/src/server/push/index.test.ts
 +++ b/packages/server/src/server/push/index.test.ts
-@@ -64,4 +64,29 @@ describe("push notifications", () => {
- 
-     expect(deliveries).toEqual([]);
+@@ -161,4 +161,29 @@ describe("push notifications", () => {
+     );
+     expect(deliveries).toEqual([["ExponentPushToken[phone-a]"], ["ExponentPushToken[phone-b]"]]);
    });
 +
 +  test("reports whether active push tokens are registered", () => {
@@ -33966,15 +34005,15 @@ index 1cd4c1b..9fb3bcc 100644
 +  });
  });
 diff --git a/packages/server/src/server/push/index.ts b/packages/server/src/server/push/index.ts
-index 3f1a8e0..3e9f9ff 100644
+index e95cacc..9125866 100644
 --- a/packages/server/src/server/push/index.ts
 +++ b/packages/server/src/server/push/index.ts
-@@ -10,10 +10,12 @@ const PUSH_TOKEN_LEASE_MS = 48 * 60 * 60 * 1000;
+@@ -35,10 +35,12 @@ const LEGACY_PUSH_NOTIFICATION_PREFERENCES: NotificationPreferences = {
  export interface PushNotifications {
-   renew(token: string): void;
+   renew(token: string, preferences?: NotificationPreferencesInput): void;
    revoke(token: string): void;
 +  hasActiveTokens(): boolean;
-   send(payload: PushPayload): Promise<void>;
+   send(payload: PushPayload, kind?: NotificationKind): Promise<void>;
  }
  
 -export type PushNotificationSender = Pick<PushNotifications, "send">;
@@ -33983,18 +34022,18 @@ index 3f1a8e0..3e9f9ff 100644
  
  export function createPushNotifications(options: {
    logger: pino.Logger;
-@@ -35,6 +37,9 @@ export function createPushNotifications(options: {
+@@ -63,6 +65,9 @@ export function createPushNotifications(options: {
      revoke(token) {
        store.revokeToken(token);
      },
 +    hasActiveTokens() {
 +      return store.getActiveTokens().length > 0;
 +    },
-     async send(payload) {
-       const tokens = store.getActiveTokens();
-       options.logger.info({ tokenCount: tokens.length }, "Sending push notification");
+     async send(payload, kind) {
+       const subscriptions = store.getActiveSubscriptions();
+       const tokens = subscriptions
 diff --git a/packages/server/src/server/session.ts b/packages/server/src/server/session.ts
-index ef6ca45..167c42b 100644
+index 1980593..58b5476 100644
 --- a/packages/server/src/server/session.ts
 +++ b/packages/server/src/server/session.ts
 @@ -21,6 +21,19 @@ import type {
@@ -34017,7 +34056,7 @@ index ef6ca45..167c42b 100644
  import type {
    AgentActiveTurnBehavior,
    CreationSnapshot,
-@@ -3256,6 +3269,8 @@ export class Session {
+@@ -3266,6 +3279,8 @@ export class Session {
          return this.handleAgentTimelineSearchRequest(msg, source);
        case "agent.timeline.list_prompts.request":
          return this.handleAgentTimelineListPromptsRequest(msg, source);
@@ -34026,7 +34065,7 @@ index ef6ca45..167c42b 100644
        case "agent.provider_subagents.list.request":
          return this.handleProviderSubagentListRequest(msg);
        case "agent.background_work.list.request":
-@@ -8943,6 +8958,54 @@ export class Session {
+@@ -8993,6 +9008,54 @@ export class Session {
      }
    }
  
@@ -34101,22 +34140,22 @@ index 1f0fa96..7136338 100644
      execArgv: resolveWorkerExecArgv(),
      serialization: "advanced",
 diff --git a/packages/server/src/server/websocket-server.notifications.test.ts b/packages/server/src/server/websocket-server.notifications.test.ts
-index 6cd3a8a..3e4e93c 100644
+index d98d4bc..dae0933 100644
 --- a/packages/server/src/server/websocket-server.notifications.test.ts
 +++ b/packages/server/src/server/websocket-server.notifications.test.ts
-@@ -77,6 +77,11 @@ function createWorkspaceAutoNameStub(): WorkspaceAutoName {
- 
+@@ -89,6 +89,11 @@ function createWorkspaceAutoNameStub(): WorkspaceAutoName {
  class RecordingPushNotificationSender implements PushNotificationSender {
    readonly sent: PushPayload[] = [];
+   readonly sentWithKind: Array<{ payload: PushPayload; kind?: NotificationKind }> = [];
 +  activeTokens = true;
 +
 +  hasActiveTokens(): boolean {
 +    return this.activeTokens;
 +  }
  
-   async send(payload: PushPayload): Promise<void> {
+   async send(payload: PushPayload, kind?: NotificationKind): Promise<void> {
      this.sent.push(payload);
-@@ -421,4 +426,22 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
+@@ -507,4 +512,22 @@ describe("VoiceAssistantWebSocketServer notification payloads", () => {
      await broadcast();
      expect(pushNotifications.sent).toHaveLength(1);
    });
@@ -34140,10 +34179,10 @@ index 6cd3a8a..3e4e93c 100644
 +  });
  });
 diff --git a/packages/server/src/server/websocket-server.ts b/packages/server/src/server/websocket-server.ts
-index dca1300..9758605 100644
+index 3ee3f31..bba6dad 100644
 --- a/packages/server/src/server/websocket-server.ts
 +++ b/packages/server/src/server/websocket-server.ts
-@@ -3015,6 +3015,7 @@ export class VoiceAssistantWebSocketServer {
+@@ -3140,6 +3140,7 @@ export class VoiceAssistantWebSocketServer {
        permissionRequest: findLatestPermissionRequest(agent.pendingPermissions),
      });
  
@@ -34151,7 +34190,7 @@ index dca1300..9758605 100644
      const plan = this.planOncePerUnreadFinish(
        params,
        computeNotificationPlan({
-@@ -3022,6 +3023,7 @@ export class VoiceAssistantWebSocketServer {
+@@ -3147,6 +3148,7 @@ export class VoiceAssistantWebSocketServer {
          focusTarget: { kind: "agent", id: params.agentId },
          pushEligible: isPushEligibleAttentionReason(params.reason),
          nowMs,
@@ -34159,7 +34198,7 @@ index dca1300..9758605 100644
        }),
      );
  
-@@ -3032,9 +3034,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -3159,9 +3161,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
@@ -34173,7 +34212,7 @@ index dca1300..9758605 100644
        const timestamp = new Date().toISOString();
        const connection = this.sessions.get(ws);
        const attentionPayload = {
-@@ -3086,9 +3089,9 @@ export class VoiceAssistantWebSocketServer {
+@@ -3213,9 +3216,9 @@ export class VoiceAssistantWebSocketServer {
      }
      const unreadFinishAt = params.attentionTimestamp.getTime();
      if (this.notifiedUnreadFinishAt.get(params.agentId) === unreadFinishAt) {
@@ -34185,7 +34224,7 @@ index dca1300..9758605 100644
        this.notifiedUnreadFinishAt.set(params.agentId, unreadFinishAt);
      }
      return plan;
-@@ -3133,11 +3136,13 @@ export class VoiceAssistantWebSocketServer {
+@@ -3260,11 +3263,13 @@ export class VoiceAssistantWebSocketServer {
      const nowMs = Date.now();
      const workspaceId = params.workspaceId;
  
@@ -34199,7 +34238,7 @@ index dca1300..9758605 100644
      });
  
      const title = terminalAttentionTitle(params.reason);
-@@ -3164,9 +3169,10 @@ export class VoiceAssistantWebSocketServer {
+@@ -3294,9 +3299,10 @@ export class VoiceAssistantWebSocketServer {
      }
  
      for (const { ws } of clientEntries) {
